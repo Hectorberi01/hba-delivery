@@ -52,9 +52,16 @@ public sealed class TemplateTests
             return;
         }
 
-        // Un seul caractère hors GSM-7 fait basculer le message en UCS-2 : la
-        // capacité tombe de 160 à 70 caractères et la facture double.
-        var offenders = template.Body.Where(c => !Gsm7.Contains(c)).Distinct().ToList();
+        // On vérifie le TEXTE LITTERAL, pas le gabarit brut : « {code} » ne part
+        // jamais tel quel, il est remplacé au rendu. Les accolades de
+        // substitution sont donc retirées avant le contrôle.
+        var literal = WithoutPlaceholders(template.Body);
+
+        // Un seul caractère hors GSM 03.38 fait basculer le message en UCS-2 :
+        // la capacité tombe de 160 à 70 caractères et la facture double.
+        var offenders = literal.Where(c => !Gsm7Basic.Contains(c) && !Gsm7Extended.Contains(c))
+            .Distinct()
+            .ToList();
 
         offenders.Should().BeEmpty(
             $"« {string.Join("", offenders)} » forcerait l'encodage UCS-2 sur {templateId}");
@@ -79,15 +86,47 @@ public sealed class TemplateTests
         template.Body.Length.Should().BeLessThan(template.MaxLength - 20);
     }
 
+    /// <summary>Retire les variables de substitution, « {code} » et consorts.</summary>
+    private static string WithoutPlaceholders(string body)
+    {
+        var builder = new StringBuilder(body.Length);
+        var inside = false;
+
+        foreach (var c in body)
+        {
+            if (c == '{')
+            {
+                inside = true;
+            }
+            else if (c == '}')
+            {
+                inside = false;
+            }
+            else if (!inside)
+            {
+                builder.Append(c);
+            }
+        }
+
+        return builder.ToString();
+    }
+
     /// <summary>
-    /// Sous-ensemble de l'alphabet GSM 03.38 suffisant pour ces messages : on
-    /// vérifie surtout l'absence d'accents.
+    /// Table de base de l'alphabet GSM 03.38 : un septet par caractère.
     /// </summary>
-    private static readonly HashSet<char> Gsm7 =
+    private static readonly HashSet<char> Gsm7Basic =
     [
-        .. "@$\n\r !\"#%&'()*+,-./0123456789:;<=>?"
-           + "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-           + "abcdefghijklmnopqrstuvwxyz"
-           + "_£¥èéùìòÇØøÅåÆæßÉÄÖÑÜ§¿äöñüà",
+        .. "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ"
+           + " !\"#¤%&'()*+,-./0123456789:;<=>?"
+           + "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§"
+           + "¿abcdefghijklmnopqrstuvwxyzäöñüà",
     ];
+
+    /// <summary>
+    /// Table d'extension. Ces caractères NE FORCENT PAS l'UCS-2 : ils passent en
+    /// GSM-7 précédés d'un caractère d'échappement, et coûtent donc deux septets
+    /// au lieu d'un. Acceptés, mais à compter double si un jour le contrôle de
+    /// longueur devient un vrai décompte de septets.
+    /// </summary>
+    private static readonly HashSet<char> Gsm7Extended = [.. "^{}\\[~]|€"];
 }

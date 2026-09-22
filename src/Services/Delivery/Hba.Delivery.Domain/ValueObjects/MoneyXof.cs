@@ -16,7 +16,14 @@ public sealed class MoneyXof : ValueObject, IComparable<MoneyXof>
 
     public long Amount { get; }
 
-    public static readonly MoneyXof Zero = new(0);
+    /// <summary>
+    /// UNE PROPRIETE, PAS UN CHAMP STATIQUE. EF Core suit les types possédés
+    /// par référence : deux livraisons — ou deux montants d'une même grille —
+    /// qui partageraient la MEME instance deviendraient le même enfant possédé
+    /// de deux parents, et SaveChanges échouerait sur la clé étrangère
+    /// identifiante. L'allocation est négligeable ; le partage, non.
+    /// </summary>
+    public static MoneyXof Zero => new(0);
 
     public static MoneyXof From(long amount) => new(amount);
 
