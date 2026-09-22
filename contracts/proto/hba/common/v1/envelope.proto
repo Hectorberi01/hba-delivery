@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package hba.common.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
+
+option csharp_namespace = "Hba.Contracts.Common.V1";
+
+// Enveloppe commune à tous les messages Kafka du système. Le payload métier est
+// le corps du message ; l'enveloppe porte ce qui permet de tracer, dédupliquer
+// et cloisonner.
+message EventEnvelope {
+  // Identifiant unique de l'événement. C'est la clé de déduplication de l'Inbox.
+  string event_id = 1;
+
+  // Nom qualifié du type d'événement, ex. "hba.delivery.v1.DriverAssigned".
+  string event_type = 2;
+
+  // Version du schéma du payload. Incrémentée sur changement compatible.
+  int32 schema_version = 3;
+
+  // Agrégat concerné : type et identifiant.
+  string aggregate_type = 4;
+  string aggregate_id = 5;
+
+  // Date de l'événement métier (pas de la publication).
+  google.protobuf.Timestamp occurred_at = 6;
+
+  // Corrélation bout en bout. trace_id est celui d'OpenTelemetry.
+  string trace_id = 7;
+  string correlation_id = 8;
+
+  // Cloisonnement multi-partenaires. Toute donnée porte son PartnerId.
+  string partner_id = 9;
+
+  // Auteur de l'action à l'origine de l'événement.
+  ActorType actor_type = 10;
+  string actor_id = 11;
+
+  // Service émetteur, ex. "delivery".
+  string producer = 12;
+}

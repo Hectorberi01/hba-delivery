@@ -1,0 +1,21 @@
+# En-têtes et limites communes aux surfaces publiques.
+http:
+  middlewares:
+    security-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: strict-origin-when-cross-origin
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+
+    # Quotas par partenaire : affinés ensuite à partir des quotas d'Identity.
+    partner-rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1m
+
+    compress:
+      compress: {}

@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package hba.identity.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/envelope.proto";
+import "hba/identity/v1/identity_service.proto";
+
+option csharp_namespace = "Hba.Contracts.Identity.V1";
+
+// Topic : hba.identity.events.v1 — clé de partition : account_id.
+message IdentityEvent {
+  hba.common.v1.EventEnvelope envelope = 1;
+
+  oneof payload {
+    AccountRegistered registered = 10;
+    AccountRolesChanged roles_changed = 11;
+    AccountStatusChanged status_changed = 12;
+    PartnerClientRegistered partner_registered = 13;
+  }
+}
+
+// Consommé par Directory, qui crée le profil correspondant. Le compte et le
+// profil sont deux choses distinctes : Identity ne stocke pas d'adresses.
+message AccountRegistered {
+  string account_id = 1;
+  string phone = 2;
+  string email = 3;
+  string display_name = 4;
+  repeated string roles = 5;
+  string merchant_id = 6;
+  google.protobuf.Timestamp registered_at = 7;
+}
+
+message AccountRolesChanged {
+  string account_id = 1;
+  repeated string previous_roles = 2;
+  repeated string current_roles = 3;
+  string changed_by = 4;
+  string reason = 5;
+  google.protobuf.Timestamp occurred_at = 6;
+}
+
+message AccountStatusChanged {
+  string account_id = 1;
+  AccountStatus previous = 2;
+  AccountStatus current = 3;
+  string changed_by = 4;
+  string reason = 5;
+  google.protobuf.Timestamp occurred_at = 6;
+}
+
+message PartnerClientRegistered {
+  string partner_id = 1;
+  string partner_name = 2;
+  string source = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+}
+
+// L'ENVOI DU CODE NE PASSE PAS PAR CE TOPIC.
+// Identity dépose une NotificationCommand (SendSms, modèle otp_login) dans son
+// Outbox, à destination de hba.notification.commands.v1. Le code de connexion
+// n'a donc aucune raison d'apparaître sur le topic des événements d'identité,
+// que d'autres services consomment.

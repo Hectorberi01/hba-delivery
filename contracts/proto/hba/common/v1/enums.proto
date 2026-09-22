@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package hba.common.v1;
+
+option csharp_namespace = "Hba.Contracts.Common.V1";
+
+// Origine d'une livraison. Reprend exactement les valeurs du référentiel acteurs.
+enum Source {
+  SOURCE_UNSPECIFIED = 0;
+  SOURCE_HBA_EXPRESS = 1;
+  SOURCE_HBA_FOOD = 2;
+  SOURCE_PARTNER_API = 3;
+  // Livraison créée directement depuis l'app client.
+  SOURCE_CLIENT_APP = 4;
+}
+
+// Auteur d'une transition. Les acteurs système doivent apparaître dans l'audit
+// au même titre que les acteurs humains.
+enum ActorType {
+  ACTOR_TYPE_UNSPECIFIED = 0;
+  ACTOR_TYPE_CUSTOMER = 1;
+  ACTOR_TYPE_DRIVER = 2;
+  ACTOR_TYPE_MERCHANT = 3;
+  ACTOR_TYPE_PARTNER = 4;
+  ACTOR_TYPE_ADMIN = 5;
+  // Moteur de dispatch : envoi des offres, expiration, NO_DRIVER_FOUND.
+  ACTOR_TYPE_DISPATCH = 6;
+  // Webhooks FedaPay.
+  ACTOR_TYPE_PAYMENT_PROVIDER = 7;
+  // Expirations de devis, timeouts, rapprochements.
+  ACTOR_TYPE_SCHEDULER = 8;
+}
+
+// Type de véhicule du livreur.
+enum VehicleType {
+  VEHICLE_TYPE_UNSPECIFIED = 0;
+  VEHICLE_TYPE_MOTORCYCLE = 1;
+  VEHICLE_TYPE_CAR = 2;
+  VEHICLE_TYPE_VAN = 3;
+}

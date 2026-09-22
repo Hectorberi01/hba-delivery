@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Hba.Bff.Driver</RootNamespace>
+    <UserSecretsId>hba.bff.driver</UserSecretsId>
+    <DockerfileContext>../../..</DockerfileContext>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../contracts/Hba.Contracts.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/Hba.BuildingBlocks.Grpc/Hba.BuildingBlocks.Grpc.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/Hba.BuildingBlocks.Observability/Hba.BuildingBlocks.Observability.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/Hba.BuildingBlocks.Security/Hba.BuildingBlocks.Security.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.Net.ClientFactory" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+
+</Project>

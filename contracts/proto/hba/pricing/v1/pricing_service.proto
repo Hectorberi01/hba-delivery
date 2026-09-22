@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package hba.pricing.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
+import "hba/common/v1/geo.proto";
+import "hba/common/v1/money.proto";
+
+option csharp_namespace = "Hba.Contracts.Pricing.V1";
+
+// Pricing est la seule autorité sur le prix. Ni le client, ni le livreur, ni le
+// commerçant ne le fixent.
+service PricingService {
+  rpc GetQuote(GetQuoteRequest) returns (Quote);
+  rpc GetQuoteById(GetQuoteByIdRequest) returns (Quote);
+  // Consomme un devis au moment de la création de la livraison : il ne peut
+  // plus servir ensuite. Renvoie le snapshot figé.
+  rpc ConsumeQuote(ConsumeQuoteRequest) returns (Quote);
+}
+
+message GetQuoteRequest {
+  hba.common.v1.GeoPoint pickup = 1;
+  hba.common.v1.GeoPoint dropoff = 2;
+  hba.common.v1.VehicleType vehicle_type = 3;
+  hba.common.v1.Source source = 4;
+  string partner_id = 5;
+  int32 package_weight_grams = 6;
+  google.protobuf.Timestamp scheduled_for = 7;
+}
+
+message GetQuoteByIdRequest {
+  string quote_id = 1;
+}
+
+message ConsumeQuoteRequest {
+  string quote_id = 1;
+  string delivery_id = 2;
+}
+
+message Quote {
+  string id = 1;
+  string tariff_version = 2;
+  string zone_id = 3;
+  hba.common.v1.Money total = 4;
+  hba.common.v1.Money base_fare = 5;
+  hba.common.v1.Money distance_fare = 6;
+  hba.common.v1.Money surge_fare = 7;
+  hba.common.v1.Money driver_earning = 8;
+  // Distance et durée renvoyées par OSRM.
+  int32 distance_meters = 9;
+  int32 duration_seconds = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp expires_at = 12;
+  bool consumed = 13;
+}

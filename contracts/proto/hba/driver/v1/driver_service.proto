@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package hba.driver.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
+import "hba/common/v1/geo.proto";
+
+option csharp_namespace = "Hba.Contracts.Driver.V1";
+
+service DriverService {
+  rpc GetDriver(GetDriverRequest) returns (Driver);
+  // Profil réduit exposé au client et au commerçant pendant la mission :
+  // nom, véhicule, téléphone. Rien de plus.
+  rpc GetDriverPublicProfile(GetDriverRequest) returns (DriverPublicProfile);
+  rpc GoOnline(GoOnlineRequest) returns (Driver);
+  rpc GoOffline(GoOfflineRequest) returns (Driver);
+  rpc UpdateLocation(UpdateLocationRequest) returns (UpdateLocationResponse);
+  // Livreurs disponibles autour d'un point, pour le moteur de dispatch.
+  rpc FindAvailableNearby(FindAvailableNearbyRequest) returns (FindAvailableNearbyResponse);
+  // Admin : décision KYC. Auditée.
+  rpc ReviewKyc(ReviewKycRequest) returns (Driver);
+  rpc SuspendDriver(SuspendDriverRequest) returns (Driver);
+}
+
+enum VerificationStatus {
+  VERIFICATION_STATUS_UNSPECIFIED = 0;
+  VERIFICATION_STATUS_PENDING_VERIFICATION = 1;
+  VERIFICATION_STATUS_VERIFIED = 2;
+  VERIFICATION_STATUS_REJECTED = 3;
+  VERIFICATION_STATUS_SUSPENDED = 4;
+}
+
+enum OperationalStatus {
+  OPERATIONAL_STATUS_UNSPECIFIED = 0;
+  OPERATIONAL_STATUS_OFFLINE = 1;
+  OPERATIONAL_STATUS_AVAILABLE = 2;
+  // Une offre est en cours : le livreur ne peut pas en recevoir une autre.
+  OPERATIONAL_STATUS_RESERVED = 3;
+  OPERATIONAL_STATUS_ON_MISSION = 4;
+}
+
+message Vehicle {
+  hba.common.v1.VehicleType type = 1;
+  string plate = 2;
+  int32 capacity_grams = 3;
+}
+
+message Driver {
+  string id = 1;
+  string display_name = 2;
+  string phone = 3;
+  Vehicle vehicle = 4;
+  VerificationStatus verification_status = 5;
+  OperationalStatus operational_status = 6;
+  google.protobuf.Timestamp registered_at = 7;
+  google.protobuf.Timestamp verified_at = 8;
+  // Motif de REJECTED / SUSPENDED.
+  string status_reason = 9;
+}
+
+message DriverPublicProfile {
+  string driver_id = 1;
+  string display_name = 2;
+  string phone = 3;
+  hba.common.v1.VehicleType vehicle_type = 4;
+  string vehicle_plate = 5;
+}
+
+message GetDriverRequest {
+  string driver_id = 1;
+}
+
+message GoOnlineRequest {
+  string driver_id = 1;
+  hba.common.v1.GeoPoint position = 2;
+}
+
+message GoOfflineRequest {
+  string driver_id = 1;
+}
+
+// Les positions vont dans Redis GEO. Aucun point n'est écrit en base
+// relationnelle à chaque rafraîchissement.
+message UpdateLocationRequest {
+  string driver_id = 1;
+  hba.common.v1.GeoPoint position = 2;
+  google.protobuf.Timestamp captured_at = 3;
+  double heading_degrees = 4;
+  double speed_mps = 5;
+}
+
+message UpdateLocationResponse {
+  bool ok = 1;
+}
+
+message FindAvailableNearbyRequest {
+  hba.common.v1.GeoPoint center = 1;
+  int32 radius_meters = 2;
+  hba.common.v1.VehicleType vehicle_type = 3;
+  int32 limit = 4;
+  // Livreurs à ne pas reproposer (vagues précédentes).
+  repeated string exclude_driver_ids = 5;
+}
+
+message NearbyDriver {
+  string driver_id = 1;
+  int32 distance_meters = 2;
+  hba.common.v1.GeoPoint position = 3;
+}
+
+message FindAvailableNearbyResponse {
+  repeated NearbyDriver drivers = 1;
+}
+
+message ReviewKycRequest {
+  string driver_id = 1;
+  bool approved = 2;
+  // Obligatoire en cas de refus.
+  string reason = 3;
+}
+
+message SuspendDriverRequest {
+  string driver_id = 1;
+  string reason = 2;
+}

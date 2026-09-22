@@ -1,0 +1,37 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+artifacts/
+TestResults/
+coverage*.xml
+
+# Outils
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Secrets et configuration locale
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+appsettings.*.Local.json
+deploy/**/secrets/
+
+# Flutter
+apps/*/.dart_tool/
+apps/*/build/
+apps/*/.flutter-plugins*
+apps/*/ios/Pods/
+
+# Next.js
+apps/web/node_modules/
+apps/web/.next/
+apps/web/out/
+
+# Données locales des conteneurs
+deploy/.data/

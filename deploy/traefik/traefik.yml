@@ -1,0 +1,39 @@
+# Traefik en production : point d'entrée unique, TLS automatique.
+# Seuls les BFF et la Partner API sont exposés. Les services gRPC internes ne
+# traversent JAMAIS ce routeur.
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: hba-public
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: contact@hbatechettrade.com
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web
+
+api:
+  dashboard: false
+
+log:
+  level: INFO
+
+accessLog:
+  filters:
+    statusCodes:
+      - "400-599"

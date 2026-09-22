@@ -1,0 +1,250 @@
+syntax = "proto3";
+
+package hba.identity.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Hba.Contracts.Identity.V1";
+
+// Identity émet les jetons et expose les JWKS. Les rôles sont exactement ceux du
+// référentiel acteurs : customer, driver, merchant_owner, merchant_staff,
+// partner, admin, ops, support, finance. Aucun autre nom n'est accepté.
+//
+// Les JWKS et le document de découverte ne sont PAS ici : ce sont des points
+// d'entrée HTTP, consommés par le middleware JwtBearer de chaque service.
+//   GET /.well-known/openid-configuration
+//   GET /.well-known/jwks.json
+service IdentityService {
+  // --- Téléphone + OTP : clients et livreurs ---
+  rpc RequestOtp(RequestOtpRequest) returns (RequestOtpResponse);
+  rpc VerifyOtp(VerifyOtpRequest) returns (TokenPair);
+
+  // --- Mot de passe : portail commerçant et back-office ---
+  rpc LoginWithPassword(LoginWithPasswordRequest) returns (TokenPair);
+  rpc SetPassword(SetPasswordRequest) returns (SetPasswordResponse);
+
+  // --- Cycle de vie des jetons ---
+  // Le jeton de rafraîchissement est à usage unique : l'utiliser le révoque et
+  // en émet un nouveau. Un jeton déjà consommé qui revient signale un vol et
+  // révoque toute la chaîne.
+  rpc RefreshToken(RefreshTokenRequest) returns (TokenPair);
+  rpc RevokeToken(RevokeTokenRequest) returns (RevokeTokenResponse);
+  rpc RevokeAllSessions(RevokeAllSessionsRequest) returns (RevokeTokenResponse);
+
+  // --- Comptes ---
+  rpc GetPrincipal(GetPrincipalRequest) returns (Principal);
+  rpc CreateBackOfficeAccount(CreateBackOfficeAccountRequest) returns (Account);
+  rpc CreateMerchantAccount(CreateMerchantAccountRequest) returns (Account);
+  rpc SetAccountRoles(SetAccountRolesRequest) returns (Account);
+  rpc SuspendAccount(SuspendAccountRequest) returns (Account);
+  rpc ReactivateAccount(ReactivateAccountRequest) returns (Account);
+
+  // --- Partenaires B2B (OAuth2 client credentials) ---
+  rpc CreatePartnerClient(CreatePartnerClientRequest) returns (PartnerClientCreated);
+  rpc IssuePartnerToken(IssuePartnerTokenRequest) returns (TokenPair);
+  rpc RotatePartnerSecret(RotatePartnerSecretRequest) returns (PartnerClientCreated);
+  // Appel interne : la Partner API a besoin de l'URL et du secret de signature
+  // pour émettre un webhook. Réservé aux appelants du back-office.
+  rpc GetPartnerWebhookConfig(GetPartnerWebhookConfigRequest) returns (PartnerWebhookConfig);
+}
+
+enum AccountStatus {
+  ACCOUNT_STATUS_UNSPECIFIED = 0;
+  ACCOUNT_STATUS_ACTIVE = 1;
+  ACCOUNT_STATUS_SUSPENDED = 2;
+}
+
+// À quoi sert l'OTP demandé. Détermine le rôle du compte créé si le numéro est
+// inconnu — et seuls customer et driver peuvent naître d'un OTP.
+enum OtpIntent {
+  OTP_INTENT_UNSPECIFIED = 0;
+  OTP_INTENT_CUSTOMER = 1;
+  OTP_INTENT_DRIVER = 2;
+}
+
+message RequestOtpRequest {
+  // Format E.164, +229…
+  string phone = 1;
+  OtpIntent intent = 2;
+  // Identifiant d'appareil, pour lier la session émise.
+  string device_id = 3;
+}
+
+// La réponse est IDENTIQUE quel que soit l'état du numéro : inconnu, client,
+// livreur, commerçant, suspendu. Elle ne dit donc rien à qui essaie de savoir
+// si un numéro a un compte chez HBA.
+message RequestOtpResponse {
+  string challenge_id = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  // Délai avant de pouvoir redemander un code pour ce numéro.
+  int32 retry_after_seconds = 3;
+
+  // 4 portait is_new_account : retiré, il transformait l'API en annuaire.
+  // L'application demande le nom APRÈS vérification, quand elle sait déjà
+  // qu'elle a affaire au titulaire du numéro.
+  reserved 4;
+  reserved "is_new_account";
+}
+
+message VerifyOtpRequest {
+  string challenge_id = 1;
+  string code = 2;
+  string device_id = 3;
+  // Renseigné à la première connexion d'un nouveau compte.
+  string display_name = 4;
+}
+
+message LoginWithPasswordRequest {
+  // E-mail ou téléphone.
+  string login = 1;
+  string password = 2;
+  string device_id = 3;
+}
+
+message SetPasswordRequest {
+  string account_id = 1;
+  // Vide lors d'une définition initiale par un administrateur.
+  string current_password = 2;
+  string new_password = 3;
+}
+
+message SetPasswordResponse {
+  bool ok = 1;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+  string device_id = 2;
+}
+
+message RevokeTokenRequest {
+  string refresh_token = 1;
+}
+
+message RevokeAllSessionsRequest {
+  string account_id = 1;
+}
+
+message RevokeTokenResponse {
+  int32 revoked_count = 1;
+}
+
+message TokenPair {
+  string access_token = 1;
+  string refresh_token = 2;
+  int32 expires_in_seconds = 3;
+  string token_type = 4;
+  Principal principal = 5;
+}
+
+// Ce que les services lisent dans le jeton. Sert aussi de réponse à
+// GetPrincipal, pour le back-office.
+message Principal {
+  string subject_id = 1;
+  string phone = 2;
+  string email = 3;
+  string display_name = 4;
+  repeated string roles = 5;
+  // Renseigné pour merchant_owner / merchant_staff.
+  string merchant_id = 6;
+  // Renseigné pour partner.
+  string partner_id = 7;
+  // Renseigné pour driver.
+  string driver_id = 8;
+}
+
+message Account {
+  string id = 1;
+  string phone = 2;
+  string email = 3;
+  string display_name = 4;
+  repeated string roles = 5;
+  AccountStatus status = 6;
+  string merchant_id = 7;
+  string driver_id = 8;
+  bool has_password = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp last_login_at = 11;
+  string status_reason = 12;
+}
+
+message GetPrincipalRequest {
+  string subject_id = 1;
+}
+
+message CreateBackOfficeAccountRequest {
+  string email = 1;
+  string display_name = 2;
+  // admin, ops, support ou finance.
+  repeated string roles = 3;
+  string initial_password = 4;
+}
+
+message CreateMerchantAccountRequest {
+  string merchant_id = 1;
+  string email = 2;
+  string phone = 3;
+  string display_name = 4;
+  // merchant_owner ou merchant_staff.
+  string role = 5;
+  string initial_password = 6;
+}
+
+message SetAccountRolesRequest {
+  string account_id = 1;
+  repeated string roles = 2;
+  string reason = 3;
+}
+
+message SuspendAccountRequest {
+  string account_id = 1;
+  string reason = 2;
+}
+
+message ReactivateAccountRequest {
+  string account_id = 1;
+  string reason = 2;
+}
+
+message CreatePartnerClientRequest {
+  string partner_name = 1;
+  // HBA_EXPRESS, HBA_FOOD ou PARTNER_API.
+  string source = 2;
+  string webhook_url = 3;
+  repeated string scopes = 4;
+  int32 rate_limit_per_minute = 5;
+}
+
+message RotatePartnerSecretRequest {
+  string partner_id = 1;
+  string reason = 2;
+}
+
+// Le secret client et le secret de signature ne sont renvoyés QU'ICI, une seule
+// fois. Ils ne sont jamais relus en clair par la suite.
+message PartnerClientCreated {
+  string partner_id = 1;
+  string client_id = 2;
+  string client_secret = 3;
+  string webhook_signing_secret = 4;
+  repeated string scopes = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message IssuePartnerTokenRequest {
+  string client_id = 1;
+  string client_secret = 2;
+  repeated string scopes = 3;
+}
+
+message GetPartnerWebhookConfigRequest {
+  string partner_id = 1;
+}
+
+message PartnerWebhookConfig {
+  string partner_id = 1;
+  string webhook_url = 2;
+  string signing_secret = 3;
+  int32 rate_limit_per_minute = 4;
+  bool enabled = 5;
+}

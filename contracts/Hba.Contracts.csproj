@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Hba.Contracts</RootNamespace>
+    <AssemblyName>Hba.Contracts</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>Hba.Contracts</PackageId>
+    <Description>Contrats gRPC et messages Kafka de HBA Delivery. Source de vérité des échanges.</Description>
+    <!-- Le code généré n'est pas soumis aux analyseurs. -->
+    <NoWarn>$(NoWarn);CS8981;CA1707;CA1724;CA2227;CA1002;CA1819;IDE0005</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="Grpc.Net.ClientFactory" />
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Un seul assembly porte client ET serveur : les services s'appellent
+         entre eux dans les deux sens. -->
+    <Protobuf Include="proto/**/*.proto" ProtoRoot="proto" GrpcServices="Both" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Aucune dependance externe : le domaine ne connait ni EF, ni gRPC, ni Kafka.
+       La regle est verifiee par Architecture.Tests. -->
+</Project>

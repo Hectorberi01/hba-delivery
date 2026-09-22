@@ -1,0 +1,10 @@
+version: v2
+# La génération C# est faite par Grpc.Tools au build de Hba.Contracts.csproj.
+# buf sert au lint et à la détection des changements cassants en CI, et à la
+# génération Dart / TypeScript pour les applications.
+plugins:
+  - remote: buf.build/protocolbuffers/dart
+    out: ../apps/_generated/dart
+  - remote: buf.build/bufbuild/es
+    out: ../apps/_generated/ts
+    opt: target=ts

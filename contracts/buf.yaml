@@ -1,0 +1,13 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    - PACKAGE_VERSION_SUFFIX
+  disallow_comment_ignores: true
+breaking:
+  use:
+    - FILE
+  ignore_unstable_packages: true

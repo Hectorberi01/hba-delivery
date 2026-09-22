@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package hba.dispatch.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Hba.Contracts.Dispatch.V1";
+
+// Le moteur de dispatch propose une livraison aux livreurs proches, par vagues.
+// Un livreur ne peut porter qu'une seule offre réservée à la fois.
+service DispatchService {
+  // Le livreur accepte une offre. Verrou Redis atomique + concurrence
+  // optimiste : au plus un gagnant.
+  rpc AcceptOffer(AcceptOfferRequest) returns (AcceptOfferResponse);
+  rpc DeclineOffer(DeclineOfferRequest) returns (DeclineOfferResponse);
+  // Offre courante du livreur, pour resynchroniser l'app après une coupure.
+  rpc GetCurrentOffer(GetCurrentOfferRequest) returns (Offer);
+  // Admin / ops : forcer une réaffectation.
+  rpc ForceReassign(ForceReassignRequest) returns (ForceReassignResponse);
+}
+
+enum OfferStatus {
+  OFFER_STATUS_UNSPECIFIED = 0;
+  OFFER_STATUS_PENDING = 1;
+  OFFER_STATUS_ACCEPTED = 2;
+  OFFER_STATUS_DECLINED = 3;
+  OFFER_STATUS_EXPIRED = 4;
+  // Une autre offre de la même vague a été acceptée.
+  OFFER_STATUS_SUPERSEDED = 5;
+}
+
+message Offer {
+  string id = 1;
+  string delivery_id = 2;
+  string driver_id = 3;
+  OfferStatus status = 4;
+  int32 wave_number = 5;
+  google.protobuf.Timestamp sent_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+  // Aperçu envoyé au livreur AVANT acceptation : le repère de collecte, la
+  // distance et la rémunération. L'adresse exacte de destination n'y figure pas.
+  string pickup_landmark = 8;
+  int32 distance_to_pickup_meters = 9;
+  int32 trip_distance_meters = 10;
+  int64 driver_earning_xof = 11;
+}
+
+message AcceptOfferRequest {
+  string offer_id = 1;
+  string idempotency_key = 2;
+}
+
+message AcceptOfferResponse {
+  bool accepted = 1;
+  // Renseigné si accepted = false : OFFER_EXPIRED, ALREADY_TAKEN,
+  // DRIVER_ALREADY_RESERVED, DRIVER_NOT_AVAILABLE.
+  string rejection_code = 2;
+  Offer offer = 3;
+}
+
+message DeclineOfferRequest {
+  string offer_id = 1;
+  string reason = 2;
+}
+
+message DeclineOfferResponse {
+  bool ok = 1;
+}
+
+message GetCurrentOfferRequest {
+  string driver_id = 1;
+}
+
+message ForceReassignRequest {
+  string delivery_id = 1;
+  string reason = 2;
+  // Optionnel : cible imposée. Vide = relancer une vague normale.
+  string target_driver_id = 3;
+}
+
+message ForceReassignResponse {
+  bool ok = 1;
+  string new_offer_id = 2;
+}

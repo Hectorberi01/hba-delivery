@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package hba.delivery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/envelope.proto";
+import "hba/common/v1/geo.proto";
+import "hba/common/v1/money.proto";
+import "hba/delivery/v1/delivery_service.proto";
+import  "hba/common/v1/enums.proto";
+option csharp_namespace = "Hba.Contracts.Delivery.V1";
+
+// Topic : hba.delivery.events.v1
+// Clé de partition : delivery_id, pour garantir l'ordre par livraison.
+message DeliveryEvent {
+  hba.common.v1.EventEnvelope envelope = 1;
+
+  oneof payload {
+    DeliveryCreated created = 10;
+    DeliveryConfirmed confirmed = 11;
+    DriverAssigned driver_assigned = 12;
+    DriverArrivedAtPickup driver_arrived_at_pickup = 13;
+    DeliveryPickedUp picked_up = 14;
+    DeliveryCompleted delivered = 15;
+    DeliveryCancelled cancelled = 16;
+    DeliveryFailed failed = 17;
+    NoDriverFound no_driver_found = 18;
+  }
+}
+
+message DeliveryCreated {
+  string delivery_id = 1; // id
+  string reference = 2; // référence
+  hba.common.v1.Source source = 3; // source de création de la livraison
+  string customer_id = 4; // id du client
+  string merchant_id = 5; // id du marchant
+  hba.common.v1.Location pickup = 6; // lieu de récupération du  colis
+  hba.common.v1.Location dropoff = 7; // lieu de dépôt du  colis
+  hba.common.v1.Money total = 8; // le montant de livraison
+}
+
+// Paiement confirmé : la livraison peut entrer en dispatch. C'est cet événement
+// que Dispatch consomme pour déclencher la première vague d'offres.
+message DeliveryConfirmed {
+  string delivery_id = 1;
+  hba.common.v1.Location pickup = 2;
+  hba.common.v1.Location dropoff = 3;
+  hba.common.v1.Money driver_earning = 4;
+  int32 distance_meters = 5;
+  google.protobuf.Timestamp paid_at = 6;
+}
+
+// la livraison est attribué à un livreur
+message DriverAssigned {
+  string delivery_id = 1;
+  string driver_id = 2;
+  string offer_id = 3;
+  google.protobuf.Timestamp assigned_at = 4;
+}
+
+// le livreur est arrivé au lieu de prise en charge
+message DriverArrivedAtPickup {
+  string delivery_id = 1;
+  string driver_id = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}
+
+// colis récupérer par le livreur
+message DeliveryPickedUp {
+  string delivery_id = 1;
+  string driver_id = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}
+
+// livraison réaliser complet
+message DeliveryCompleted {
+  string delivery_id = 1;
+  string driver_id = 2;
+  hba.common.v1.Money driver_earning = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+}
+
+// livraison annulé
+message DeliveryCancelled {
+  string delivery_id = 1;
+  hba.common.v1.ActorType cancelled_by = 2;
+  string actor_id = 3;
+  string reason = 4;
+  // Statut au moment de l'annulation : détermine la politique de remboursement.
+  DeliveryStatus previous_status = 5;
+  google.protobuf.Timestamp occurred_at = 6;
+}
+
+message DeliveryFailed {
+  string delivery_id = 1;
+  string reason = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}
+
+message NoDriverFound {
+  string delivery_id = 1;
+  int32 waves_attempted = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}

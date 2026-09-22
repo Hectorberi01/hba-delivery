@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "Hba.Directory.Api": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "applicationUrl": "http://localhost:5008",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_HTTP_PORTS": "5008"
+      }
+    }
+  }
+}

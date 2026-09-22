@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package hba.dispatch.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/envelope.proto";
+
+option csharp_namespace = "Hba.Contracts.Dispatch.V1";
+
+// Topic : hba.dispatch.events.v1 — clé de partition : delivery_id.
+message DispatchEvent {
+  hba.common.v1.EventEnvelope envelope = 1;
+
+  oneof payload {
+    OfferSent offer_sent = 10;
+    OfferAccepted offer_accepted = 11;
+    OfferExpired offer_expired = 12;
+    DispatchExhausted dispatch_exhausted = 13;
+  }
+}
+
+message OfferSent {
+  string offer_id = 1;
+  string delivery_id = 2;
+  string driver_id = 3;
+  int32 wave_number = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+// Consommé par Delivery pour passer en DRIVER_ASSIGNED, et par Driver pour
+// passer le livreur en ON_MISSION.
+message OfferAccepted {
+  string offer_id = 1;
+  string delivery_id = 2;
+  string driver_id = 3;
+  google.protobuf.Timestamp accepted_at = 4;
+}
+
+message OfferExpired {
+  string offer_id = 1;
+  string delivery_id = 2;
+  string driver_id = 3;
+}
+
+// Toutes les vagues ont échoué : Delivery passe en NO_DRIVER_FOUND.
+message DispatchExhausted {
+  string delivery_id = 1;
+  int32 waves_attempted = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package hba.common.v1;
+
+option csharp_namespace = "Hba.Contracts.Common.V1";
+
+// Montant monétaire. Le marché cible est l'UEMOA : la seule devise admise est
+// le XOF (FCFA), qui n'a pas de sous-unité. Le montant est donc un entier de
+// francs, jamais un décimal.
+message Money {
+  // Montant en francs CFA, entier. Peut être négatif (remboursement, ajustement).
+  int64 amount = 1;
+
+  // Code ISO 4217. Toujours "XOF" au MVP ; le champ existe pour ne pas avoir à
+  // casser le contrat le jour où une autre devise UEMOA/CEDEAO apparaît.
+  string currency = 2;
+}

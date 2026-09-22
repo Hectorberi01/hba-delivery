@@ -1,0 +1,45 @@
+name: contracts
+
+# Les contrats sont la source de vérité des échanges : un changement cassant
+# doit échouer ici, pas en production.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts.yml'
+  pull_request:
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts.yml'
+
+jobs:
+  lint-and-breaking:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: Lint
+        run: buf lint
+        working-directory: contracts
+
+      - name: Détection des changements cassants
+        if: github.event_name == 'pull_request'
+        run: buf breaking --against "https://github.com/${{ github.repository }}.git#branch=main,subdir=contracts"
+        working-directory: contracts
+
+  build-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Compiler le paquet de contrats
+        run: dotnet build contracts/Hba.Contracts.csproj --configuration Release

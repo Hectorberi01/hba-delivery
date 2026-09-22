@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+package hba.directory.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/geo.proto";
+
+option csharp_namespace = "Hba.Contracts.Directory.V1";
+
+// Directory détient QUI commande et D'OÙ part un colis : profils clients avec
+// leurs adresses favorites, commerçants avec leurs points de collecte.
+//
+// Il ne détient aucun compte, aucun mot de passe, aucun jeton : c'est Identity.
+// Il ne détient aucune livraison : c'est Delivery.
+service DirectoryService {
+  // --- Client ---
+  rpc GetCustomer(GetCustomerRequest) returns (Customer);
+  rpc UpdateCustomer(UpdateCustomerRequest) returns (Customer);
+  rpc AddFavoriteAddress(AddFavoriteAddressRequest) returns (Customer);
+  rpc UpdateFavoriteAddress(UpdateFavoriteAddressRequest) returns (Customer);
+  rpc RemoveFavoriteAddress(RemoveFavoriteAddressRequest) returns (Customer);
+
+  // --- Commerçant ---
+  rpc GetMerchant(GetMerchantRequest) returns (Merchant);
+  rpc ListMerchants(ListMerchantsRequest) returns (ListMerchantsResponse);
+  rpc CreateMerchant(CreateMerchantRequest) returns (Merchant);
+  rpc UpdateMerchant(UpdateMerchantRequest) returns (Merchant);
+
+  // --- Points de collecte ---
+  rpc AddPickupPoint(AddPickupPointRequest) returns (Merchant);
+  rpc UpdatePickupPoint(UpdatePickupPointRequest) returns (Merchant);
+  rpc SetPickupPointActive(SetPickupPointActiveRequest) returns (Merchant);
+  // Lecture ciblée, pour pré-remplir une demande de livraison.
+  rpc GetPickupPoint(GetPickupPointRequest) returns (PickupPoint);
+}
+
+// Adresse au sens béninois : point GPS, repère écrit, téléphone joignable.
+// Même forme que dans Delivery, et volontairement dupliquée : chaque service
+// possède son modèle, aucun ne partage une table avec un autre.
+message Address {
+  hba.common.v1.Location location = 1;
+}
+
+message FavoriteAddress {
+  string id = 1;
+  // Nom donné par le client : « maison », « bureau », « chez maman ».
+  string label = 2;
+  Address address = 3;
+  bool is_default = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message Customer {
+  // Identique au subject_id du compte Identity : un compte, un profil.
+  string id = 1;
+  string display_name = 2;
+  string phone = 3;
+  string email = 4;
+  repeated FavoriteAddress favorite_addresses = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// Plage d'ouverture d'un jour. Un jour sans plage est un jour fermé.
+message OpeningHours {
+  // 1 = lundi … 7 = dimanche.
+  int32 day_of_week = 1;
+  // Minutes depuis minuit, heure locale de Cotonou.
+  int32 opens_at_minutes = 2;
+  int32 closes_at_minutes = 3;
+}
+
+message PickupPoint {
+  string id = 1;
+  string merchant_id = 2;
+  string name = 3;
+  Address address = 4;
+  repeated OpeningHours opening_hours = 5;
+  bool is_active = 6;
+}
+
+message Merchant {
+  string id = 1;
+  string legal_name = 2;
+  string contact_name = 3;
+  string contact_phone = 4;
+  string contact_email = 5;
+  // Temps de préparation moyen, utilisé par Dispatch pour ne pas envoyer un
+  // livreur trop tôt.
+  int32 average_preparation_minutes = 6;
+  repeated PickupPoint pickup_points = 7;
+  bool is_active = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message GetCustomerRequest {
+  // Vide = le client authentifié lui-même. Renseigné, réservé au back-office.
+  string customer_id = 1;
+}
+
+message UpdateCustomerRequest {
+  string display_name = 1;
+  string email = 2;
+}
+
+message AddFavoriteAddressRequest {
+  string label = 1;
+  Address address = 2;
+  bool set_as_default = 3;
+}
+
+message UpdateFavoriteAddressRequest {
+  string address_id = 1;
+  string label = 2;
+  Address address = 3;
+  bool set_as_default = 4;
+}
+
+message RemoveFavoriteAddressRequest {
+  string address_id = 1;
+}
+
+message GetMerchantRequest {
+  // Vide = le commerçant du jeton. Renseigné, réservé au back-office.
+  string merchant_id = 1;
+}
+
+message ListMerchantsRequest {
+  string query = 1;
+  bool only_active = 2;
+  int32 page_size = 3;
+  int32 offset = 4;
+}
+
+message ListMerchantsResponse {
+  repeated Merchant merchants = 1;
+  int32 total = 2;
+}
+
+message CreateMerchantRequest {
+  string legal_name = 1;
+  string contact_name = 2;
+  string contact_phone = 3;
+  string contact_email = 4;
+  int32 average_preparation_minutes = 5;
+}
+
+message UpdateMerchantRequest {
+  string merchant_id = 1;
+  string legal_name = 2;
+  string contact_name = 3;
+  string contact_phone = 4;
+  string contact_email = 5;
+  int32 average_preparation_minutes = 6;
+}
+
+message AddPickupPointRequest {
+  string merchant_id = 1;
+  string name = 2;
+  Address address = 3;
+  repeated OpeningHours opening_hours = 4;
+}
+
+message UpdatePickupPointRequest {
+  string merchant_id = 1;
+  string pickup_point_id = 2;
+  string name = 3;
+  Address address = 4;
+  repeated OpeningHours opening_hours = 5;
+}
+
+message SetPickupPointActiveRequest {
+  string merchant_id = 1;
+  string pickup_point_id = 2;
+  bool active = 3;
+}
+
+message GetPickupPointRequest {
+  string pickup_point_id = 1;
+}

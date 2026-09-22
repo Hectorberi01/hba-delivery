@@ -1,0 +1,215 @@
+syntax = "proto3";
+
+package hba.delivery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
+import "hba/common/v1/geo.proto";
+import "hba/common/v1/money.proto";
+
+option csharp_namespace = "Hba.Contracts.Delivery.V1";
+
+// AUTORISATION
+// Aucune requête ne transporte l'identité de l'appelant. Le BFF propage le JWT
+// de l'utilisateur final dans la métadonnée "authorization" ; le service le
+// valide lui-même (JWKS) et en déduit l'acteur. L'autorisation est ainsi
+// vérifiée côté service, jamais seulement côté BFF.
+service DeliveryService {
+
+  // Crée une livraison. Le prix vient d'un devis Pricing déjà émis et est figé
+  // dans la livraison (snapshot). Idempotent sur idempotency_key.
+  rpc CreateDelivery(CreateDeliveryRequest) returns (CreateDeliveryResponse);
+
+  rpc GetDelivery(GetDeliveryRequest) returns (Delivery);
+  rpc ListDeliveries(ListDeliveriesRequest) returns (ListDeliveriesResponse);
+
+  // Annulation selon la politique d'annulation. Client, commerçant, partenaire.
+  rpc CancelDelivery(CancelDeliveryRequest) returns (Delivery);
+
+  // Livreur : arrivé au point de collecte.
+  rpc MarkArrivedAtPickup(MarkArrivedAtPickupRequest) returns (Delivery);
+
+  // Livreur : colis collecté chez le commerçant / l'expéditeur.
+  rpc MarkPickedUp(MarkPickedUpRequest) returns (Delivery);
+
+  // Livreur : remise au destinataire, avec l'OTP communiqué par celui-ci.
+  // C'est la seule voie vers DELIVERED.
+  rpc ConfirmDelivery(ConfirmDeliveryRequest) returns (Delivery);
+
+  // Admin / ops : clôture forcée en FAILED ou CANCELLED, avec motif obligatoire.
+  // Un admin ne peut jamais produire DELIVERED.
+  rpc AdminCloseDelivery(AdminCloseDeliveryRequest) returns (Delivery);
+}
+
+enum DeliveryStatus {
+  DELIVERY_STATUS_UNSPECIFIED = 0;
+  // Créée, en attente de la confirmation de paiement par webhook FedaPay.
+  DELIVERY_STATUS_PENDING_PAYMENT = 1;
+  // Le paiement a échoué ou expiré. Terminal.
+  DELIVERY_STATUS_PAYMENT_FAILED = 2;
+  // Paiement confirmé. Aucune recherche de livreur avant cet état.
+  DELIVERY_STATUS_PAID = 3;
+  // Le moteur de dispatch envoie les offres par vagues.
+  DELIVERY_STATUS_SEARCHING_DRIVER = 4;
+  // Toutes les vagues ont échoué. Terminal, déclenche un remboursement.
+  DELIVERY_STATUS_NO_DRIVER_FOUND = 5;
+  DELIVERY_STATUS_DRIVER_ASSIGNED = 6;
+  DELIVERY_STATUS_DRIVER_AT_PICKUP = 7;
+  DELIVERY_STATUS_PICKED_UP = 8;
+  // Terminal. Atteignable uniquement par le livreur avec un OTP valide.
+  DELIVERY_STATUS_DELIVERED = 9;
+  DELIVERY_STATUS_CANCELLED = 10;
+  DELIVERY_STATUS_FAILED = 11;
+}
+
+// Prix figé au moment de la confirmation. Une modification ultérieure d'une
+// grille tarifaire ne change jamais une livraison déjà confirmée.
+
+message PricingSnapshot {
+  string quote_id = 1;
+  string tariff_version = 2;
+  hba.common.v1.Money total = 3;
+  hba.common.v1.Money base_fare = 4;
+  hba.common.v1.Money distance_fare = 5;
+  hba.common.v1.Money surge_fare = 6;
+  // Rémunération du livreur. Seule partie du détail visible par le livreur.
+  hba.common.v1.Money driver_earning = 7;
+  int32 distance_meters = 8;
+  int32 duration_seconds = 9;
+  google.protobuf.Timestamp quoted_at = 10;
+}
+
+// Livreur affecté, vu par le client et le commerçant pendant la mission.
+message AssignedDriver {
+  string driver_id = 1;
+  string display_name = 2;
+  string phone = 3;
+  hba.common.v1.VehicleType vehicle_type = 4;
+  string vehicle_plate = 5;
+}
+
+message Delivery {
+  string id = 1;
+  string reference = 2;
+  DeliveryStatus status = 3;
+
+  hba.common.v1.Source source = 4;
+  string partner_id = 5;
+  // Identifiant de la commande côté appelant. Unique par partenaire.
+  string external_order_id = 6;
+
+  // Donneur d'ordre : client particulier OU commerçant. L'un des deux.
+  string customer_id = 7;
+  string merchant_id = 8;
+  string pickup_point_id = 9;
+
+  hba.common.v1.Location pickup = 10;
+  hba.common.v1.Location dropoff = 11;
+
+  // Destinataire : figé à la demande, ce n'est pas un compte.
+  string recipient_name = 12;
+  string recipient_phone = 13;
+
+  PricingSnapshot pricing = 14;
+  AssignedDriver driver = 15;
+
+  string package_description = 16;
+  int32 package_weight_grams = 17;
+
+  google.protobuf.Timestamp created_at = 18;
+  google.protobuf.Timestamp paid_at = 19;
+  google.protobuf.Timestamp assigned_at = 20;
+  google.protobuf.Timestamp picked_up_at = 21;
+  google.protobuf.Timestamp completed_at = 22;
+
+  // Motif de CANCELLED / FAILED / NO_DRIVER_FOUND.
+  string closure_reason = 23;
+
+  // L'OTP de remise n'est JAMAIS exposé au livreur. Le service ne le renseigne
+  // que pour le client donneur d'ordre. Il reste vide pour tout autre appelant.
+  string delivery_otp = 24;
+}
+
+message CreateDeliveryRequest {
+  // Obligatoire pour les partenaires, recommandé partout ailleurs.
+  string idempotency_key = 1;
+  // Devis Pricing valide et non expiré. Fournit le snapshot de prix.
+  string quote_id = 2;
+
+  hba.common.v1.Source source = 3;
+  string external_order_id = 4;
+
+  string merchant_id = 5;
+  string pickup_point_id = 6;
+
+  hba.common.v1.Location pickup = 7;
+  hba.common.v1.Location dropoff = 8;
+
+  string recipient_name = 9;
+  string recipient_phone = 10;
+
+  string package_description = 11;
+  int32 package_weight_grams = 12;
+}
+
+message CreateDeliveryResponse {
+  Delivery delivery = 1;
+  // Intention de paiement créée par le service Payment. Vide si le donneur
+  // d'ordre est facturé autrement — cas non tranché, donc jamais produit au MVP.
+  string payment_intent_id = 2;
+  string payment_redirect_url = 3;
+}
+
+message GetDeliveryRequest {
+  string delivery_id = 1;
+}
+
+message ListDeliveriesRequest {
+  // Filtres. Le service restreint de toute façon le périmètre à l'appelant.
+  repeated DeliveryStatus statuses = 1;
+  google.protobuf.Timestamp created_after = 2;
+  google.protobuf.Timestamp created_before = 3;
+  int32 page_size = 4;
+  string page_token = 5;
+}
+
+message ListDeliveriesResponse {
+  repeated Delivery deliveries = 1;
+  string next_page_token = 2;
+}
+
+message CancelDeliveryRequest {
+  string delivery_id = 1;
+  string reason = 2;
+}
+
+message MarkArrivedAtPickupRequest {
+  string delivery_id = 1;
+  // Horodatage client : l'app livreur doit fonctionner hors connexion.
+  google.protobuf.Timestamp occurred_at = 2;
+  string idempotency_key = 3;
+}
+
+message MarkPickedUpRequest {
+  string delivery_id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string idempotency_key = 3;
+  // Clé d'objet MinIO de la photo de collecte, si l'app en a pris une.
+  string proof_object_key = 4;
+}
+
+message ConfirmDeliveryRequest {
+  string delivery_id = 1;
+  // OTP communiqué oralement par le destinataire. Preuve de livraison.
+  string otp = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+  string idempotency_key = 4;
+  string proof_object_key = 5;
+}
+
+message AdminCloseDeliveryRequest {
+  string delivery_id = 1;
+  // FAILED ou CANCELLED uniquement.
+  DeliveryStatus target_status = 2;
+  string reason = 3;
+}

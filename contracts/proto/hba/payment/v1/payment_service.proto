@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package hba.payment.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/money.proto";
+
+option csharp_namespace = "Hba.Contracts.Payment.V1";
+
+// Payment encapsule FedaPay derrière IPaymentProvider. Aucun autre service ne
+// connaît le fournisseur.
+service PaymentService {
+  rpc CreatePaymentIntent(CreatePaymentIntentRequest) returns (PaymentIntent);
+  rpc GetPaymentIntent(GetPaymentIntentRequest) returns (PaymentIntent);
+  // Déclenché par finance / ops, ou automatiquement sur NO_DRIVER_FOUND.
+  rpc RefundPayment(RefundPaymentRequest) returns (Refund);
+}
+
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_PENDING = 1;
+  PAYMENT_STATUS_SUCCEEDED = 2;
+  PAYMENT_STATUS_FAILED = 3;
+  PAYMENT_STATUS_EXPIRED = 4;
+  PAYMENT_STATUS_REFUNDED = 5;
+  PAYMENT_STATUS_PARTIALLY_REFUNDED = 6;
+}
+
+enum PaymentMethod {
+  PAYMENT_METHOD_UNSPECIFIED = 0;
+  PAYMENT_METHOD_MOBILE_MONEY = 1;
+  PAYMENT_METHOD_CARD = 2;
+}
+
+message PaymentIntent {
+  string id = 1;
+  string delivery_id = 2;
+  string payer_id = 3;
+  hba.common.v1.Money amount = 4;
+  PaymentStatus status = 5;
+  PaymentMethod method = 6;
+  // Référence FedaPay. Jamais exposée hors du service et du back-office finance.
+  string provider_reference = 7;
+  string redirect_url = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp succeeded_at = 10;
+  google.protobuf.Timestamp expires_at = 11;
+}
+
+message CreatePaymentIntentRequest {
+  string idempotency_key = 1;
+  string delivery_id = 2;
+  string payer_id = 3;
+  string payer_phone = 4;
+  hba.common.v1.Money amount = 5;
+  PaymentMethod method = 6;
+  string return_url = 7;
+}
+
+message GetPaymentIntentRequest {
+  string payment_intent_id = 1;
+}
+
+message RefundPaymentRequest {
+  string idempotency_key = 1;
+  string payment_intent_id = 2;
+  // Vide = remboursement total.
+  hba.common.v1.Money amount = 3;
+  string reason = 4;
+}
+
+message Refund {
+  string id = 1;
+  string payment_intent_id = 2;
+  hba.common.v1.Money amount = 3;
+  PaymentStatus status = 4;
+  google.protobuf.Timestamp created_at = 5;
+}

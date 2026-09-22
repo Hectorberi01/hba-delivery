@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Hba.Notification.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Hba.Notification.Domain/Hba.Notification.Domain.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Application/Hba.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Messaging/Hba.BuildingBlocks.Messaging.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Security/Hba.BuildingBlocks.Security.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+</Project>

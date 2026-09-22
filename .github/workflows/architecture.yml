@@ -1,0 +1,31 @@
+name: architecture
+
+# Les règles de dépendance entre couches. Ce pipeline tourne sur tout le dépôt :
+# une violation peut venir de n'importe quel service.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Compiler la solution
+        run: dotnet build HbaDelivery.sln --configuration Release
+
+      - name: Règles d'architecture
+        run: dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --configuration Release --no-build

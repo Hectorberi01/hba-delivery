@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package hba.payment.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/envelope.proto";
+import "hba/common/v1/money.proto";
+
+option csharp_namespace = "Hba.Contracts.Payment.V1";
+
+// Topic : hba.payment.events.v1 — clé de partition : delivery_id.
+message PaymentEvent {
+  hba.common.v1.EventEnvelope envelope = 1;
+
+  oneof payload {
+    PaymentSucceeded succeeded = 10;
+    PaymentFailed failed = 11;
+    PaymentRefunded refunded = 12;
+  }
+}
+
+// Seule source de vérité du paiement : le webhook FedaPay vérifié. Delivery ne
+// passe en PAID que sur cet événement.
+message PaymentSucceeded {
+  string payment_intent_id = 1;
+  string delivery_id = 2;
+  hba.common.v1.Money amount = 3;
+  google.protobuf.Timestamp succeeded_at = 4;
+}
+
+message PaymentFailed {
+  string payment_intent_id = 1;
+  string delivery_id = 2;
+  string reason = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+}
+
+message PaymentRefunded {
+  string refund_id = 1;
+  string payment_intent_id = 2;
+  string delivery_id = 3;
+  hba.common.v1.Money amount = 4;
+  google.protobuf.Timestamp occurred_at = 5;
+}

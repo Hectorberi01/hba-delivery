@@ -1,0 +1,242 @@
+# Production : les services .NET sont construits et exposés derrière Traefik.
+# Les dépendances (Postgres, Kafka, Redis, MinIO) sont déclarées ici pour un
+# déploiement mono-hôte. Passer en managé dès que le trafic le justifie.
+
+name: hba-delivery
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks: [hba-internal]
+  environment:
+    ASPNETCORE_ENVIRONMENT: Production
+    Kafka__BootstrapServers: kafka:9094
+    Otlp__Endpoint: http://otel-collector:4317
+    Jwt__Authority: http://identity:8080
+    Jwt__Issuer: ${JWT_ISSUER}
+    Jwt__RequireHttpsMetadata: "false"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+
+services:
+  traefik:
+    image: traefik:v3.1
+    restart: unless-stopped
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks: [hba-public, hba-internal]
+
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    networks: [hba-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    networks: [hba-internal]
+
+  kafka:
+    image: bitnami/kafka:3.8
+    restart: unless-stopped
+    environment:
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9094,CONTROLLER://:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9094"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "false"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    volumes:
+      - kafkadata:/bitnami/kafka
+    networks: [hba-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9094 --list || exit 1"]
+      interval: 15s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+    volumes:
+      - miniodata:/data
+    networks: [hba-internal]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otel/config.yaml:ro
+    networks: [hba-internal]
+
+  identity:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Services/Identity/Hba.Identity.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Kafka__BootstrapServers: kafka:9094
+      Otlp__Endpoint: http://otel-collector:4317
+      Jwt__Authority: http://identity:8080
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__RequireHttpsMetadata: "false"
+      Tokens__Issuer: ${JWT_ISSUER}
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD}"
+      JwtSigning__PrivateKeyPath: /var/hba/keys/identity-signing.pem
+      DataProtection__KeyBase64: ${DATA_PROTECTION_KEY}
+      Otp__Pepper: ${OTP_PEPPER}
+    volumes:
+      # La clé de signature survit aux redémarrages : sans cela, tous les
+      # jetons émis seraient invalidés à chaque déploiement.
+      - identity-keys:/var/hba/keys
+
+  directory:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Services/Directory/Hba.Directory.Api/Dockerfile
+
+  delivery:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Services/Delivery/Hba.Delivery.Api/Dockerfile
+
+  pricing:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Services/Pricing/Hba.Pricing.Api/Dockerfile
+
+  dispatch:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Services/Dispatch/Hba.Dispatch.Api/Dockerfile
+
+  driver:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Services/Driver/Hba.Driver.Api/Dockerfile
+
+  payment:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Services/Payment/Hba.Payment.Api/Dockerfile
+
+  notification:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Services/Notification/Hba.Notification.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Kafka__BootstrapServers: kafka:9094
+      Otlp__Endpoint: http://otel-collector:4317
+      Jwt__Authority: http://identity:8080
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__RequireHttpsMetadata: "false"
+      # À TRANCHER : aucun opérateur SMS n'est choisi. Tant que cette valeur
+      # reste « none », les envois sont consignés comme ignorés — visible dans
+      # notification.sent_notifications, et silencieux pour l'utilisateur.
+      Sms__Provider: "none"
+
+  bff-client:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Gateways/Hba.Bff.Client/Dockerfile
+    networks: [hba-internal, hba-public]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.bff-client.rule: "Host(`api.hba.delivery`)"
+      traefik.http.routers.bff-client.entrypoints: "websecure"
+      traefik.http.routers.bff-client.tls.certresolver: "letsencrypt"
+      traefik.http.routers.bff-client.middlewares: "security-headers@file,compress@file"
+
+  bff-driver:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Gateways/Hba.Bff.Driver/Dockerfile
+    networks: [hba-internal, hba-public]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.bff-driver.rule: "Host(`driver.hba.delivery`)"
+      traefik.http.routers.bff-driver.entrypoints: "websecure"
+      traefik.http.routers.bff-driver.tls.certresolver: "letsencrypt"
+      traefik.http.routers.bff-driver.middlewares: "security-headers@file,compress@file"
+
+  bff-web:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Gateways/Hba.Bff.Web/Dockerfile
+    networks: [hba-internal, hba-public]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.bff-web.rule: "Host(`console.hba.delivery`)"
+      traefik.http.routers.bff-web.entrypoints: "websecure"
+      traefik.http.routers.bff-web.tls.certresolver: "letsencrypt"
+      traefik.http.routers.bff-web.middlewares: "security-headers@file,compress@file"
+
+  partner-api:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: src/Gateways/Hba.PartnerApi/Dockerfile
+    networks: [hba-internal, hba-public]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.partner.rule: "Host(`partners.hba.delivery`)"
+      traefik.http.routers.partner.entrypoints: "websecure"
+      traefik.http.routers.partner.tls.certresolver: "letsencrypt"
+      traefik.http.routers.partner.middlewares: "security-headers@file,partner-rate-limit@file,compress@file"
+
+networks:
+  hba-public:
+    name: hba-public
+  hba-internal:
+    name: hba-internal
+    internal: true
+
+volumes:
+  pgdata:
+  kafkadata:
+  redisdata:
+  miniodata:
+  letsencrypt:
+  identity-keys:

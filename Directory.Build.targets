@@ -1,0 +1,16 @@
+<Project>
+
+  <!--
+    Importe APRES le contenu de chaque projet : les propriétés que le projet
+    définit lui-même, comme IsTestProject, sont donc déjà connues ici. Une
+    condition équivalente placée dans Directory.Build.props serait évaluée trop
+    tôt et ne s'appliquerait jamais.
+  -->
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <IsPackable>false</IsPackable>
+    <!-- Un avertissement dans un test ne doit pas bloquer la boucle de travail. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CA1707;CA2007;CA1861;xUnit1041</NoWarn>
+  </PropertyGroup>
+
+</Project>

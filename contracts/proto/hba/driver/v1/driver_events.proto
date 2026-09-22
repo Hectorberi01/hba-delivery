@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package hba.driver.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/envelope.proto";
+import "hba/driver/v1/driver_service.proto";
+
+option csharp_namespace = "Hba.Contracts.Driver.V1";
+
+// Topic : hba.driver.events.v1 — clé de partition : driver_id.
+message DriverEvent {
+  hba.common.v1.EventEnvelope envelope = 1;
+
+  oneof payload {
+    DriverRegistered registered = 10;
+    DriverKycReviewed kyc_reviewed = 11;
+    DriverStatusChanged status_changed = 12;
+  }
+}
+
+message DriverRegistered {
+  string driver_id = 1;
+  string phone = 2;
+  google.protobuf.Timestamp registered_at = 3;
+}
+
+message DriverKycReviewed {
+  string driver_id = 1;
+  VerificationStatus result = 2;
+  string reason = 3;
+  string reviewed_by = 4;
+  google.protobuf.Timestamp reviewed_at = 5;
+}
+
+message DriverStatusChanged {
+  string driver_id = 1;
+  OperationalStatus previous = 2;
+  OperationalStatus current = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+}

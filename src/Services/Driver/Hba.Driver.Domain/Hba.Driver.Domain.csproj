@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Hba.Driver.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Domain/Hba.BuildingBlocks.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

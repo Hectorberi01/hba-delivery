@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Hba.Payment.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Hba.Payment.Application/Hba.Payment.Application.csproj" />
+    <ProjectReference Include="../Hba.Payment.Domain/Hba.Payment.Domain.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Grpc/Hba.BuildingBlocks.Grpc.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Messaging/Hba.BuildingBlocks.Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package hba.common.v1;
+
+option csharp_namespace = "Hba.Contracts.Common.V1";
+
+// Point GPS en WGS84.
+message GeoPoint {
+  double latitude = 1;
+  double longitude = 2;
+}
+
+// Adresse telle qu'elle est utilisable au Bénin : l'adressage formel étant peu
+// fiable, une adresse est un point GPS, un repère écrit et un téléphone.
+message Location {
+  GeoPoint point = 1;
+
+  // Repère écrit, en clair. Exemple : "Carré 442, en face de la pharmacie Gbedjromede".
+  string landmark = 2;
+
+  // Téléphone de la personne présente sur place, format E.164 (+229...).
+  string phone = 3;
+
+  // Nom de la personne présente sur place.
+  string contact_name = 4;
+
+  // Complément libre : étage, code portail, instructions.
+  string notes = 5;
+}

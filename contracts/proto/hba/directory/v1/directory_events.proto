@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package hba.directory.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/envelope.proto";
+import "hba/common/v1/geo.proto";
+
+option csharp_namespace = "Hba.Contracts.Directory.V1";
+
+// Topic : hba.directory.events.v1
+// Clé de partition : identifiant du client ou du commerçant concerné.
+message DirectoryEvent {
+  hba.common.v1.EventEnvelope envelope = 1;
+
+  oneof payload {
+    CustomerProfileCreated customer_created = 10;
+    MerchantCreated merchant_created = 11;
+    PickupPointChanged pickup_point_changed = 12;
+    MerchantDeactivated merchant_deactivated = 13;
+  }
+}
+
+message CustomerProfileCreated {
+  string customer_id = 1;
+  string phone = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}
+
+message MerchantCreated {
+  string merchant_id = 1;
+  string legal_name = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}
+
+// Un point de collecte qui bouge ou qui ferme concerne Dispatch : un livreur ne
+// doit pas être envoyé à une adresse qui n'est plus la bonne.
+message PickupPointChanged {
+  string merchant_id = 1;
+  string pickup_point_id = 2;
+  hba.common.v1.Location location = 3;
+  bool is_active = 4;
+  google.protobuf.Timestamp occurred_at = 5;
+}
+
+message MerchantDeactivated {
+  string merchant_id = 1;
+  string reason = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}

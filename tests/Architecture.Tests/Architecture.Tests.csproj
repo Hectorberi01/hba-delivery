@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Hba.Architecture.Tests</RootNamespace>
+    <AssemblyName>Hba.Architecture.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Services/Delivery/Hba.Delivery.Domain/Hba.Delivery.Domain.csproj" />
+    <ProjectReference Include="../../src/Services/Delivery/Hba.Delivery.Application/Hba.Delivery.Application.csproj" />
+    <ProjectReference Include="../../src/Services/Delivery/Hba.Delivery.Infrastructure/Hba.Delivery.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/Services/Delivery/Hba.Delivery.Api/Hba.Delivery.Api.csproj" />
+    <ProjectReference Include="../../src/BuildingBlocks/Hba.BuildingBlocks.Domain/Hba.BuildingBlocks.Domain.csproj" />
+    <ProjectReference Include="../../src/BuildingBlocks/Hba.BuildingBlocks.Security/Hba.BuildingBlocks.Security.csproj" />
+    <ProjectReference Include="../../src/Services/Identity/Hba.Identity.Domain/Hba.Identity.Domain.csproj" />
+    <ProjectReference Include="../../src/Services/Identity/Hba.Identity.Application/Hba.Identity.Application.csproj" />
+    <ProjectReference Include="../../src/Services/Directory/Hba.Directory.Domain/Hba.Directory.Domain.csproj" />
+    <ProjectReference Include="../../src/Services/Directory/Hba.Directory.Application/Hba.Directory.Application.csproj" />
+    <ProjectReference Include="../../src/Services/Notification/Hba.Notification.Domain/Hba.Notification.Domain.csproj" />
+    <ProjectReference Include="../../src/Services/Notification/Hba.Notification.Application/Hba.Notification.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="NetArchTest.Rules" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <!-- Ces tests chargent des assemblies liees a ASP.NET Core (securite, hote
+         gRPC) : sans cette reference, l'execution echoue faute de framework
+         partage. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package hba.notification.v1;
+
+import "hba/common/v1/envelope.proto";
+
+option csharp_namespace = "Hba.Contracts.Notification.V1";
+
+// Topic : hba.notification.commands.v1
+// Notification n'a presque que des consommateurs. Les autres services publient
+// des événements métier ; Notification décide du canal et du modèle de message.
+message NotificationCommand {
+  hba.common.v1.EventEnvelope envelope = 1;
+
+  oneof payload {
+    SendSms send_sms = 10;
+    SendWhatsApp send_whatsapp = 11;
+    SendPush send_push = 12;
+  }
+}
+
+message SendSms {
+  string to_phone = 1;
+  string template_id = 2;
+  map<string, string> variables = 3;
+}
+
+message SendWhatsApp {
+  string to_phone = 1;
+  string template_id = 2;
+  map<string, string> variables = 3;
+}
+
+message SendPush {
+  string subject_id = 1;
+  string template_id = 2;
+  map<string, string> variables = 3;
+}

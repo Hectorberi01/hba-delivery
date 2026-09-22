@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Hba.Driver.Api</RootNamespace>
+    <UserSecretsId>hba-driver-api</UserSecretsId>
+    <DockerfileContext>../../../..</DockerfileContext>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Hba.Driver.Application/Hba.Driver.Application.csproj" />
+    <ProjectReference Include="../Hba.Driver.Infrastructure/Hba.Driver.Infrastructure.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Grpc/Hba.BuildingBlocks.Grpc.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Observability/Hba.BuildingBlocks.Observability.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Security/Hba.BuildingBlocks.Security.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="Grpc.AspNetCore.HealthChecks" />
+  </ItemGroup>
+
+</Project>

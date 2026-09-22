@@ -1,0 +1,70 @@
+name: service-pricing
+
+# Filtre par chemin : ce pipeline ne se déclenche que si ce service, les
+# contrats ou les briques communes ont changé.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/Services/Pricing/**'
+      - 'contracts/**'
+      - 'src/BuildingBlocks/**'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - 'global.json'
+      - '.github/workflows/service-pricing.yml'
+  pull_request:
+    paths:
+      - 'src/Services/Pricing/**'
+      - 'contracts/**'
+      - 'src/BuildingBlocks/**'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - 'global.json'
+      - '.github/workflows/service-pricing.yml'
+
+concurrency:
+  group: service-pricing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restaurer
+        run: dotnet restore src/Services/Pricing/Hba.Pricing.Api/Hba.Pricing.Api.csproj
+
+      - name: Compiler
+        run: >
+          dotnet build src/Services/Pricing/Hba.Pricing.Api/Hba.Pricing.Api.csproj
+          --configuration Release --no-restore
+
+      - name: Tester
+        run: |
+          shopt -s nullglob
+          projects=(src/Services/Pricing/tests/*/*.csproj)
+          if [ ${#projects[@]} -eq 0 ]; then
+            echo "Aucun projet de test pour Pricing."
+            exit 0
+          fi
+          for p in "${projects[@]}"; do
+            dotnet test "$p" --configuration Release --logger "trx;LogFileName=$(basename "$p").trx"
+          done
+
+      - name: Construire l'image
+        run: >
+          docker build -f src/Services/Pricing/Hba.Pricing.Api/Dockerfile
+          -t hba/pricing:${{ github.sha }} .
