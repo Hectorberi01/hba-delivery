@@ -24,3 +24,19 @@ dotnet_diagnostic.CA1062.severity = none
 dotnet_diagnostic.CA1848.severity = none
 dotnet_diagnostic.CA2007.severity = none
 dotnet_diagnostic.CA1707.severity = none
+
+# Migrations EF Core.
+#
+# CES FICHIERS SONT GENERES PAR dotnet ef. Ils sortent avec un namespace a
+# accolades et une mise en forme qui ne suit pas le style maison ; les
+# reformater serait a refaire a chaque nouvelle migration, et un fichier
+# regenere reintroduirait l'erreur en CI.
+#
+# generated_code demande aux analyseurs Roslyn de les traiter comme du code
+# genere. Les deux severites qui suivent sont une ceinture en plus des
+# bretelles : IDE0161 est ce qui faisait echouer le pipeline, IDE0055 est la
+# mise en forme.
+[**/Persistence/Migrations/*.cs]
+generated_code = true
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.IDE0055.severity = none
