@@ -1,0 +1,28 @@
+name: hba_driver
+description: Application livreur HBA Delivery.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  hba_ui:
+    path: ../hba_ui
+  flutter_riverpod: ^2.5.1
+  go_router: ^14.2.7
+  dio: ^5.7.0
+  flutter_secure_storage: ^9.2.2
+  geolocator: ^13.0.1
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
