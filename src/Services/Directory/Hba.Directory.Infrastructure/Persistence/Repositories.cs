@@ -13,7 +13,47 @@ internal sealed class CustomerRepository(DirectoryDbContext context) : ICustomer
     public Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken)
         => context.Customers.AnyAsync(c => c.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<Customer>> SearchAsync(
+        string? query,
+        int pageSize,
+        int offset,
+        CancellationToken cancellationToken)
+        => await Filter(query)
+            .AsNoTracking()
+            .OrderBy(c => c.DisplayName)
+            .ThenBy(c => c.Id)
+            .Skip(offset)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    public Task<int> CountAsync(string? query, CancellationToken cancellationToken)
+        => Filter(query).CountAsync(cancellationToken);
+
     public void Add(Customer customer) => context.Customers.Add(customer);
+
+    private IQueryable<Customer> Filter(string? query)
+    {
+        var customers = context.Customers.AsQueryable();
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return customers;
+        }
+
+        var motif = $"%{query.Trim()}%";
+
+        // ILIKE, comme pour les commercants : la recherche ne doit pas
+        // dependre de la casse.
+        //
+        // LE TELEPHONE SE CHERCHE PAR FRAGMENT, ET C'EST VOULU : un operateur
+        // lit un numero sur un ticket sans forcement l'indicatif. En
+        // contrepartie, « 90 » rend un tiers de l'annuaire — la pagination
+        // s'en charge, pas la requete.
+        return customers.Where(c =>
+            EF.Functions.ILike(c.DisplayName, motif)
+            || EF.Functions.ILike(c.Phone, motif));
+    }
 }
 
 internal sealed class MerchantRepository(DirectoryDbContext context) : IMerchantRepository

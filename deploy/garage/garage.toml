@@ -1,0 +1,42 @@
+# Garage — stockage objet auto-heberge (ADR 0021).
+#
+# IL NE SERT RIEN AVANT INITIALISATION. Contrairement a la plupart des
+# conteneurs, « up -d » ne suffit pas : tant qu'aucune disposition n'est
+# appliquee, Garage repond « no storage nodes ». Voir deploy/garage/init.sh,
+# ou « make garage-init ».
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir     = "/var/lib/garage/data"
+db_engine    = "sqlite"
+
+# UNE SEULE COPIE, PARCE QU'IL N'Y A QU'UN NOEUD. Demander 3 sur un pilote
+# mono-machine ferait refuser toute ecriture : Garage n'ecrit pas s'il ne peut
+# pas satisfaire le facteur demande.
+replication_factor = 1
+
+# Consistance forte : sur un seul noeud, elle ne coute rien et evite qu'une
+# piece tout juste deposee soit introuvable a la relecture.
+consistency_mode = "consistent"
+
+# Secret du protocole entre noeuds. Il n'y en a qu'un ici, mais Garage refuse
+# de demarrer sans. Cette valeur est celle du developpement — elle est dans le
+# depot, donc publique. EN PRODUCTION, elle se regenere :
+#   openssl rand -hex 32
+rpc_secret = "b9a1f4c0d2e7368a5b1c9d0e4f7a2b8c3d6e9f0a1b2c3d4e5f6a7b8c9d0e1f2a"
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "garage:3901"
+
+[s3_api]
+s3_region = "hba"
+api_bind_addr = "[::]:3900"
+# L'adressage par chemin, et non par sous-domaine : « garage/hba-driver-documents »
+# plutot que « hba-driver-documents.garage ». Sans cela, le SDK construirait un
+# nom d'hote que le reseau Docker ne resout pas.
+root_domain = ".s3.hba.local"
+
+[admin]
+api_bind_addr = "[::]:3903"
+# Jeton de l'API d'administration, utilise par le script d'initialisation.
+# En production : openssl rand -base64 32
+admin_token = "hba-garage-admin-dev"
+metrics_token = "hba-garage-metrics-dev"

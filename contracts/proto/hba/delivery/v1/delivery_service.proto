@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "hba/common/v1/enums.proto";
 import "hba/common/v1/geo.proto";
 import "hba/common/v1/money.proto";
+import "hba/common/v1/time.proto";
 
 option csharp_namespace = "Hba.Contracts.Delivery.V1";
 
@@ -23,6 +24,9 @@ service DeliveryService {
   rpc GetDelivery(GetDeliveryRequest) returns (Delivery);
   rpc ListDeliveries(ListDeliveriesRequest) returns (ListDeliveriesResponse);
 
+  // Back-office, admin seulement : le cumul facturé d'un client.
+  rpc GetCustomerBilling(GetCustomerBillingRequest) returns (CustomerBilling);
+
   // Annulation selon la politique d'annulation. Client, commerçant, partenaire.
   rpc CancelDelivery(CancelDeliveryRequest) returns (Delivery);
 
@@ -39,6 +43,11 @@ service DeliveryService {
   // Admin / ops : clôture forcée en FAILED ou CANCELLED, avec motif obligatoire.
   // Un admin ne peut jamais produire DELIVERED.
   rpc AdminCloseDelivery(AdminCloseDeliveryRequest) returns (Delivery);
+
+  // Back-office : les agrégats du tableau de bord, calculés en base sur la
+  // fenêtre demandée. Réservé aux rôles admin, ops, support et finance, et
+  // vérifié dans le handler.
+  rpc GetDeliveryStats(GetDeliveryStatsRequest) returns (DeliveryStats);
 }
 
 enum DeliveryStatus {
@@ -171,11 +180,41 @@ message ListDeliveriesRequest {
   google.protobuf.Timestamp created_before = 3;
   int32 page_size = 4;
   string page_token = 5;
+
+  // Filtre par donneur d'ordre. Vide = pas de filtre.
+  //
+  // IL NE DONNE AUCUN DROIT NOUVEAU. Le service impose le périmètre de
+  // l'appelant par-dessus : un client ne voit que les siennes quoi qu'il
+  // envoie ici, un livreur ne voit que ses courses, et seul le back-office —
+  // qui voit déjà tout — s'en sert comme d'un filtre. C'est donc un
+  // rétrécissement, jamais un élargissement.
+  string customer_id = 6;
 }
 
 message ListDeliveriesResponse {
   repeated Delivery deliveries = 1;
   string next_page_token = 2;
+}
+
+message GetCustomerBillingRequest {
+  string customer_id = 1;
+}
+
+// Ce qui a été FACTURÉ à un client, jamais ce qui a été encaissé.
+//
+// LA DISTINCTION N'EST PAS THÉORIQUE : ce total est la somme des instantanés
+// de prix des courses LIVRÉES. Il ignore les impayés, les remboursements et
+// les annulations postérieures au paiement — qui vivent dans Payment, lequel
+// agrège par PAYEUR et non par client : une course commandée par un
+// commerçant est payée par lui. L'écran doit écrire « facturé ».
+//
+// RÉSERVÉ À admin. Ops et support voient les courses une par une — un litige
+// se traite comme ça — mais pas le cumul, qui est un chiffre d'argent.
+message CustomerBilling {
+  string customer_id = 1;
+  int32 delivered_count = 2;
+  // En francs CFA, sans subdivision.
+  int64 billed_total_xof = 3;
 }
 
 message CancelDeliveryRequest {
@@ -212,4 +251,56 @@ message AdminCloseDeliveryRequest {
   // FAILED ou CANCELLED uniquement.
   DeliveryStatus target_status = 2;
   string reason = 3;
+}
+
+message GetDeliveryStatsRequest {
+  // Absente, elle vaut les trente derniers jours (ADR 0019).
+  hba.common.v1.TimeWindow window = 1;
+  hba.common.v1.TimeGranularity granularity = 2;
+}
+
+message StatusCount {
+  DeliveryStatus status = 1;
+  int64 count = 2;
+}
+
+message SourceCount {
+  hba.common.v1.Source source = 1;
+  int64 count = 2;
+}
+
+message DeliveryStats {
+  // La fenêtre RÉELLEMENT appliquée, jamais celle demandée : l'appelant qui
+  // n'en a envoyé aucune doit savoir sur quoi portent les chiffres qu'il
+  // affiche.
+  hba.common.v1.TimeWindow window = 1;
+
+  int64 total = 2;
+  // Courses non encore closes à l'instant de la lecture.
+  int64 open = 3;
+  int64 delivered = 4;
+  int64 closed = 5;
+
+  // Somme des prix FIGÉS dans les courses. Ce n'est pas l'encaissé : une
+  // course peut être facturée et jamais payée. Payment fait foi sur l'argent.
+  int64 billed_xof = 6;
+
+  repeated StatusCount by_status = 7;
+  repeated SourceCount by_source = 8;
+
+  // Courses créées, par jour ou par mois du calendrier local. Les périodes
+  // sans course y figurent à zéro.
+  repeated hba.common.v1.SeriesPoint created_series = 9;
+
+  // Délais moyens depuis la création, en secondes.
+  int32 avg_seconds_to_assignment = 10;
+  int32 avg_seconds_to_pickup = 11;
+  int32 avg_seconds_to_delivery = 12;
+
+  // Nombre de courses derrière chaque moyenne. SANS EUX, UNE MOYENNE SUR
+  // TROIS COURSES SE LIT COMME UNE MESURE : au lancement, la plupart de ces
+  // délais reposeront sur une poignée de trajets.
+  int64 assignment_samples = 13;
+  int64 pickup_samples = 14;
+  int64 delivery_samples = 15;
 }

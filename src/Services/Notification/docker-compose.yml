@@ -1,0 +1,71 @@
+# Déploiement du service notification. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possède pas. Les réseaux sont
+# EXTERNES — la pile d'infrastructure les crée une fois — et tout ce qui change
+# d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Services/Notification && docker compose up -d
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-notification
+
+services:
+  notification:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-notification:${HBA_TAG:-latest}
+
+    # `build` sert au poste de développement et à la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Services/Notification/Hba.Notification.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte
+      # un mot de passe de developpement. La forme :? fait REFUSER le demarrage
+      # par Compose, avant tout conteneur. Sans elle, une variable absente
+      # devient la chaine vide et la base partirait ouverte a hba/hba.
+      ConnectionStrings__NotificationDb: ${NOTIFICATIONDB_CONNECTION:?NOTIFICATIONDB_CONNECTION absent - renseignez-le dans le .env du service}
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+      # À TRANCHER : aucun opérateur SMS n'est choisi. Tant que cette valeur
+      # reste « none », les envois sont consignés comme ignorés — visible dans
+      # notification.sent_notifications, et silencieux pour l'utilisateur.
+      Sms__Provider: ${SMS_PROVIDER:-none}
+
+      # WhatsApp porte le code de connexion (ADR 0014). Sans « cloud » ici,
+      # l'adaptateur n'est PAS enregistre : le canal existe mais declare n'avoir
+      # aucun fournisseur, ce qui fait basculer la chaine sur le SMS au lieu de
+      # laisser croire a un envoi reussi.
+      WhatsApp__Provider: ${WHATSAPP_PROVIDER:-none}
+      WhatsApp__PhoneNumberId: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      # SECRET. Pas de valeur par defaut : mieux vaut un canal inactif qu'un
+      # jeton de test parti en production.
+      WhatsApp__AccessToken: ${WHATSAPP_ACCESS_TOKEN:-}
+      WhatsApp__GraphApiVersion: ${WHATSAPP_GRAPH_API_VERSION:-v24.0}
+
+      # OVHcloud SMS. Actif seulement si SMS_PROVIDER vaut « ovh ».
+      Ovh__Endpoint: ${OVH_ENDPOINT:-https://eu.api.ovh.com/1.0}
+      Ovh__ServiceName: ${OVH_SMS_SERVICE_NAME:-}
+      Ovh__ApplicationKey: ${OVH_APPLICATION_KEY:-}
+      # SECRETS. Pas de valeur par defaut : un canal inactif vaut mieux qu'un
+      # identifiant de test parti en production.
+      Ovh__ApplicationSecret: ${OVH_APPLICATION_SECRET:-}
+      Ovh__ConsumerKey: ${OVH_CONSUMER_KEY:-}
+      Ovh__Sender: ${OVH_SENDER:-}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

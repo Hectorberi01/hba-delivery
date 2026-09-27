@@ -114,7 +114,7 @@ internal static class DeliveryProtoMapper
         _ => Domain.Deliveries.DeliverySource.ClientApp,
     };
 
-    private static DeliveryStatus ToProtoStatus(DomainStatus status) => status switch
+    internal static DeliveryStatus ToProtoStatus(DomainStatus status) => status switch
     {
         DomainStatus.PendingPayment => DeliveryStatus.PendingPayment,
         DomainStatus.PaymentFailed => DeliveryStatus.PaymentFailed,
@@ -130,7 +130,7 @@ internal static class DeliveryProtoMapper
         _ => DeliveryStatus.Unspecified,
     };
 
-    private static Source ToProtoSource(Domain.Deliveries.DeliverySource source) => source switch
+    internal static Source ToProtoSource(Domain.Deliveries.DeliverySource source) => source switch
     {
         Domain.Deliveries.DeliverySource.HbaExpress => Source.HbaExpress,
         Domain.Deliveries.DeliverySource.HbaFood => Source.HbaFood,

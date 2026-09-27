@@ -3,10 +3,8 @@
     "Hba.Notification.Api": {
       "commandName": "Project",
       "dotnetRunMessages": true,
-      "applicationUrl": "http://localhost:5007",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_HTTP_PORTS": "5007"
+        "ASPNETCORE_ENVIRONMENT": "Development"
       }
     }
   }

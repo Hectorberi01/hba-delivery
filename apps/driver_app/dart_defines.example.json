@@ -1,0 +1,14 @@
+{
+  "_lisez_moi": "Copiez ce fichier en dart_defines.json et adaptez HBA_API_BASE a votre machine. Lancez ensuite : flutter run --dart-define-from-file=dart_defines.json",
+
+  "_api": "L'adresse de la passerelle VUE DEPUIS LE TELEPHONE. « localhost » ne designe pas votre Mac quand l'application tourne sur un telephone physique : il faut l'adresse du Mac sur le reseau local, que « ipconfig getifaddr en0 » donne.",
+  "HBA_API_BASE": "http://192.168.1.24:5100/api/driver/v1",
+
+  "_support": "Contacts affiches au livreur dans son profil. Vides, la carte Assistance ne s'affiche pas du tout — un bouton qui appelle dans le vide est pire que pas de bouton.",
+  "HBA_SUPPORT_TEL": "+2290197755341",
+  "HBA_SUPPORT_EMAIL": "hector.adjakpa@hbatechettrade.com",
+
+  "_documents": "Adresses des versions PUBLIEES des deux documents. Facultatives : les textes s'affichent dans l'application, hors ligne. Renseignees, un bouton « Voir la version publiee » apparait en bas de chaque document.",
+  "HBA_CGU": "",
+  "HBA_CONFIDENTIALITE": ""
+}

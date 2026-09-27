@@ -44,10 +44,17 @@ public sealed class DispatchEventsConsumer(
 
         switch (message.PayloadCase)
         {
-            // Première vague envoyée : la livraison passe en recherche.
+            // Une offre est partie : la livraison passe en recherche.
+            //
+            // N'IMPORTE QUELLE VAGUE, PAS SEULEMENT LA PREMIERE. Une première
+            // vague sans candidat ne publie aucune offre : si seule la vague 1
+            // ouvrait la recherche, une course trouvée au deuxième rayon
+            // resterait affichée « payée » au client pendant que des livreurs
+            // la regardent déjà. La transition est idempotente — l'agrégat
+            // sort tout de suite s'il est déjà en recherche.
             case DispatchEvent.PayloadOneofCase.OfferSent:
                 var sent = message.OfferSent;
-                if (sent.WaveNumber <= 1 && Guid.TryParse(sent.DeliveryId, out var searchingId))
+                if (Guid.TryParse(sent.DeliveryId, out var searchingId))
                 {
                     await dispatcher.SendAsync(
                         new StartDriverSearchCommand(

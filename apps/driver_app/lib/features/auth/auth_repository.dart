@@ -1,5 +1,4 @@
-import '../../core/api_client.dart';
-import '../../core/token_store.dart';
+import 'package:hba_core/hba_core.dart';
 
 /// Defi OTP en cours. Ne porte jamais le code : il n'existe que sur le
 /// telephone du livreur.
@@ -16,18 +15,15 @@ class OtpChallenge {
 }
 
 /// Ce que le BFF renvoie apres une verification reussie.
+///
+/// PAS DE STATUT KYC ICI. La verification repond Identity, qui ne connait pas
+/// les pieces du livreur : le dossier appartient au service Driver. Le nom
+/// lui-meme n'arrive que dans « principal ». Le statut se lit ensuite sur
+/// GET /me, ce que SessionController fait juste apres.
 class SignedInDriver {
-  const SignedInDriver({
-    required this.displayName,
-    required this.kycApproved,
-  });
+  const SignedInDriver({required this.displayName});
 
   final String displayName;
-
-  /// Le compte existe des la premiere verification, mais le livreur ne peut
-  /// pas travailler tant que ops n'a pas valide ses pieces. L'application doit
-  /// vivre cet etat intermediaire plutot que de le traiter comme une panne.
-  final bool kycApproved;
 }
 
 class AuthRepository {
@@ -78,9 +74,15 @@ class AuthRepository {
       refreshToken: data['refreshToken'] as String,
     );
 
+    final principal = data['principal'];
+    final fromPrincipal = principal is Map
+        ? principal['displayName'] as String?
+        : null;
+
     return SignedInDriver(
-      displayName: data['displayName'] as String? ?? displayName,
-      kycApproved: data['kycApproved'] as bool? ?? false,
+      displayName: (fromPrincipal?.isNotEmpty ?? false)
+          ? fromPrincipal!
+          : displayName,
     );
   }
 

@@ -67,7 +67,8 @@ public static class SecurityExtensions
             .AddPolicy(HbaPolicies.Partner, p => p.RequireClaim(HbaClaims.Roles, HbaRoles.Partner))
             .AddPolicy(HbaPolicies.BackOffice, p => p.RequireClaim(HbaClaims.Roles, HbaRoles.Admin, HbaRoles.Ops, HbaRoles.Support, HbaRoles.Finance))
             .AddPolicy(HbaPolicies.Admin, p => p.RequireClaim(HbaClaims.Roles, HbaRoles.Admin))
-            .AddPolicy(HbaPolicies.Finance, p => p.RequireClaim(HbaClaims.Roles, HbaRoles.Admin, HbaRoles.Finance));
+            .AddPolicy(HbaPolicies.Finance, p => p.RequireClaim(HbaClaims.Roles, HbaRoles.Admin, HbaRoles.Finance))
+            .AddPolicy(HbaPolicies.AnnuaireClients, p => p.RequireClaim(HbaClaims.Roles, HbaRoles.Admin, HbaRoles.Ops, HbaRoles.Support));
 
         return services;
     }

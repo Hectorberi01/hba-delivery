@@ -32,6 +32,42 @@ internal static class DirectoryProtoMapper
         return customer;
     }
 
+    public static CustomerDirectoryRow ToProto(CustomerDirectoryRowView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        return new CustomerDirectoryRow
+        {
+            CustomerId = view.Id.ToString(),
+            DisplayName = view.DisplayName,
+            PhoneMasked = view.PhoneMasked,
+            CreatedAt = Timestamp.FromDateTimeOffset(view.CreatedAt),
+        };
+    }
+
+    public static CustomerFile ToProto(CustomerFileView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        var fiche = new CustomerFile
+        {
+            CustomerId = view.Id.ToString(),
+            DisplayName = view.DisplayName,
+            Phone = view.Phone,
+            Email = view.Email ?? string.Empty,
+            EmailHidden = view.EmailMasque,
+            AddressesHidden = view.AdressesMasquees,
+            CreatedAt = Timestamp.FromDateTimeOffset(view.CreatedAt),
+        };
+
+        // LA LISTE EST DEJA VIDE QUAND LE ROLE N'Y A PAS DROIT : la requete
+        // ne la remplit pas. On ne refiltre pas ici — deux endroits qui
+        // decident de la meme chose finissent toujours par diverger.
+        fiche.FavoriteAddresses.AddRange(view.FavoriteAddresses.Select(ToProto));
+
+        return fiche;
+    }
+
     public static FavoriteAddress ToProto(FavoriteAddressView view)
         => new()
         {

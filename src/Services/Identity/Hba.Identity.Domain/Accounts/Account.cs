@@ -1,5 +1,6 @@
 using Hba.BuildingBlocks.Domain;
 using Hba.Identity.Domain.Accounts.Events;
+using Hba.Identity.Domain.Exceptions;
 using Hba.Identity.Domain.ValueObjects;
 
 namespace Hba.Identity.Domain.Accounts;
@@ -25,11 +26,8 @@ public sealed class Account : AggregateRoot
     }
 
     public PhoneNumber? Phone { get; private set; }
-
     public EmailAddress? Email { get; private set; }
-
     public string DisplayName { get; private set; } = string.Empty;
-
     public IReadOnlyList<string> Roles => _roles.AsReadOnly();
 
     /// <summary>
@@ -75,8 +73,21 @@ public sealed class Account : AggregateRoot
 
     public DateTimeOffset? LockedUntil { get; private set; }
 
-    public bool HasPassword => Password is not null;
+    /// <summary>
+    /// Consentement à recevoir des messages WhatsApp. FAUX PAR DEFAUT, ET CE
+    /// N'EST PAS NEGOCIABLE : Meta exige un consentement explicite avant tout
+    /// message de gabarit, et un défaut à vrai serait un consentement présumé,
+    /// c'est-à-dire pas un consentement.
+    ///
+    /// Il porte sur le titulaire du compte. Le destinataire d'un colis n'en a
+    /// jamais donné — il n'a pas de compte — donc son code de remise part par
+    /// SMS, quel que soit le coût.
+    /// </summary>
+    public bool WhatsAppOptIn { get; private set; }
 
+    /// <summary>Date du consentement en cours. Nul s'il n'a jamais été accordé.</summary>
+    public DateTimeOffset? WhatsAppOptInAt { get; private set; }
+    public bool HasPassword => Password is not null;
     public bool IsLocked(DateTimeOffset now) => LockedUntil is not null && LockedUntil > now;
 
     /// <summary>
@@ -89,7 +100,8 @@ public sealed class Account : AggregateRoot
         PhoneNumber phone,
         string displayName,
         string role,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        bool whatsAppOptIn = false)
     {
         ArgumentNullException.ThrowIfNull(phone);
 
@@ -117,6 +129,14 @@ public sealed class Account : AggregateRoot
             actor,
             now));
 
+        if (whatsAppOptIn)
+        {
+            // Passe par la méthode plutôt que par le champ : le consentement
+            // recueilli à l'inscription doit laisser la même trace auditable
+            // que celui accordé plus tard.
+            account.SetWhatsAppConsent(true, actor, now);
+        }
+
         return account;
     }
 
@@ -139,7 +159,7 @@ public sealed class Account : AggregateRoot
         if (requested.Count == 0 || !requested.All(Domain.Roles.BackOffice.Contains))
         {
             throw new DomainException(
-                "INVALID_ROLES",
+                IdentityErrorCodes.InvalidRoles,
                 "Un compte de back-office porte uniquement des rôles admin, ops, support ou finance.");
         }
 
@@ -175,7 +195,7 @@ public sealed class Account : AggregateRoot
         if (!Domain.Roles.Merchant.Contains(role))
         {
             throw new DomainException(
-                "INVALID_ROLES",
+                IdentityErrorCodes.InvalidRoles,
                 "Un compte de commerçant porte merchant_owner ou merchant_staff.");
         }
 
@@ -221,7 +241,7 @@ public sealed class Account : AggregateRoot
 
         if (DriverId is not null)
         {
-            throw new DomainException("DRIVER_ALREADY_LINKED", "Ce compte est déjà rattaché à un autre livreur.");
+            throw new DomainException(IdentityErrorCodes.DriverAlreadyLinked, "Ce compte est déjà rattaché à un autre livreur.");
         }
 
         DriverId = driverId;
@@ -237,7 +257,7 @@ public sealed class Account : AggregateRoot
 
         if (requested.Count == 0)
         {
-            throw new DomainException("INVALID_ROLES", "Un compte doit porter au moins un rôle.");
+            throw new DomainException(IdentityErrorCodes.InvalidRoles, "Un compte doit porter au moins un rôle.");
         }
 
         if (requested.Contains(Domain.Roles.Partner))
@@ -347,6 +367,36 @@ public sealed class Account : AggregateRoot
         return true;
     }
 
+    /// <summary>
+    /// Accorde ou retire le consentement WhatsApp. Idempotent : redonner un
+    /// consentement déjà donné n'émet aucun événement, pour que le journal
+    /// d'audit garde la date du consentement RÉEL et non celle du dernier appel.
+    /// </summary>
+    public void SetWhatsAppConsent(bool granted, Actor actor, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (WhatsAppOptIn == granted)
+        {
+            return;
+        }
+
+        WhatsAppOptIn = granted;
+
+        // Le retrait efface la date : il ne reste aucune trace d'un consentement
+        // en cours, seulement l'événement qui dit qu'il a existé puis cessé.
+        WhatsAppOptInAt = granted ? now : null;
+
+        Raise(new AccountWhatsAppConsentChanged(Id, granted, actor, now));
+    }
+
+    /// <summary>
+    /// Le compte peut-il recevoir son code de connexion par WhatsApp ?
+    /// Un compte suspendu ne se connecte pas du tout, la question ne se pose
+    /// donc que pour un compte actif qui a consenti.
+    /// </summary>
+    public bool CanReceiveWhatsApp => WhatsAppOptIn && Status == AccountStatus.Active;
+
     /// <summary>Appelé après une authentification réussie, quel que soit le moyen.</summary>
     public void RecordLogin(DateTimeOffset now)
     {
@@ -382,7 +432,7 @@ public sealed class Account : AggregateRoot
 
         if (unknown.Count > 0)
         {
-            throw new DomainException("UNKNOWN_ROLE", $"Rôles inconnus : {string.Join(", ", unknown)}.");
+            throw new DomainException(IdentityErrorCodes.UnknownRole, $"Rôles inconnus : {string.Join(", ", unknown)}.");
         }
 
         return normalized;

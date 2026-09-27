@@ -1,8 +1,10 @@
 using Hba.BuildingBlocks.Grpc.Interceptors;
 using Hba.BuildingBlocks.Observability;
 using Hba.BuildingBlocks.Security;
-using Hba.Dispatch.Application.Extensions;
-using Hba.Dispatch.Infrastructure.Extensions;
+using Hba.Dispatch.Api.Messaging;
+using Hba.Dispatch.Api.Scheduling;
+using Hba.Dispatch.Application;
+using Hba.Dispatch.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +22,10 @@ builder.Services.AddHbaSecurity(builder.Configuration);
 
 builder.Services.AddDispatchApplication();
 builder.Services.AddDispatchInfrastructure(builder.Configuration);
+
+// « DeliveryConfirmed » ouvre la recherche ; le planificateur la fait avancer.
+builder.Services.AddHostedService<DeliveryEventsConsumer>();
+builder.Services.AddHostedService<DispatchScheduler>();
 
 var app = builder.Build();
 

@@ -73,11 +73,24 @@ message DeliveryPickedUp {
 }
 
 // livraison réaliser complet
+// Consommé par Driver pour rendre le livreur DISPONIBLE : sans cela il reste
+// ON_MISSION indéfiniment, invisible pour toutes les vagues suivantes, et sans
+// même pouvoir se mettre hors ligne — la machine à états le lui interdit
+// pendant une mission.
 message DeliveryCompleted {
   string delivery_id = 1;
   string driver_id = 2;
   hba.common.v1.Money driver_earning = 3;
   google.protobuf.Timestamp occurred_at = 4;
+
+  // Référence lisible de la course — « HBA-835GZ5 ».
+  //
+  // ELLE VOYAGE AVEC L'EVENEMENT PARCE QUE PERSONNE NE PEUT ALLER LA
+  // CHERCHER. Payment inscrit cette course au compte du livreur et n'a pas le
+  // droit de lire la base de Delivery ; un relevé qui n'afficherait que des
+  // UUID serait illisible pour le livreur comme pour la finance. La référence
+  // ne change jamais, la recopier ne crée aucune divergence.
+  string reference = 5;
 }
 
 // livraison annulé
@@ -89,12 +102,22 @@ message DeliveryCancelled {
   // Statut au moment de l'annulation : détermine la politique de remboursement.
   DeliveryStatus previous_status = 5;
   google.protobuf.Timestamp occurred_at = 6;
+
+  // Livreur affecté au moment de l'annulation, vide s'il n'y en avait aucun.
+  //
+  // IL SERT A LE LIBERER, ET RIEN D'AUTRE. Une course annulée alors qu'un
+  // livreur l'avait acceptée le laissait ON_MISSION pour toujours : plus
+  // aucune offre, et pas même le droit de se mettre hors ligne.
+  string driver_id = 7;
 }
 
 message DeliveryFailed {
   string delivery_id = 1;
   string reason = 2;
   google.protobuf.Timestamp occurred_at = 3;
+
+  // Même raison que pour l'annulation : libérer le livreur affecté.
+  string driver_id = 4;
 }
 
 message NoDriverFound {

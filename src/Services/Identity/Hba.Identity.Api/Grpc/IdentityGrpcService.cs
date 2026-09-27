@@ -2,10 +2,13 @@ using Grpc.Core;
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Domain;
 using Hba.Contracts.Identity.V1;
-using Hba.Identity.Application.Accounts;
-using Hba.Identity.Application.Authentication;
-using Hba.Identity.Application.Partners;
-using Hba.Identity.Application.Queries;
+using Hba.Identity.Application.Features.Accounts.Commands;
+using Hba.Identity.Application.Features.Accounts.Queries;
+using Hba.Identity.Application.Features.Authentication.Commands;
+using Hba.Identity.Application.Features.Partners.Commands;
+using Hba.Identity.Application.Features.Partners.Queries;
+using Hba.Identity.Application.Features.ServiceClients.Commands;
+using Hba.Identity.Domain.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using DomainOtpIntent = Hba.Identity.Domain.Otp.OtpIntent;
 using ProtoAccount = Hba.Contracts.Identity.V1.Account;
@@ -282,6 +285,30 @@ public sealed class IdentityGrpcService(IDispatcher dispatcher) : IdentityServic
         return IdentityProtoMapper.ToProto(view);
     }
 
+    /// <summary>
+    /// Jeton d'un service interne. Anonyme par nécessité, comme
+    /// IssuePartnerToken : c'est le secret client qui authentifie.
+    /// </summary>
+    [AllowAnonymous]
+    public override async Task<ServiceToken> IssueServiceToken(
+        IssueServiceTokenRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new IssueServiceTokenCommand(request.ClientId, request.ClientSecret),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return new ServiceToken
+        {
+            AccessToken = view.AccessToken,
+            ExpiresInSeconds = view.ExpiresInSeconds,
+            TokenType = view.TokenType,
+        };
+    }
+
     public override async Task<PartnerWebhookConfig> GetPartnerWebhookConfig(
         GetPartnerWebhookConfigRequest request,
         ServerCallContext context)
@@ -314,7 +341,7 @@ public sealed class IdentityGrpcService(IDispatcher dispatcher) : IdentityServic
     private static Guid ParseId(string value, string label)
         => Guid.TryParse(value, out var id)
             ? id
-            : throw new DomainException("INVALID_ID", $"Identifiant de {label} invalide : {value}.");
+            : throw new DomainException(IdentityErrorCodes.InvalidId, $"Identifiant de {label} invalide : {value}.");
 
     private static string? Nullify(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 }

@@ -46,6 +46,18 @@ service IdentityService {
   // Appel interne : la Partner API a besoin de l'URL et du secret de signature
   // pour émettre un webhook. Réservé aux appelants du back-office.
   rpc GetPartnerWebhookConfig(GetPartnerWebhookConfigRequest) returns (PartnerWebhookConfig);
+
+  // --- Services internes (OAuth2 client credentials) ---
+  // Un service qui appelle un autre service DOIT porter un jeton : l'ADR 0007
+  // exige que l'autorisation soit verifiee par le service appele, et un appel
+  // parti d'un consommateur Kafka ou d'un planificateur n'a aucun utilisateur
+  // dont reporter le jeton.
+  //
+  // Appel non authentifie, comme IssuePartnerToken : le secret client EST
+  // l'authentification. Le jeton emis ne porte AUCUN role du referentiel — un
+  // service n'est pas un acteur, et ne doit jamais pouvoir se faire passer
+  // pour un client, un livreur ou un administrateur.
+  rpc IssueServiceToken(IssueServiceTokenRequest) returns (ServiceToken);
 }
 
 enum AccountStatus {
@@ -247,4 +259,19 @@ message PartnerWebhookConfig {
   string signing_secret = 3;
   int32 rate_limit_per_minute = 4;
   bool enabled = 5;
+}
+
+message IssueServiceTokenRequest {
+  // Nom du service appelant : delivery, dispatch, ...
+  string client_id = 1;
+  string client_secret = 2;
+}
+
+// Pas de jeton de rafraichissement : un service redemande, il ne rafraichit
+// pas. Le sujet du jeton vaut « service:<client_id> » et sa liste de roles est
+// vide.
+message ServiceToken {
+  string access_token = 1;
+  int32 expires_in_seconds = 2;
+  string token_type = 3;
 }

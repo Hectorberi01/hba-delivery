@@ -10,14 +10,71 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # LES TEXTES QUE FLUTTER FOURNIT LUI-MEME. Sans ce paquet, MaterialApp n'a
+  # que les libelles anglais : le menu de selection de texte dit « Paste » au
+  # moment precis ou le livreur colle son code de connexion, et l'info-bulle
+  # du bouton retour dit « Back ». Rien de tout cela n'est ecrit dans nos
+  # ecrans — c'est le cadre qui le fournit, et il faut le lui demander.
+  flutter_localizations:
+    sdk: flutter
   hba_ui:
     path: ../hba_ui
+  hba_core:
+    path: ../hba_core
   flutter_riverpod: ^2.5.1
   go_router: ^14.2.7
-  dio: ^5.7.0
-  flutter_secure_storage: ^9.2.2
   geolocator: ^13.0.1
-  uuid: ^4.5.1
+  # Ouvre l'application de navigation du telephone. Meme version que
+  # l'app client, qui s'en sert pour la page de paiement.
+  url_launcher: ^6.3.1
+  # Carte de l'accueil. Les cles d'API vivent hors du depot :
+  # android/local.properties et ios/Flutter/Secrets.xcconfig.
+  google_maps_flutter: ^2.9.0
+  # Version de l'application, affichee dans Profil : c'est la premiere chose
+  # qu'on demande a un livreur qui signale un bug.
+  package_info_plus: ^8.1.0
+  # Prise de vue des pieces du dossier.
+  image_picker: ^1.1.2
+  # REDUCTION AVANT ENVOI, ET CE N'EST PAS UN CONFORT : une CNI photographiee
+  # fait trois a huit megaoctets, et le livreur paie ses donnees a la
+  # recharge. La compression native est mille fois plus rapide que la meme
+  # chose en Dart pur, qui gelerait l'ecran une seconde ou deux.
+  flutter_image_compress: ^2.3.0
+  # Construction du chemin du fichier reduit. Transitif via Flutter, mais
+  # declare : un paquet qu'on importe se declare.
+  path: ^1.9.0
+  # Rapport de plantage. Quand l'application se fermera toute seule chez un
+  # livreur, personne ne le saura autrement : un livreur n'appelle pas pour
+  # dire « ca a ferme », il rouvre et reessaie.
+  #
+  # LES DEUX BORNES CI-DESSOUS ONT ETE ECRITES SANS POUVOIR LES RESOUDRE. Si
+  # « flutter pub get » les refuse, « flutter pub add firebase_core
+  # firebase_crashlytics » choisit les versions compatibles avec le Flutter
+  # installe, et fait autorite sur ces deux lignes.
+  firebase_core: ^3.6.0
+  firebase_crashlytics: ^4.1.3
+  # Lecture du son d'offre. Meme reserve que ci-dessus sur la version : si
+  # « flutter pub get » la refuse, « flutter pub add audioplayers » tranche.
+  audioplayers: ^6.8.1
+  # LE SERVICE DE PREMIER PLAN. Il ne sert pas a executer du code : il sert a
+  # ce que le PROCESSUS reste de priorite « premier plan » quand l'ecran
+  # s'eteint, pour que les minuteries de l'isolat principal — position, offres
+  # — continuent de battre. Voir core/service_en_ligne.dart, qui explique
+  # pourquoi l'isolat du service, lui, ne fait rien.
+  #
+  # RESERVE SUR LA VERSION, PLUS FORTE QUE POUR LES AUTRES PAQUETS : l'API de
+  # « TaskHandler » a change entre les majeures 6 et 8. Si « flutter pub get »
+  # choisit autre chose que 8.x, les trois signatures de _TacheDePresence sont
+  # a reprendre — elles sont volontairement vides pour que ce soit l'affaire de
+  # deux minutes.
+  flutter_foreground_task: ^8.17.0
+  # LE MOTEUR DE VIBRATION, QUE FLUTTER NE DONNE PAS. « HapticFeedback » du
+  # SDK ne declenche que le retour tactile de l'interface, soumis au reglage
+  # systeme « vibration au toucher » — eteint par defaut sur beaucoup de
+  # Samsung. Une offre de course doit se sentir meme la, et meme telephone en
+  # sourdine. Meme reserve sur la version : « flutter pub add vibration »
+  # tranche.
+  vibration: ^3.2.1
 
 dev_dependencies:
   flutter_test:
@@ -26,3 +83,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    # Le son d'arrivee d'une offre. Il est GENERE, pas telecharge : deux notes
+    # montantes de synthese, 1,16 s, 44,1 kHz mono. Le script qui le produit
+    # est tool/generer_son.py — un fichier binaire dont personne ne sait d'ou
+    # il vient est un fichier qu'on n'ose plus modifier.
+    - assets/sons/

@@ -1,9 +1,12 @@
 namespace Hba.Driver.Domain;
 
 /// <summary>
-/// Coquille du domaine Driver. Profils livreurs, KYC dans MinIO, positions dans Redis GEO.
-/// Le modele reste a ecrire : le referentiel acteurs ne le decrit pas encore
-/// assez precisement pour le poser sans supposer de regles.
+/// Repere du domaine Driver.
+///
+/// L'agregat est <see cref="Drivers.DriverAggregate"/> : le dossier du livreur,
+/// son vehicule et son etat de travail. SA POSITION N'Y EST PAS — elle vit dans
+/// Redis GEO, comme l'exige le referentiel acteurs, et n'est jamais ecrite en
+/// base relationnelle a chaque rafraichissement.
 /// </summary>
 internal static class DomainPlaceholder
 {

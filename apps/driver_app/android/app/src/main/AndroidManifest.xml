@@ -1,0 +1,153 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- POSITION. Sans ces deux lignes, geolocator ne demande meme pas
+         l'autorisation : il leve une exception des le premier appel a
+         checkPermission, et le passage en ligne echoue sans rien expliquer.
+
+         LES DEUX, PAS SEULEMENT LA PRECISE. Depuis Android 12, l'utilisateur
+         peut accorder la position APPROCHEE alors que l'application demande
+         la precise. Sans ACCESS_COARSE_LOCATION declaree, ce choix n'est pas
+         propose et le systeme refuse la demande entiere : un livreur prudent
+         se retrouve incapable de travailler. Le dispatch s'accommode d'un
+         rayon de quelques centaines de metres ; il ne s'accommode pas d'une
+         absence de position. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
+    <!-- PAS D'ACCESS_BACKGROUND_LOCATION, ET C'EST DELIBERE. La position
+         n'est envoyee que pendant que l'ecran d'accueil est ouvert. La
+         demander changerait le comportement de l'application, imposerait une
+         notification permanente et un service de premier plan, et declenche
+         une revue manuelle du Play Store. Le referentiel ne tranche pas le
+         suivi en arriere-plan : tant qu'il ne le fait pas, on ne le demande
+         pas. -->
+
+    <!-- PAS DE PERMISSION CAMERA, ET C'EST VOULU. image_picker passe par une
+         intention systeme : c'est l'application appareil photo qui prend la
+         vue, pas la notre. Declarer android.permission.CAMERA la rendrait
+         OBLIGATOIRE — Android exigerait alors qu'on la demande, pour un
+         acces dont on n'a pas besoin.
+
+         Meme raison pour la galerie : le selecteur de documents rend un
+         fichier sans que l'application lise le stockage. -->
+
+    <!-- INTERNET n'est declaree que dans le manifeste de debogage, pose par
+         Flutter pour le rechargement a chaud. Elle manquerait en release :
+         l'application se lancerait et aucun appel reseau ne passerait. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- LE SERVICE DE PREMIER PLAN, QUI TIENT LE LIVREUR EN LIGNE ECRAN
+         ETEINT. Sans lui, le processus redescend en priorite « arriere-plan »,
+         les minuteries de position s'arretent, et le service Driver ecarte le
+         livreur des recherches au bout de 120 s : il cesse d'exister pour le
+         dispatch sans qu'aucun ecran ne le dise.
+
+         PAS D'ACCESS_BACKGROUND_LOCATION, ET CE N'EST PAS UN OUBLI. Un service
+         de premier plan de type « location » DEMARRE PENDANT QUE
+         L'APPLICATION EST AU PREMIER PLAN accede a la position sans cette
+         permission. La demander declencherait la revue manuelle la plus lourde
+         du Play Store pour un droit dont on n'a pas besoin. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+
+    <!-- DEPUIS ANDROID 13, LA NOTIFICATION SE DEMANDE. Un refus n'empeche pas
+         de travailler : le livreur retombe sur le fonctionnement d'avant,
+         en ligne tant que l'ecran est ouvert. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- LE MOTEUR DE VIBRATION AVERTIT D'UNE OFFRE. Permission normale : elle
+         est accordee a l'installation, sans rien demander au livreur. Sans
+         elle, l'appel echoue a l'execution. -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
+    <application
+        android:label="HBA Livreur"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- La cle est injectee par Gradle depuis local.properties. Elle
+             n'apparait jamais dans ce fichier, donc jamais dans git. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${googleMapsApiKey}" />
+
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!-- LE SERVICE DU PAQUET flutter_foreground_task.
+             Le TYPE EST DECLARE ICI, PAS EN DART : c'est le manifeste
+             qu'Android lit pour decider ce que le service a le droit de faire.
+             Un service declare sans « location » se verrait refuser la
+             position des l'extinction de l'ecran, en silence.
+             « stopWithTask » : balayer l'application hors des recentes tue
+             l'isolat principal, donc le reseau. Laisser la notification
+             survivre promettrait une presence qui n'existe plus. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="location"
+            android:stopWithTask="true"
+            android:exported="false" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+
+        <!-- ANDROID 11 CACHE LES AUTRES APPLICATIONS PAR DEFAUT. Sans ces
+             declarations, url_launcher ne VOIT pas le composeur, le client de
+             messagerie ni le navigateur du telephone : « Appeler », « Ecrire
+             au support » et les documents legaux echouent silencieusement sur
+             tout appareil recent. C'est la contrepartie exigee par la
+             plateforme pour chaque schema que l'application ouvre. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="tel"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO"/>
+            <data android:scheme="mailto"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="geo"/>
+        </intent>
+    </queries>
+</manifest>

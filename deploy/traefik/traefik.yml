@@ -17,7 +17,7 @@ entryPoints:
 providers:
   docker:
     exposedByDefault: false
-    network: hba-public
+    network: hba-internal
 
 certificatesResolvers:
   letsencrypt:

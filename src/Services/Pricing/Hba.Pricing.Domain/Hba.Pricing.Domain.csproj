@@ -8,4 +8,5 @@
     <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Domain/Hba.BuildingBlocks.Domain.csproj" />
   </ItemGroup>
 
+
 </Project>

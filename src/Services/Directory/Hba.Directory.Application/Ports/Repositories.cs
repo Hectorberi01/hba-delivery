@@ -9,6 +9,22 @@ public interface ICustomerRepository
 
     Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Recherche dans l'annuaire, sur le nom ou le telephone.
+    ///
+    /// LA RECHERCHE PAR TELEPHONE EST LA RAISON D'ETRE DE CETTE METHODE, et
+    /// aussi ce qui la rend sensible : c'est elle qui transforme un numero en
+    /// nom et en adresses. Elle n'existe que pour le back-office, et le
+    /// handler le verifie — pas la passerelle.
+    /// </summary>
+    Task<IReadOnlyList<Customer>> SearchAsync(
+        string? query,
+        int pageSize,
+        int offset,
+        CancellationToken cancellationToken);
+
+    Task<int> CountAsync(string? query, CancellationToken cancellationToken);
+
     void Add(Customer customer);
 }
 

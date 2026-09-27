@@ -1,0 +1,37 @@
+# SURCOUCHE DE TEST, JAMAIS DE PRODUCTION.
+#
+# Elle remplace FedaPay par un fournisseur factice qui denoue lui-meme les
+# transactions au bout de quelques secondes. Elle existe parce que le bac a
+# sable FedaPay refuse toute transaction « momo_test » sur un compte non
+# verifie : sans elle, aucune course n'atteint PAID et ni le dispatch ni
+# l'affectation d'un livreur ne peuvent etre exerces.
+#
+#   docker compose -f docker-compose.yml -f compose.dev-loopback.yml up -d --force-recreate payment
+#
+# Pour revenir a FedaPay — a faire des le test termine :
+#
+#   docker compose up -d --force-recreate payment
+#
+# Ce fichier n'est PAS un docker-compose.override.yml, et c'est delibere : un
+# override est charge automatiquement, donc oubliable. Celui-ci ne s'applique
+# que si on le nomme.
+
+services:
+  payment:
+    environment:
+      # Le fournisseur factice est refuse hors Development, dans le code.
+      ASPNETCORE_ENVIRONMENT: Development
+
+      # SANS CES DEUX LIGNES, RIEN NE MARCHE. appsettings.Development.json fait
+      # ecouter Kestrel sur localhost:5006 et localhost:6006 — des valeurs
+      # pensees pour un « dotnet run » sur le poste. Dans un conteneur,
+      # ecouter sur localhost rend le service injoignable depuis Delivery, qui
+      # recevrait un refus de connexion sans rapport visible avec le
+      # changement d'environnement.
+      Kestrel__Endpoints__Http__Url: "http://+:8080"
+      Kestrel__Endpoints__Grpc__Url: "http://+:8081"
+
+      Payment__Provider: loopback
+      Loopback__DelaySeconds: ${LOOPBACK_DELAY_SECONDS:-3}
+      # succeeded, failed ou pending.
+      Loopback__Outcome: ${LOOPBACK_OUTCOME:-succeeded}

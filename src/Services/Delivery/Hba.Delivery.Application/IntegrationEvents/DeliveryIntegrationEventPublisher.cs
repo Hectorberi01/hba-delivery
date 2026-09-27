@@ -102,6 +102,7 @@ public sealed class DeliveryIntegrationEventPublisher : IDeliveryIntegrationEven
             DriverId = e.DriverId,
             DriverEarning = MapMoney(e.DriverEarning.Amount),
             OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
+            Reference = delivery.Reference,
         }),
 
         DomainEvents.DeliveryCancelled e => Wrap(delivery, e, "hba.delivery.v1.DeliveryCancelled", m => m.Cancelled = new Contracts.Delivery.V1.DeliveryCancelled
@@ -112,6 +113,12 @@ public sealed class DeliveryIntegrationEventPublisher : IDeliveryIntegrationEven
             Reason = e.Reason,
             PreviousStatus = MapStatus(e.PreviousStatus),
             OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
+
+            // L'AGREGAT PORTE ENCORE SON LIVREUR AU MOMENT DE L'ANNULATION :
+            // Cancel ne l'efface pas. C'est ce qui permet a Driver de le
+            // liberer — sans quoi il resterait en mission sur une course qui
+            // n'existe plus.
+            DriverId = delivery.Driver?.DriverId ?? string.Empty,
         }),
 
         DomainEvents.DeliveryFailed e => Wrap(delivery, e, "hba.delivery.v1.DeliveryFailed", m => m.Failed = new Contracts.Delivery.V1.DeliveryFailed
@@ -119,6 +126,7 @@ public sealed class DeliveryIntegrationEventPublisher : IDeliveryIntegrationEven
             DeliveryId = delivery.Id.ToString(),
             Reason = e.Reason,
             OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
+            DriverId = delivery.Driver?.DriverId ?? string.Empty,
         }),
 
         DomainEvents.NoDriverFound e => Wrap(delivery, e, "hba.delivery.v1.NoDriverFound", m => m.NoDriverFound = new Contracts.Delivery.V1.NoDriverFound

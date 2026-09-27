@@ -1,0 +1,4 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Fusionne avec le manifeste principal UNIQUEMENT en debug. -->
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

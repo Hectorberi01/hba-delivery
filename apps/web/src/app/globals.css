@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+/* JETONS DE LA CONSOLE — NEOMORPHISME.
+   Deux familles distinctes, et la distinction n'est pas cosmetique :
+
+   - « marque » habille l'interface (bouton principal, onglet actif). Elle ne
+     doit JAMAIS servir a coder une donnee, sans quoi l'oeil lit une couleur de
+     marque comme une categorie.
+   - « serie », « bon », « attention », « serieux », « critique » codent la
+     donnee. L'ordre des series est fixe : la 5e serie ne s'invente pas, elle
+     se replie en « Autres ».
+
+   LE FOND N'EST PLUS BLANC, ET C'EST LA CONDITION DU STYLE. Le relief
+   neomorphique se fabrique avec DEUX ombres — une claire en haut a gauche,
+   une sombre en bas a droite. Sur du blanc, l'ombre claire n'a nulle part ou
+   s'imprimer : il ne reste qu'une ombre portee ordinaire. Le plan est donc
+   une argile froide, et les surfaces portent la meme teinte que lui : ce qui
+   distingue une carte du fond, c'est son relief, pas sa couleur.
+
+   TROIS COULEURS DE TEXTE ONT ETE ASSOMBRIES. Changer de fond change tous
+   les contrastes : « encre-3 » tombait de 3.59:1 sur blanc a 2.84:1 sur
+   l'argile, et il porte les sous-titres et les details — la ou la lisibilite
+   compte le plus. Les valeurs ci-dessous sont mesurees contre #e0e5ec.
+   Marque et critique servent aussi de couleur de texte : elles sont
+   assombries pour la meme raison, pas par gout. */
+@theme {
+  /* Plan : teinte du fond de page ET des creux legers (survol de ligne,
+     entete de tableau, panneau en pointilles). Un ton sous la surface. */
+  --color-plan: #d8dfe9;
+
+  /* Surface : l'argile. Meme teinte pour toutes les cartes — c'est le
+     relief qui les detache, jamais un aplat plus clair. */
+  --color-surface: #e0e5ec;
+
+  /* Creux : fond des champs et des zones enfoncees. */
+  --color-creux: #d1d9e6;
+
+  /* Bordure : presque invisible sur les cartes, mais indispensable la ou
+     elle est le SEUL separateur — les lignes de tableau n'ont pas de
+     relief. */
+  --color-bordure: #c3cddc;
+
+  --color-encre: #1f2733;    /* 11.88:1 */
+  --color-encre-2: #455065;  /*  6.41:1 */
+  --color-encre-3: #565e6b;  /*  5.17:1 — 4.61:1 au fond d'un creux */
+  --color-grille: #c3cddc;
+
+  /* Teal assombri : il sert de couleur de TEXTE (onglet actif, liens), ou
+     l'ancien #0f766e ne tenait que 4.32:1 sur l'argile. En aplat, le blanc
+     par-dessus n'y perd rien — il y gagne. */
+  --color-marque: #0b5c55;        /*  6.20:1 en texte */
+  --color-marque-fonce: #084640;
+  --color-marque-doux: #cfe0dd;
+
+  --color-serie-1: #2a78d6;
+  --color-serie-2: #eb6834;
+  --color-serie-3: #1baf7a;
+  --color-serie-4: #eda100;
+
+  /* Rampe ordonnee, pour ce qui a un ordre : les vagues du dispatch vont du
+     plus proche au plus lointain. Un jeu de teintes categorielles dirait
+     « trois choses differentes » la ou il faut lire « premiere, deuxieme,
+     troisieme ». */
+  --color-rampe-1: #86b6ef;
+  --color-rampe-2: #3987e5;
+  --color-rampe-3: #1c5cab;
+
+  --color-bon: #0ca30c;
+  --color-attention: #fab219;
+  --color-serieux: #ec835a;
+  --color-critique: #b52a2a;  /*  4.98:1 en texte */
+
+  --radius-carte: 1.25rem;
+}
+
+/* LES DEUX OMBRES. Une seule source de lumiere pour toute la console, en
+   haut a gauche : c'est ce qui fait tenir l'illusion. Une carte eclairee
+   d'un cote et un bouton de l'autre, et l'oeil ne lit plus un relief mais
+   un accident. */
+:root {
+  --ombre-claire: #ffffff;
+  --ombre-sombre: rgba(163, 177, 198, 0.62);
+}
+
+html {
+  /* Le neomorphisme n'a pas de mode sombre : la metaphore repose sur une
+     lumiere qui frappe une matiere claire. En sombre, l'ombre claire
+     deviendrait une lueur, ce qui est un autre style. */
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-encre);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Colonnes de chiffres alignees. Reserve aux tableaux et aux graduations :
+   un grand nombre isole se lit mieux en chiffres proportionnels. */
+.chiffres-tabulaires {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------- Le relief -- */
+
+/* Bombe. Cartes, entete, boutons au repos. Le degrade de 145deg n'est pas
+   decoratif : sans lui la face superieure est plate et le volume se limite
+   au bord. */
+.relief {
+  background-image: linear-gradient(145deg, #e7ebf1, #d6dce6);
+  box-shadow:
+    6px 6px 14px var(--ombre-sombre),
+    -6px -6px 14px var(--ombre-claire);
+}
+
+/* Meme chose en plus discret, pour ce qui est petit ou nombreux : un bouton
+   secondaire, une vignette. A 6px, vingt elements cote a cote donnent une
+   surface bosselee illisible. */
+.relief-doux {
+  background-image: linear-gradient(145deg, #e7ebf1, #d6dce6);
+  box-shadow:
+    3px 3px 7px var(--ombre-sombre),
+    -3px -3px 7px var(--ombre-claire);
+}
+
+/* Creuse. Champs de saisie, onglet actif, fond d'un groupe de boutons.
+   L'INVERSE DU RELIEF PORTE UN SENS : ce qui est enfonce est soit ce qui
+   recoit (un champ), soit ce qui est deja choisi. Ne pas creuser au hasard. */
+.creux {
+  background-color: var(--color-creux);
+  background-image: none;
+  box-shadow:
+    inset 4px 4px 9px var(--ombre-sombre),
+    inset -4px -4px 9px var(--ombre-claire);
+}
+
+.creux-doux {
+  background-color: var(--color-plan);
+  background-image: none;
+  box-shadow:
+    inset 2px 2px 5px var(--ombre-sombre),
+    inset -2px -2px 5px var(--ombre-claire);
+}
+
+/* Un element en relief qui s'enfonce quand on appuie. C'est le seul retour
+   tactile dont dispose ce style : sans lui, rien ne distingue un bouton
+   presse d'un bouton survole. */
+.pressable {
+  transition:
+    box-shadow 180ms ease-out,
+    transform 180ms ease-out;
+}
+
+.pressable:active:not(:disabled) {
+  box-shadow:
+    inset 3px 3px 7px var(--ombre-sombre),
+    inset -3px -3px 7px var(--ombre-claire);
+  transform: translateY(1px);
+}
+
+/* Un aplat de couleur n'a pas de relief a creuser : il s'assombrit. */
+.pressable-plein {
+  transition:
+    filter 180ms ease-out,
+    transform 180ms ease-out;
+}
+
+.pressable-plein:active:not(:disabled) {
+  filter: brightness(0.92);
+  transform: translateY(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pressable,
+  .pressable-plein {
+    transition: none;
+  }
+
+  .pressable:active:not(:disabled),
+  .pressable-plein:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* LE CONTOUR DE FOCUS SURVIT AU STYLE. C'est la premiere chose que le
+   neomorphisme fait disparaitre — tout etant en relief doux, plus rien ne
+   marque ou l'on se trouve au clavier. Il reste net, et par-dessus. */
+*:focus-visible {
+  outline: 2px solid var(--color-marque);
+  outline-offset: 3px;
+}

@@ -1,4 +1,5 @@
 using Hba.Delivery.Application.Ports;
+using Hba.Delivery.Domain.Deliveries;
 using Microsoft.EntityFrameworkCore;
 
 namespace Hba.Delivery.Infrastructure.Persistence;
@@ -66,6 +67,36 @@ internal sealed class DeliveryRepository(DeliveryDbContext context) : IDeliveryR
             .Take(filter.PageSize)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    public async Task<(int Count, long BilledTotal)> SumBilledForCustomerAsync(
+        string customerId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(customerId);
+
+        // LIVREES SEULEMENT. Une course annulee ou echouee n'est pas
+        // facturee ; l'inclure gonflerait le total d'un client dont la
+        // moitie des commandes n'ont jamais abouti.
+        var query = context.Deliveries
+            .AsNoTracking()
+            .Where(d => d.CustomerId == customerId && d.Status == DeliveryStatus.Delivered);
+
+        // DEUX AGREGATS, UNE SEULE REQUETE. GroupBy sur une constante est la
+        // forme qu'EF traduit en un SELECT COUNT(*), SUM(...) ; deux appels
+        // separes feraient deux allers-retours pour deux nombres lus
+        // ensemble, et rien ne garantirait qu'ils voient la meme base.
+        var agregat = await query
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Count = g.Count(),
+                Total = g.Sum(d => d.Pricing.Total.Amount),
+            })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return agregat is null ? (0, 0L) : (agregat.Count, agregat.Total);
     }
 
     public void Add(DeliveryAggregate delivery) => context.Deliveries.Add(delivery);

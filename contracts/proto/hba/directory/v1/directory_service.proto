@@ -20,6 +20,29 @@ service DirectoryService {
   rpc UpdateFavoriteAddress(UpdateFavoriteAddressRequest) returns (Customer);
   rpc RemoveFavoriteAddress(RemoveFavoriteAddressRequest) returns (Customer);
 
+  // --- Annuaire client, back-office ---
+  //
+  // RÉSERVÉ À admin, ops ET support — PAS À FINANCE, et ce n'est pas un
+  // oubli : rattacher un paiement se fait par identifiant, parcourir
+  // l'annuaire non. Le référentiel ne tranchait pas ; décidé le 27 septembre
+  // 2026, à y reporter.
+  //
+  // CES DEUX APPELS FONT DE LA CONSOLE UN ANNUAIRE DE PERSONNES : la
+  // recherche porte sur le téléphone, donc elle transforme un numéro en un
+  // nom et, pour qui y a droit, en adresses. Le service vérifie le rôle et
+  // met en forme la réponse — la passerelle ne saurait pas quoi masquer.
+  rpc ListCustomers(ListCustomersRequest) returns (ListCustomersResponse);
+  rpc GetCustomerFile(GetCustomerFileRequest) returns (CustomerFile);
+
+  // Admin seulement : qui a ouvert la fiche de ce client, et quand.
+  //
+  // CE JOURNAL N'EST PAS COMPLET, et l'écran doit le dire. Il ne porte que
+  // les ouvertures de fiche, parce qu'il vit dans la base de Directory : la
+  // lecture du cumul facturé est tracée dans Delivery, celle d'un dossier
+  // KYC dans Driver. Chaque service garde son journal comme il garde ses
+  // données.
+  rpc GetCustomerAccessLog(GetCustomerAccessLogRequest) returns (CustomerAccessLog);
+
   // --- Commerçant ---
   rpc GetMerchant(GetMerchantRequest) returns (Merchant);
   rpc ListMerchants(ListMerchantsRequest) returns (ListMerchantsResponse);
@@ -90,6 +113,66 @@ message Merchant {
   repeated PickupPoint pickup_points = 7;
   bool is_active = 8;
   google.protobuf.Timestamp created_at = 9;
+}
+
+message ListCustomersRequest {
+  // Recherche libre sur le nom OU le téléphone. Vide = tout l'annuaire.
+  string query = 1;
+  int32 page_size = 2;
+  int32 offset = 3;
+}
+
+// Une ligne de l'annuaire. Volontairement pauvre : parcourir une liste ne
+// doit pas permettre de MOISSONNER des numéros, ouvrir une fiche si.
+message CustomerDirectoryRow {
+  string customer_id = 1;
+  string display_name = 2;
+  // Quatre derniers chiffres seulement, quel que soit le rôle.
+  string phone_masked = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message ListCustomersResponse {
+  repeated CustomerDirectoryRow customers = 1;
+  int32 total = 2;
+}
+
+message GetCustomerFileRequest {
+  string customer_id = 1;
+}
+
+// La fiche, telle que l'appelant a le droit de la voir.
+//
+// LES DRAPEAUX « HIDDEN » NE SONT PAS DU CONFORT. Sans eux, une fiche sans
+// adresse se lit comme un client qui n'en a enregistré aucune — une
+// information fausse, sur laquelle un opérateur agira.
+message CustomerFile {
+  string customer_id = 1;
+  string display_name = 2;
+  string phone = 3;
+  string email = 4;
+  bool email_hidden = 5;
+  repeated FavoriteAddress favorite_addresses = 6;
+  bool addresses_hidden = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message GetCustomerAccessLogRequest {
+  string customer_id = 1;
+  int32 limit = 2;
+}
+
+message CustomerAccessEntry {
+  // Identifiant du compte qui a lu.
+  string reader_id = 1;
+  // Ses rôles AU MOMENT de la lecture, séparés par des virgules : les rôles
+  // d'un compte changent, et relire le compte dirait ce qu'il est devenu.
+  string reader_roles = 2;
+  google.protobuf.Timestamp read_at = 3;
+}
+
+message CustomerAccessLog {
+  repeated CustomerAccessEntry entries = 1;
 }
 
 message GetCustomerRequest {

@@ -137,6 +137,46 @@ namespace Hba.Directory.Infrastructure.Persistence.Migrations
                     b.ToTable("idempotency_records", "directory");
                 });
 
+            modelBuilder.Entity("Hba.BuildingBlocks.Persistence.PersonalDataRead", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReaderId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ReaderRoles")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SubjectId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TraceId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReaderId", "ReadAt");
+
+                    b.HasIndex("SubjectId", "ReadAt");
+
+                    b.ToTable("personal_data_reads", "directory");
+                });
+
             modelBuilder.Entity("Hba.Directory.Domain.Customers.Customer", b =>
                 {
                     b.Property<Guid>("Id")

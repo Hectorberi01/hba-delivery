@@ -8,6 +8,7 @@ using Hba.Directory.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Hba.Directory.Infrastructure.Extensions;
 
@@ -37,6 +38,24 @@ public static class DirectoryInfrastructureExtensions
             DirectoryDbContext.MessagingTables));
         services.AddScoped<IInboxStore>(sp => new EfInboxStore(sp.GetRequiredService<DirectoryDbContext>()));
         services.AddScoped<IIdempotencyStore>(sp => new EfIdempotencyStore(sp.GetRequiredService<DirectoryDbContext>()));
+
+        // JOURNAL DES LECTURES DE DONNEES PERSONNELLES. Il ecrit dans la base
+        // de CE service : la regle « une base par service » vaut aussi pour
+        // un journal d'audit, et la fiche client comme le cumul facture se
+        // lisent chacun chez soi.
+        services.AddScoped<IPersonalDataReadLog>(sp => new EfPersonalDataReadLog(
+            sp.GetRequiredService<DirectoryDbContext>(),
+            sp.GetRequiredService<ICallerContext>(),
+            sp.GetRequiredService<ILogger<EfPersonalDataReadLog>>()));
+
+        // SA PURGE, ETEINTE TANT QUE RIEN N'EST REGLE. La duree de
+        // conservation d'une trace d'acces est une decision juridique ; le
+        // code pose le mecanisme et l'annonce au demarrage, il ne choisit pas
+        // le nombre de mois.
+        services.AddHbaPersonalDataReadPurge<DirectoryDbContext>(configuration);
+
+        services.AddScoped<IPersonalDataReadReader>(sp =>
+            new EfPersonalDataReadReader(sp.GetRequiredService<DirectoryDbContext>()));
 
         services.AddHbaMessaging(configuration, producerName: "directory", consumerGroupId: "directory");
 

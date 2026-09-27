@@ -1,9 +1,9 @@
+import 'package:hba_core/hba_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hba_ui/hba_ui.dart';
 
-import '../../core/api_exception.dart';
 import 'auth_repository.dart';
 import 'session_controller.dart';
 
@@ -42,7 +42,7 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
     }
 
     if (_name.text.trim().isEmpty) {
-      setState(() => _error = 'Votre nom est necessaire pour les courses.');
+      setState(() => _error = 'Votre nom est nécessaire pour les courses.');
       return;
     }
 
@@ -58,9 +58,9 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
             displayName: _name.text.trim(),
           );
 
-      ref.read(sessionProvider.notifier).signedIn(driver);
+      await ref.read(sessionProvider.notifier).signedIn(driver);
     } on OfflineException {
-      if (mounted) setState(() => _error = 'Pas de reseau. Reessayez.');
+      if (mounted) setState(() => _error = 'Pas de réseau. Réessayez.');
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {
@@ -82,7 +82,7 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
               Text('Votre code', style: theme.textTheme.displaySmall),
               const SizedBox(height: HbaSpacing.sm),
               Text(
-                'Envoye au ${widget.phone}.',
+                'Envoyé au ${widget.phone}.',
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: HbaSpacing.xl),

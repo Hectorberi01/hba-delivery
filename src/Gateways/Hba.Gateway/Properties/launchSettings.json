@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Hba.Gateway": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

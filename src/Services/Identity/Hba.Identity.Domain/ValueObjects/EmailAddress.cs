@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Hba.BuildingBlocks.Domain;
+using Hba.Identity.Domain.Exceptions;
 
 namespace Hba.Identity.Domain.ValueObjects;
 
@@ -22,7 +23,7 @@ public sealed partial class EmailAddress : ValueObject
 
         if (!Pattern().IsMatch(normalized))
         {
-            throw new DomainException("INVALID_EMAIL", $"Adresse e-mail invalide : {value}.");
+            throw new DomainException(IdentityErrorCodes.InvalidEmail, $"Adresse e-mail invalide : {value}.");
         }
 
         return new EmailAddress(normalized);

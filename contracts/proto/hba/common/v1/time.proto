@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package hba.common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Hba.Contracts.Common.V1";
+
+// Fenêtre de temps commune à toutes les lectures agrégées.
+//
+// DEUX INSTANTS ABSOLUS, JAMAIS UNE DATE LOCALE. Un « 2026-09-26 » sur le fil
+// ne dit pas de quel minuit il parle : celui du serveur, celui du navigateur,
+// ou celui du pays. Le contrat ne transporte donc que des instants, et le
+// service les regroupe dans le fuseau métier qu'il connaît.
+//
+// BORNE BASSE INCLUSE, BORNE HAUTE EXCLUE. Deux fenêtres consécutives se
+// touchent alors sans se recouvrir : une course créée exactement à minuit est
+// comptée une fois, dans le jour qui commence, et jamais dans les deux.
+message TimeWindow {
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+}
+
+// Pas de regroupement d'une série. Le découpage se fait sur le calendrier
+// LOCAL du service, pas sur UTC : au Bénin, découper en jours UTC coupe la
+// journée à 01 h du matin, et une course de 00 h 30 tombe dans la veille.
+enum TimeGranularity {
+  TIME_GRANULARITY_UNSPECIFIED = 0;
+  TIME_GRANULARITY_DAY = 1;
+  TIME_GRANULARITY_MONTH = 2;
+}
+
+// Un point d'une série agrégée.
+//
+// « key » est la date LOCALE déjà calculée par le service — « 2026-09-26 »
+// pour un jour, « 2026-09 » pour un mois. Le client l'affiche telle quelle :
+// s'il la recalculait depuis « start », il la décalerait d'un jour une fois
+// sur deux, et personne ne verrait l'erreur avant de comparer deux écrans.
+message SeriesPoint {
+  string key = 1;
+  google.protobuf.Timestamp start = 2;
+  int64 value = 3;
+}

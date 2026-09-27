@@ -23,6 +23,10 @@ message OfferSent {
   string offer_id = 1;
   string delivery_id = 2;
   string driver_id = 3;
+  // ZÉRO SIGNIFIE « À LA MAIN » : l'offre a été posée par l'exploitation, en
+  // dehors de toute vague. Les consommateurs n'ont rien à en faire de
+  // différent — Driver réserve le livreur dans les deux cas — mais l'audit
+  // doit pouvoir distinguer les deux gestes.
   int32 wave_number = 4;
   google.protobuf.Timestamp expires_at = 5;
 }

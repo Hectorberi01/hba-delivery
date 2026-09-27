@@ -13,8 +13,13 @@ namespace Hba.Architecture.Tests;
 public sealed class IdentityAndDirectoryLayerTests
 {
     private static readonly Assembly IdentityDomain = typeof(Hba.Identity.Domain.Roles).Assembly;
+    // ON VISE LA CLASSE D'ENREGISTREMENT, PAS UNE COMMANDE. Un handler ou une
+    // commande change de namespace des qu'on reorganise les dossiers, et le test
+    // casse alors pour une raison qui n'a rien a voir avec la regle qu'il
+    // verifie. DependencyInjection, lui, est a la racine du projet par
+    // convention : son namespace est celui de l'assembly.
     private static readonly Assembly IdentityApplication =
-        typeof(Hba.Identity.Application.Authentication.RequestOtpCommand).Assembly;
+        typeof(Hba.Identity.Application.DependencyInjection).Assembly;
     private static readonly Assembly DirectoryDomain = typeof(Hba.Directory.Domain.Customers.Customer).Assembly;
     private static readonly Assembly DirectoryApplication =
         typeof(Hba.Directory.Application.Customers.GetCustomerQuery).Assembly;

@@ -54,6 +54,25 @@ public static class MessagingModelBuilderExtensions
             builder.Property(r => r.ResourceId).HasMaxLength(64).IsRequired();
         });
 
+        modelBuilder.Entity<PersonalDataRead>(builder =>
+        {
+            builder.ToTable(options.PersonalDataReadTable, options.Schema);
+            builder.HasKey(r => r.Id);
+
+            builder.Property(r => r.Kind).HasConversion<int>();
+            builder.Property(r => r.SubjectId).HasMaxLength(64).IsRequired();
+            builder.Property(r => r.ReaderId).HasMaxLength(64).IsRequired();
+            builder.Property(r => r.ReaderRoles).HasMaxLength(200).IsRequired();
+            builder.Property(r => r.TraceId).HasMaxLength(64);
+
+            // LES DEUX QUESTIONS QU'ON POSERA A CE JOURNAL : « qui a regardé
+            // ce client » et « qu'a regardé cette personne ». Les deux index
+            // portent la date, parce qu'aucune des deux ne se pose sans
+            // fenêtre de temps.
+            builder.HasIndex(r => new { r.SubjectId, r.ReadAt });
+            builder.HasIndex(r => new { r.ReaderId, r.ReadAt });
+        });
+
         return modelBuilder;
     }
 }

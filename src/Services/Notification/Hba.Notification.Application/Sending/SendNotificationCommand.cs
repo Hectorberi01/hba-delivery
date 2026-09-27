@@ -8,7 +8,12 @@ namespace Hba.Notification.Application.Sending;
 /// Notification ne les interprète pas, il les substitue.
 /// </summary>
 public sealed record SendNotificationCommand(
-    NotificationChannel Channel,
+    /// <summary>
+    /// Canal imposé par l'appelant, ou nul pour laisser le catalogue choisir
+    /// et basculer sur son repli. Imposer un canal, c'est aussi renoncer au
+    /// repli : c'est voulu pour les cas où un seul canal est acceptable.
+    /// </summary>
+    NotificationChannel? Channel,
     string Recipient,
     string TemplateId,
     IReadOnlyDictionary<string, string> Variables,

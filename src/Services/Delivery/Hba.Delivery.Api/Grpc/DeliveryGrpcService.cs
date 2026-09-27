@@ -1,7 +1,9 @@
 using Grpc.Core;
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Domain;
+using Hba.BuildingBlocks.Application.Time;
 using Hba.BuildingBlocks.Grpc;
+using Hba.BuildingBlocks.Grpc.Time;
 using Hba.Contracts.Delivery.V1;
 using Hba.Delivery.Application.Commands.Closure;
 using Hba.Delivery.Application.Commands.CreateDelivery;
@@ -18,7 +20,8 @@ namespace Hba.Delivery.Api.Grpc;
 /// les handlers, à partir du JWT que CE service a validé.
 /// </summary>
 [Authorize]
-public sealed class DeliveryGrpcService(IDispatcher dispatcher) : DeliveryService.DeliveryServiceBase
+public sealed class DeliveryGrpcService(IDispatcher dispatcher, ITimeCalendar calendrier)
+    : DeliveryService.DeliveryServiceBase
 {
     public override async Task<CreateDeliveryResponse> CreateDelivery(
         CreateDeliveryRequest request,
@@ -67,6 +70,25 @@ public sealed class DeliveryGrpcService(IDispatcher dispatcher) : DeliveryServic
         return DeliveryProtoMapper.ToProto(view);
     }
 
+    public override async Task<CustomerBilling> GetCustomerBilling(
+        GetCustomerBillingRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var vue = await dispatcher
+            .QueryAsync(new GetCustomerBillingQuery(request.CustomerId), context.CancellationToken)
+            .ConfigureAwait(false);
+
+        return new CustomerBilling
+        {
+            CustomerId = vue.CustomerId,
+            DeliveredCount = vue.DeliveredCount,
+            BilledTotalXof = vue.BilledTotalXof,
+        };
+    }
+
     public override async Task<ListDeliveriesResponse> ListDeliveries(
         ListDeliveriesRequest request,
         ServerCallContext context)
@@ -90,7 +112,8 @@ public sealed class DeliveryGrpcService(IDispatcher dispatcher) : DeliveryServic
                     request.CreatedAfter?.ToDateTimeOffset(),
                     request.CreatedBefore?.ToDateTimeOffset(),
                     pageSize,
-                    offset),
+                    offset,
+                    request.CustomerId),
                 context.CancellationToken)
             .ConfigureAwait(false);
 
@@ -189,6 +212,65 @@ public sealed class DeliveryGrpcService(IDispatcher dispatcher) : DeliveryServic
             .ConfigureAwait(false);
 
         return DeliveryProtoMapper.ToProto(view);
+    }
+
+    public override async Task<DeliveryStats> GetDeliveryStats(
+        GetDeliveryStatsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var granularite = TimeWindowMapper.ToDomain(request.Granularity);
+        var fenetre = TimeWindowMapper.ToDomain(request.Window, calendrier);
+
+        var vue = await dispatcher.QueryAsync(
+            new GetDeliveryStatsQuery(fenetre, granularite),
+            context.CancellationToken).ConfigureAwait(false);
+
+        var total = vue.ByStatus.Sum(t => t.Count);
+        var livrees = vue.ByStatus
+            .Where(t => t.Status == Domain.Deliveries.DeliveryStatus.Delivered)
+            .Sum(t => t.Count);
+        var closes = vue.ByStatus
+            .Where(t => Domain.Deliveries.DeliveryTransitions.Terminal.Contains(t.Status))
+            .Sum(t => t.Count);
+
+        var reponse = new DeliveryStats
+        {
+            Window = TimeWindowMapper.ToProto(vue.Window),
+            Total = total,
+            Open = total - closes,
+            Delivered = livrees,
+            Closed = closes,
+            BilledXof = vue.ByStatus.Sum(t => t.BilledXof),
+            AvgSecondsToAssignment = vue.ToAssignment.AverageSeconds,
+            AssignmentSamples = vue.ToAssignment.Samples,
+            AvgSecondsToPickup = vue.ToPickup.AverageSeconds,
+            PickupSamples = vue.ToPickup.Samples,
+            AvgSecondsToDelivery = vue.ToDelivery.AverageSeconds,
+            DeliverySamples = vue.ToDelivery.Samples,
+        };
+
+        reponse.ByStatus.AddRange(vue.ByStatus.Select(t => new StatusCount
+        {
+            Status = DeliveryProtoMapper.ToProtoStatus(t.Status),
+            Count = t.Count,
+        }));
+
+        reponse.BySource.AddRange(vue.BySource.Select(t => new SourceCount
+        {
+            Source = DeliveryProtoMapper.ToProtoSource(t.Source),
+            Count = t.Count,
+        }));
+
+        reponse.CreatedSeries.AddRange(vue.CreatedSeries.Select(p => new Contracts.Common.V1.SeriesPoint
+        {
+            Key = p.Key,
+            Value = p.Count,
+        }));
+
+        return reponse;
     }
 
     private static Guid ParseId(string value)

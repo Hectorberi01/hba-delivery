@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG SEULEMENT, ET C'EST TOUTE LA SURETE DE CE FICHIER. Il vit sous
+  src/debug : il ne rentre pas dans une compilation de release, et le manifeste
+  de production n'est pas touche. Une application publiee refusera donc
+  toujours le trafic en clair.
+
+  Depuis Android 9, le HTTP en clair est refuse par defaut. Tester contre une
+  passerelle locale sans TLS exige cette exception.
+
+  NOTE : <domain> n'accepte PAS de plage CIDR. Lister « 192.168.1.0 » ne
+  couvrirait que cette adresse exacte, pas 192.168.1.42 — d'ou base-config,
+  qui vaut pour tout, et qui n'est acceptable que parce qu'on est en debug.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

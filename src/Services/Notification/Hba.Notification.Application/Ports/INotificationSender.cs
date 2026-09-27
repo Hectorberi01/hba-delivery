@@ -24,7 +24,10 @@ public interface INotificationSender
     /// </summary>
     bool IsConfigured { get; }
 
-    Task<SendResult> SendAsync(string recipient, string renderedBody, CancellationToken cancellationToken);
+    Task<SendResult> SendAsync(
+        string recipient,
+        OutboundMessage message,
+        CancellationToken cancellationToken);
 }
 
 public interface ISentNotificationRepository

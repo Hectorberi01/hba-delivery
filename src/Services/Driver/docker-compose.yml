@@ -1,0 +1,105 @@
+# Déploiement du service driver. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possède pas. Les réseaux sont
+# EXTERNES — la pile d'infrastructure les crée une fois — et tout ce qui change
+# d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Services/Driver && docker compose up -d
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-driver
+
+services:
+  driver:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-driver:${HBA_TAG:-latest}
+
+    # `build` sert au poste de développement et à la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Services/Driver/Hba.Driver.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte
+      # un mot de passe de developpement. La forme :? fait REFUSER le demarrage
+      # par Compose, avant tout conteneur. Sans elle, une variable absente
+      # devient la chaine vide et la base partirait ouverte a hba/hba.
+      ConnectionStrings__DriverDb: ${DRIVERDB_CONNECTION:?DRIVERDB_CONNECTION absent - renseignez-le dans le .env du service}
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # CONSERVATION DU JOURNAL DES LECTURES DE DONNEES PERSONNELLES.
+      #
+      # VIDE VEUT DIRE « ON NE PURGE RIEN », et le service l'annonce au
+      # demarrage plutot que de le taire. La duree legale de conservation
+      # d'une trace d'acces n'est pas une decision d'ingenierie : la poser
+      # dans le code en ferait une regle arretee alors qu'elle serait
+      # inventee. Renseignez-la quand elle sera tranchee.
+      PersonalDataReads__RetentionDays: ${PERSONAL_DATA_READS_RETENTION_DAYS:-0}
+
+      # FUSEAU METIER (ADR 0019). Les instants circulent en UTC ; c'est ici
+      # que le service apprend dans quel calendrier decouper les journees.
+      Time__ZoneId: ${HBA_TIMEZONE:-Africa/Porto-Novo}
+
+      # LES POSITIONS DES LIVREURS VIVENT DANS REDIS, jamais en base. Sans
+      # cette ligne le service refuse de demarrer : il repondrait sinon a
+      # /health en n'ayant aucune position a proposer au dispatch.
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:?REDIS_PASSWORD absent - les positions des livreurs y vivent}"
+      DriverLocations__FreshnessSeconds: ${DRIVER_POSITION_FRESHNESS_SECONDS:-120}
+
+      # STOCKAGE OBJET (ADR 0021). Les deux cles viennent de « make garage-init ».
+      # La forme :? fait REFUSER le demarrage par Compose plutot que de lancer
+      # un service qui accepterait des pieces et les perdrait.
+      ObjectStore__Endpoint: ${OBJECTSTORE_ENDPOINT:-garage:3900}
+      ObjectStore__Region: ${OBJECTSTORE_REGION:-hba}
+      ObjectStore__Bucket: ${OBJECTSTORE_BUCKET:-hba-driver-documents}
+      ObjectStore__UseSsl: ${OBJECTSTORE_USE_SSL:-false}
+      # PAS DE FORME :? ICI, contrairement aux autres secrets de ce fichier.
+      # Compose interpole le fichier entier meme pour « build », et ces deux
+      # cles ne peuvent exister qu'apres « make garage-init » — qui demande
+      # Garage demarre. La forme :? rendait donc la construction de l'image
+      # impossible avant l'initialisation du stockage, ce qui n'a pas de sens.
+      #
+      # LE GARDE-FOU EXISTE UNE COUCHE PLUS BAS, et il est meilleur :
+      # ObjectStoreOptions porte [Required] avec ValidateOnStart. Le service
+      # REFUSE DE DEMARRER sans ces cles, en nommant le reglage manquant.
+      ObjectStore__AccessKey: ${OBJECTSTORE_ACCESS_KEY:-}
+      ObjectStore__SecretKey: ${OBJECTSTORE_SECRET_KEY:-}
+      ObjectStore__UrlTtlSeconds: ${OBJECTSTORE_URL_TTL_SECONDS:-300}
+
+      # L'ADRESSE DU STOCKAGE VUE DEPUIS LE CLIENT. Le service ecrit par
+      # « garage:3900 » ; une URL signee, elle, est suivie par le navigateur
+      # de la console et par le telephone du livreur, qui ne resolvent pas ce
+      # nom. Laisse vide, les vignettes echouent en ERR_NAME_NOT_RESOLVED.
+      #
+      # En developpement : l'IP du Mac sur le reseau local, pas localhost —
+      # la meme URL doit marcher sur les deux. En production : l'hote de la
+      # route Traefik du stockage, avec OBJECTSTORE_PUBLIC_USE_SSL=true.
+      ObjectStore__PublicEndpoint: ${OBJECTSTORE_PUBLIC_ENDPOINT:-}
+      ObjectStore__PublicUseSsl: ${OBJECTSTORE_PUBLIC_USE_SSL:-false}
+
+      # DIAGNOSTIC SQL, A LA DEMANDE ET ETEINT PAR DEFAUT. En Information,
+      # chaque instruction envoyee a Postgres part dans les journaux ; avec
+      # EF_SQL_PARAMETERS=true, les valeurs des parametres aussi — dont le
+      # jeton xmin lu, qui dit si une ecriture concurrente a vraiment eu
+      # lieu. Les valeurs sont des donnees reelles : on n'allume pas ca en
+      # production.
+      Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command: ${EF_SQL_LEVEL:-Warning}
+      Diagnostics__SqlParameters: ${EF_SQL_PARAMETERS:-false}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

@@ -1,4 +1,5 @@
 using Hba.BuildingBlocks.Domain;
+using Hba.Identity.Domain.Exceptions;
 
 namespace Hba.Identity.Domain.Otp;
 
@@ -18,8 +19,20 @@ public enum OtpIntent
 /// </summary>
 public sealed class OtpChallenge
 {
+    public Guid Id { get; }
+    public string Phone { get; }
+    public string CodeHash { get; }
+    public OtpIntent Intent { get; }
+    public string? DeviceId { get; }
+    public bool Eligible { get; }
+    public DateTimeOffset CreatedAt { get; }
+    public DateTimeOffset ExpiresAt { get; }
+    public int Attempts { get; private set; }
     public const int MaxAttempts = 5;
+    public bool IsExhausted => Attempts >= MaxAttempts;
 
+
+    // Constructeur
     private OtpChallenge(
         Guid id,
         string phone,
@@ -42,46 +55,16 @@ public sealed class OtpChallenge
         Attempts = attempts;
     }
 
-    public Guid Id { get; }
 
-    public string Phone { get; }
-
-    public string CodeHash { get; }
-
-    public OtpIntent Intent { get; }
-
-    public string? DeviceId { get; }
-
-    /// <summary>
-    /// Vrai si un code a réellement été envoyé. Faux quand le numéro appartient
-    /// à un compte qui ne se connecte pas par SMS, ou à un compte suspendu : un
-    /// défi est quand même créé, pour que la réponse soit identique dans tous
-    /// les cas, mais aucun code ne part et la vérification ne peut pas aboutir.
-    /// </summary>
-    public bool Eligible { get; }
-
-    public DateTimeOffset CreatedAt { get; }
-
-    public DateTimeOffset ExpiresAt { get; }
-
-    public int Attempts { get; private set; }
-
-    public bool IsExhausted => Attempts >= MaxAttempts;
 
     /// <summary>
     /// L'identifiant est fourni par l'appelant : l'empreinte du code en dépend,
     /// il faut donc le connaître avant de hacher.
     /// </summary>
-    public static OtpChallenge Create(
-        Guid id,
-        string phone,
-        string codeHash,
-        OtpIntent intent,
-        string? deviceId,
-        bool eligible,
-        DateTimeOffset now,
-        TimeSpan lifetime)
-        => new(id, phone, codeHash, intent, deviceId, eligible, now, now.Add(lifetime), attempts: 0);
+    public static OtpChallenge Create(Guid id, string phone, string codeHash, OtpIntent intent, string? deviceId, bool eligible, DateTimeOffset now, TimeSpan lifetime)
+    {
+        return new OtpChallenge(id, phone, codeHash, intent, deviceId, eligible, now, now.Add(lifetime), attempts: 0);
+    }
 
     /// <summary>Reconstruction depuis Redis.</summary>
     public static OtpChallenge Restore(
@@ -104,7 +87,7 @@ public sealed class OtpChallenge
     {
         if (ExpiresAt <= now)
         {
-            throw new DomainException("OTP_EXPIRED", "Ce code a expiré. Demandez-en un nouveau.");
+            throw new DomainException(IdentityErrorCodes.OtpExpired, "Ce code a expiré. Demandez-en un nouveau.");
         }
 
         if (IsExhausted)

@@ -41,3 +41,15 @@ public sealed record AccountLinkedToDriver(
     string DriverId,
     Actor Actor,
     DateTimeOffset OccurredAt) : AccountDomainEvent(AccountId, Actor, OccurredAt);
+
+/// <summary>
+/// Le titulaire a accordé ou retiré son consentement à recevoir des messages
+/// WhatsApp. Cet événement existe pour que le consentement soit AUDITABLE :
+/// Meta peut demander à voir quand et comment il a été recueilli, et « le champ
+/// vaut vrai » ne répond pas à cette question.
+/// </summary>
+public sealed record AccountWhatsAppConsentChanged(
+    Guid AccountId,
+    bool Granted,
+    Actor Actor,
+    DateTimeOffset OccurredAt) : AccountDomainEvent(AccountId, Actor, OccurredAt);

@@ -1,0 +1,150 @@
+# Infrastructure partagee. SE LANCE EN PREMIER, ET SEULE.
+#
+# Le reseau hba-internal est cree hors compose (« make net »). Les douze
+# services les declarent en `external` et s'y rattachent : ils sont donc
+# independants les uns des autres, mais tous posterieurs a celui-ci.
+#
+# UN SEUL EXEMPLAIRE POUR TOUTE LA PILE : huit Kafka separes ne s'echangent
+# aucun evenement, et huit Postgres separes ne sont pas huit bases d'un meme
+# systeme. L'independance porte sur les services, jamais sur ce qu'ils
+# partagent.
+#
+#   docker compose -f deploy/compose.infra.yml up -d
+
+name: hba-infra
+
+services:
+  traefik:
+    image: traefik:v3.1
+    restart: unless-stopped
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks: [hba-internal]
+
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER absent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD absent - sans lui la base partirait avec un mot de passe vide}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    networks: [hba-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD absent}", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    networks: [hba-internal]
+
+  kafka:
+    image: apache/kafka:3.9.2
+    restart: unless-stopped
+    environment:
+      # Image officielle ASF : les variables sont des proprietes server.properties
+      # prefixees KAFKA_, les points remplaces par des soulignes. Pas de _CFG_,
+      # c'etait une convention propre a Bitnami.
+      CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://:9094,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # Noeud unique : les topics internes ne peuvent pas etre repliques.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    networks: [hba-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9094 --list || exit 1"]
+      interval: 15s
+      retries: 10
+
+  # STOCKAGE OBJET — Garage (ADR 0021). Voir deploy/garage/garage.toml.
+  #
+  # AUCUN PORT PUBLIE ICI, a la difference du fichier de developpement : les
+  # pieces d'identite ne s'atteignent que depuis le reseau interne, et la
+  # passerelle est seule a les lire (ADR 0021 — les octets passent par elle).
+  #
+  # Apres le premier demarrage : make garage-init
+  #
+  # L'image ne contient que le binaire : pas de shell. L'initialisation se
+  # pilote depuis l'hote (scripts/garage-init.sh).
+  garage:
+    image: dxflrs/garage:v2.4.1
+    restart: unless-stopped
+    environment:
+      GARAGE_CONFIG_FILE: /etc/garage.toml
+      RUST_LOG: garage=info
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - garagemeta:/var/lib/garage/meta
+      - garagedata:/var/lib/garage/data
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [hba-internal]
+
+  # Les topics ne se creent pas tout seuls : auto.create.topics.enable vaut
+  # false, pour qu'une faute de frappe dans un nom de topic echoue au lieu de
+  # creer silencieusement un topic fantome. Ce conteneur les pose une fois puis
+  # sort. Il manquait cote infrastructure, alors qu'il existait cote dev.
+  kafka-init:
+    image: apache/kafka:3.9.2
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/create-topics.sh"]
+    environment:
+      KAFKA_BOOTSTRAP: "kafka:9094"
+    volumes:
+      - ./kafka/create-topics.sh:/scripts/create-topics.sh:ro
+    networks: [hba-internal]
+    restart: "no"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otel/config.yaml:ro
+    networks: [hba-internal]
+
+networks:
+  # Cree par « make net », hors compose, et partage par toutes les piles.
+  # Il n'est PAS « internal » : Notification doit joindre l'API WhatsApp et
+  # Payment l'API MTN MoMo. Un reseau internal leur coupait toute sortie.
+  hba-internal:
+    external: true
+    name: hba-internal
+volumes:
+  pgdata:
+  kafkadata:
+  redisdata:
+  garagemeta:
+  garagedata:
+  letsencrypt:

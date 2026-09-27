@@ -20,4 +20,11 @@ Format : contexte, décision, conséquences — y compris celles qui dérangent.
 | [0011](0011-otp-dans-redis.md) | Les codes SMS vivent dans Redis, pas en base | Acceptée |
 | [0012](0012-routes-publiques-et-enumeration.md) | Une route publique ne doit rien dire de plus que nécessaire | Acceptée |
 | [0013](0013-compte-de-facturation-donneurs-dordre.md) | Un compte de facturation par donneur d'ordre, prépayé ou postpayé | **Proposée** |
-| [0014](0014-canal-otp-du-pilote.md) | Le pilote envoie les codes par email, sauf celui du destinataire | **Proposée** |
+| [0014](0014-canaux-des-codes.md) | WhatsApp porte le code de connexion, le SMS reste seul vers le destinataire | **Proposée** |
+| [0015](0015-http-interne-a-la-place-de-grpc.md) | HTTP+JSON pour les appels internes, à la place de gRPC | **Rejetée** |
+| [0016](0016-gateway-unique.md) | Un seul gateway à la place des quatre BFF | Acceptée |
+| [0017](0017-fedapay-agregateur.md) | FedaPay comme agrégateur de paiement, en page hébergée | Acceptée |
+| [0018](0018-jeton-de-service.md) | Un service s'authentifie auprès d'un autre avec un jeton émis par Identity | Acceptée |
+| [0019](0019-fenetre-temporelle-et-fuseau-metier.md) | Fenêtre temporelle demi-ouverte, découpage dans le fuseau métier | Acceptée |
+| [0020](0020-agregats-calcules-par-chaque-service.md) | Chaque service agrège ce qu'il possède, la passerelle compose | Acceptée |
+| [0021](0021-depot-des-pieces-livreur.md) | Garage pour les binaires, et la passerelle porte les octets | Acceptée |

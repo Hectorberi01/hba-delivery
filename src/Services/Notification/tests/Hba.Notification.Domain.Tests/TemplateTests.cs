@@ -20,7 +20,7 @@ public sealed class TemplateTests
     [Fact]
     public void Une_variable_manquante_fait_échouer_le_rendu()
     {
-        var template = TemplateCatalog.Get(TemplateCatalog.OtpLogin);
+        var template = TemplateCatalog.Get(TemplateCatalog.OtpLogin).RequireSms();
 
         var act = () => template.Render(new Dictionary<string, string> { ["code"] = "123456" });
 
@@ -31,11 +31,44 @@ public sealed class TemplateTests
     [Fact]
     public void Le_rendu_substitue_toutes_les_variables()
     {
-        var rendered = TemplateCatalog.Get(TemplateCatalog.OtpLogin).Render(
+        var rendered = TemplateCatalog.Get(TemplateCatalog.OtpLogin).RequireSms().Render(
             new Dictionary<string, string> { ["code"] = "424242", ["minutes"] = "5" });
 
         rendered.Should().Contain("424242").And.Contain("5 minutes");
         rendered.Should().NotContain("{");
+    }
+
+    [Fact]
+    public void Le_code_de_connexion_essaie_WhatsApp_puis_le_SMS()
+    {
+        var binding = TemplateCatalog.Get(TemplateCatalog.OtpLogin);
+
+        binding.Channels.Should().Equal(NotificationChannel.WhatsApp, NotificationChannel.Sms);
+        binding.WhatsApp.Should().NotBeNull();
+        binding.Sms.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Le_code_de_remise_ne_part_jamais_par_WhatsApp()
+    {
+        // Le destinataire n'a pas de compte HBA, donc aucun opt-in — et Meta
+        // l'exige avant tout message de gabarit. Ce test est là pour qu'on ne
+        // « complète » pas le catalogue un jour par inadvertance.
+        var binding = TemplateCatalog.Get(TemplateCatalog.DeliveryOtp);
+
+        binding.Channels.Should().Equal(NotificationChannel.Sms);
+        binding.Supports(NotificationChannel.WhatsApp).Should().BeFalse();
+        binding.WhatsApp.Should().BeNull();
+    }
+
+    [Fact]
+    public void Un_canal_non_pris_en_charge_est_refusé_explicitement()
+    {
+        var binding = TemplateCatalog.Get(TemplateCatalog.DeliveryCompleted);
+
+        var act = () => binding.RequireWhatsApp();
+
+        act.Should().Throw<DomainException>().Which.Code.Should().Be("CHANNEL_UNSUPPORTED");
     }
 
     [Theory]
@@ -45,16 +78,15 @@ public sealed class TemplateTests
     [InlineData(TemplateCatalog.DeliveryCompleted)]
     public void Les_modèles_SMS_tiennent_dans_l_alphabet_GSM_7(string templateId)
     {
-        var template = TemplateCatalog.Get(templateId);
+        var template = TemplateCatalog.Get(templateId).Sms;
 
-        if (template.Channel != NotificationChannel.Sms)
+        if (template is null)
         {
             return;
         }
 
         // On vérifie le TEXTE LITTERAL, pas le gabarit brut : « {code} » ne part
-        // jamais tel quel, il est remplacé au rendu. Les accolades de
-        // substitution sont donc retirées avant le contrôle.
+        // jamais tel quel, il est remplacé au rendu.
         var literal = WithoutPlaceholders(template.Body);
 
         // Un seul caractère hors GSM 03.38 fait basculer le message en UCS-2 :
@@ -74,9 +106,9 @@ public sealed class TemplateTests
     [InlineData(TemplateCatalog.DeliveryCompleted)]
     public void Les_modèles_SMS_laissent_de_la_place_aux_variables(string templateId)
     {
-        var template = TemplateCatalog.Get(templateId);
+        var template = TemplateCatalog.Get(templateId).Sms;
 
-        if (template.Channel != NotificationChannel.Sms)
+        if (template is null)
         {
             return;
         }
@@ -111,9 +143,7 @@ public sealed class TemplateTests
         return builder.ToString();
     }
 
-    /// <summary>
-    /// Table de base de l'alphabet GSM 03.38 : un septet par caractère.
-    /// </summary>
+    /// <summary>Table de base de l'alphabet GSM 03.38 : un septet par caractère.</summary>
     private static readonly HashSet<char> Gsm7Basic =
     [
         .. "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ"
@@ -124,9 +154,7 @@ public sealed class TemplateTests
 
     /// <summary>
     /// Table d'extension. Ces caractères NE FORCENT PAS l'UCS-2 : ils passent en
-    /// GSM-7 précédés d'un caractère d'échappement, et coûtent donc deux septets
-    /// au lieu d'un. Acceptés, mais à compter double si un jour le contrôle de
-    /// longueur devient un vrai décompte de septets.
+    /// GSM-7 précédés d'un caractère d'échappement, et coûtent deux septets.
     /// </summary>
     private static readonly HashSet<char> Gsm7Extended = [.. "^{}\\[~]|€"];
 }

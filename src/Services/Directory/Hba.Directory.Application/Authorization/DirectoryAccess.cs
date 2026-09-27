@@ -83,6 +83,55 @@ public static class DirectoryAccess
             "Seul le propriétaire du commerce, ou le back-office, modifie ces informations.");
     }
 
+    /// <summary>
+    /// Qui peut lire l'annuaire des clients, et ce qu'il y voit.
+    ///
+    /// PAS « LE BACK-OFFICE » : finance en est exclu, et ce n'est pas un
+    /// oubli. Rattacher un paiement a un client se fait par identifiant ;
+    /// parcourir l'annuaire et lire des adresses de domicile n'entre pas dans
+    /// ce metier. HbaRoles.BackOffice inclut finance — s'en servir ici aurait
+    /// ouvert la porte sans que personne ne l'ait decide.
+    ///
+    /// LE REFERENTIEL NE TRANCHAIT PAS. Sa matrice de visibilite n'a qu'une
+    /// colonne « Admin » et aucune ligne pour les donnees du client. Ce qui
+    /// suit est la decision prise le 27 septembre 2026, a reporter dans le
+    /// referentiel — ce fichier n'en est que l'application.
+    /// </summary>
+    public static readonly IReadOnlySet<string> LecteursDeClients =
+        new HashSet<string>(StringComparer.Ordinal) { HbaRoles.Admin, HbaRoles.Ops, HbaRoles.Support };
+
+    /// <summary>
+    /// Ce que l'appelant a le droit de voir d'un client.
+    ///
+    /// LES CHAMPS CACHES SONT ANNONCES, PAS OMIS. Un ecran qui n'affiche rien
+    /// la ou il n'a pas le droit fait lire « ce client n'a pas d'adresse
+    /// enregistree » — une information fausse, sur laquelle un operateur
+    /// agira. On dit donc « masque », jamais « vide ».
+    /// </summary>
+    public sealed record VisibiliteClient(bool Email, bool Adresses);
+
+    /// <summary>
+    /// Verifie le droit de lire l'annuaire et rend ce que l'appelant y voit.
+    /// </summary>
+    public static VisibiliteClient EnsureCanReadCustomers(ICallerContext caller)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+
+        if (!caller.Roles.Overlaps(LecteursDeClients))
+        {
+            throw new ForbiddenException(
+                "L'annuaire des clients est reserve a l'administration, aux operations et au support.");
+        }
+
+        // OPS SUPERVISE DES COURSES, IL NE CONSULTE PAS DES DOSSIERS. Il
+        // obtient le telephone — rappeler un client dont la livraison se
+        // passe mal fait partie du travail — mais ni l'adresse e-mail ni les
+        // adresses enregistrees, qui ne servent a aucune supervision.
+        var complet = caller.IsInRole(HbaRoles.Admin) || caller.IsInRole(HbaRoles.Support);
+
+        return new VisibiliteClient(Email: complet, Adresses: complet);
+    }
+
     public static void EnsureBackOffice(ICallerContext caller)
     {
         ArgumentNullException.ThrowIfNull(caller);

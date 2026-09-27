@@ -1,4 +1,5 @@
 using Hba.BuildingBlocks.Domain;
+using Hba.Identity.Domain.Exceptions;
 using Hba.Identity.Domain.Partners.Events;
 using Hba.Identity.Domain.ValueObjects;
 
@@ -13,6 +14,52 @@ namespace Hba.Identity.Domain.Partners;
 public sealed class PartnerClient : AggregateRoot
 {
     private readonly List<string> _scopes = [];
+    public string Name { get; private set; } = string.Empty;
+
+    /// <summary>HBA_EXPRESS, HBA_FOOD ou PARTNER_API.</summary>
+    public string Source { get; private set; } = string.Empty;
+    public string ClientId { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Empreinte du secret client, avec le même algorithme que les mots de
+    /// passe. Le secret n'est lisible qu'à l'émission.
+    /// </summary>
+    public PasswordHash SecretHash { get; private set; } = null!;
+
+    public string? WebhookUrl { get; private set; }
+
+    /// <summary>
+    /// Secret de signature des webhooks, CHIFFRÉ. Il n'est pas haché : la
+    /// Partner API doit pouvoir le relire pour signer ses appels sortants. Le
+    /// chiffrement est fait par l'infrastructure ; le domaine ne voit qu'une
+    /// chaîne opaque.
+    /// </summary>
+    public string ProtectedWebhookSecret { get; private set; } = string.Empty;
+
+    public IReadOnlyList<string> Scopes => _scopes.AsReadOnly();
+
+    /// <summary>Forme persistée des portées. Lue et écrite par EF Core seulement.</summary>
+    public string ScopesRaw
+    {
+        get => string.Join(',', _scopes);
+        set
+        {
+            _scopes.Clear();
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                _scopes.AddRange(value.Split(',', StringSplitOptions.RemoveEmptyEntries));
+            }
+        }
+    }
+
+    public int RateLimitPerMinute { get; private set; }
+
+    public bool Enabled { get; private set; }
+
+    public DateTimeOffset CreatedAt { get; private set; }
+
+    public DateTimeOffset? SecretRotatedAt { get; private set; }
 
     private PartnerClient()
     {
@@ -42,54 +89,6 @@ public sealed class PartnerClient : AggregateRoot
         _scopes.AddRange(scopes);
     }
 
-    public string Name { get; private set; } = string.Empty;
-
-    /// <summary>HBA_EXPRESS, HBA_FOOD ou PARTNER_API.</summary>
-    public string Source { get; private set; } = string.Empty;
-
-    public string ClientId { get; private set; } = string.Empty;
-
-    /// <summary>
-    /// Empreinte du secret client, avec le même algorithme que les mots de
-    /// passe. Le secret n'est lisible qu'à l'émission.
-    /// </summary>
-    public PasswordHash SecretHash { get; private set; } = null!;
-
-    public string? WebhookUrl { get; private set; }
-
-    /// <summary>
-    /// Secret de signature des webhooks, CHIFFRÉ. Il n'est pas haché : la
-    /// Partner API doit pouvoir le relire pour signer ses appels sortants. Le
-    /// chiffrement est fait par l'infrastructure ; le domaine ne voit qu'une
-    /// chaîne opaque.
-    /// </summary>
-    public string ProtectedWebhookSecret { get; private set; } = string.Empty;
-
-    public IReadOnlyList<string> Scopes => _scopes.AsReadOnly();
-
-    /// <summary>Forme persistée des portées. Lue et écrite par EF Core seulement.</summary>
-    private string ScopesRaw
-    {
-        get => string.Join(',', _scopes);
-        set
-        {
-            _scopes.Clear();
-
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                _scopes.AddRange(value.Split(',', StringSplitOptions.RemoveEmptyEntries));
-            }
-        }
-    }
-
-    public int RateLimitPerMinute { get; private set; }
-
-    public bool Enabled { get; private set; }
-
-    public DateTimeOffset CreatedAt { get; private set; }
-
-    public DateTimeOffset? SecretRotatedAt { get; private set; }
-
     public static readonly IReadOnlySet<string> KnownSources = new HashSet<string>(StringComparer.Ordinal)
     {
         "HBA_EXPRESS", "HBA_FOOD", "PARTNER_API",
@@ -115,16 +114,14 @@ public sealed class PartnerClient : AggregateRoot
 
         if (!KnownSources.Contains(source))
         {
-            throw new DomainException(
-                "UNKNOWN_SOURCE",
-                $"Source inconnue : {source}. Attendu : HBA_EXPRESS, HBA_FOOD ou PARTNER_API.");
+            throw new DomainException(IdentityErrorCodes.UnknownSource, $"Source inconnue : {source}. Attendu : HBA_EXPRESS, HBA_FOOD ou PARTNER_API.");
         }
 
         if (!string.IsNullOrWhiteSpace(webhookUrl))
         {
             if (!Uri.TryCreate(webhookUrl, UriKind.Absolute, out var endpoint))
             {
-                throw new DomainException("INVALID_WEBHOOK_URL", $"URL de webhook invalide : {webhookUrl}.");
+                throw new DomainException(IdentityErrorCodes.InvalidWebhookUrl, $"URL de webhook invalide : {webhookUrl}.");
             }
 
             if (!string.Equals(endpoint.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
@@ -137,13 +134,20 @@ public sealed class PartnerClient : AggregateRoot
 
         if (rateLimitPerMinute <= 0)
         {
-            throw new DomainException("INVALID_RATE_LIMIT", "Le quota par minute doit être strictement positif.");
+            throw new DomainException(IdentityErrorCodes.InvalidRateLimit, "Le quota par minute doit être strictement positif.");
         }
 
         var partner = new PartnerClient(
-            id, name.Trim(), source, clientId, secretHash, webhookUrl,
-            protectedWebhookSecret, scopes ?? [], rateLimitPerMinute, createdAt);
+            id, name.Trim(),
+            source,
+            clientId,
+            secretHash,
+            webhookUrl,
+            protectedWebhookSecret,
+            scopes ?? [], rateLimitPerMinute,
+            createdAt);
 
+        // Event
         partner.Raise(new PartnerClientRegistered(id, partner.Name, source, actor, createdAt));
 
         return partner;

@@ -4,6 +4,7 @@ package hba.payment.v1;
 
 import "google/protobuf/timestamp.proto";
 import "hba/common/v1/money.proto";
+import "hba/common/v1/time.proto";
 
 option csharp_namespace = "Hba.Contracts.Payment.V1";
 
@@ -14,6 +15,83 @@ service PaymentService {
   rpc GetPaymentIntent(GetPaymentIntentRequest) returns (PaymentIntent);
   // Déclenché par finance / ops, ou automatiquement sur NO_DRIVER_FOUND.
   rpc RefundPayment(RefundPaymentRequest) returns (Refund);
+
+  // Back-office : l'argent. Réservé aux rôles admin, ops, support et finance,
+  // et vérifié dans le handler.
+  rpc GetPaymentStats(GetPaymentStatsRequest) returns (PaymentStats);
+
+  // Le relevé d'un livreur : ce qu'il a gagné, ce qui lui a été versé, ce
+  // qui reste dû, et le détail ligne à ligne.
+  //
+  // LU PAR LE LIVREUR LUI-MÊME, ou par finance et admin. Ni ops ni support :
+  // le référentiel confie les reversements à finance, et superviser des
+  // courses n'est pas lire le compte de quelqu'un. Vérifié dans le handler.
+  rpc GetDriverStatement(GetDriverStatementRequest) returns (DriverStatement);
+
+  // Le livreur demande a etre paye. AUCUN ARGENT NE BOUGE : la demande est
+  // une trace, que finance approuve, refuse, puis solde en consignant la
+  // reference du virement fait ailleurs.
+  //
+  // SEUL LE LIVREUR DEMANDE POUR LUI-MEME — une demande est un acte de
+  // volonte, et la faire a la place de quelqu'un brouille ce qu'elle prouve.
+  rpc RequestPayout(RequestPayoutRequest) returns (PayoutRequest);
+
+  // Les demandes d'un livreur. Mêmes lecteurs que le relevé.
+  rpc ListDriverPayouts(ListDriverPayoutsRequest) returns (ListDriverPayoutsResponse);
+
+  // --- La file de la finance ---
+  //
+  // LES QUATRE RPC CI-DESSOUS SONT RÉSERVÉES À finance ET admin, vérifié dans
+  // les handlers. Le référentiel confie à `finance` « les paiements et les
+  // reversements » ; `ops` supervise des courses, `support` répond aux
+  // clients, et ni l'un ni l'autre n'engage l'argent de la maison.
+  rpc ListPayoutRequests(ListPayoutRequestsRequest) returns (ListPayoutRequestsResponse);
+
+  // La finance est d'accord. AUCUNE ÉCRITURE AU GRAND LIVRE : entre
+  // l'approbation et le virement il y a un geste manuel qui peut échouer.
+  rpc ApprovePayout(ApprovePayoutRequest) returns (PayoutRequest);
+
+  // Refus motivé. Le motif remonte au livreur : c'est la seule chose qui
+  // transforme un refus en instruction.
+  rpc RejectPayout(RejectPayoutRequest) returns (PayoutRequest);
+
+  // Le virement a eu lieu, et sa référence est consignée. C'EST LA SEULE RPC
+  // DE TOUT LE CONTRAT QUI DÉBITE LE COMPTE D'UN LIVREUR — la demande passe à
+  // « versée » et la ligne de débit s'écrit dans la même transaction.
+  rpc MarkPayoutPaid(MarkPayoutPaidRequest) returns (PayoutRequest);
+}
+
+// Sens d'un mouvement au compte d'un livreur.
+//
+// LE SIGNE N'EST PAS DANS LE MONTANT. Un montant négatif se glisse partout —
+// dans une somme, un affichage, une comparaison — et l'erreur ne se découvre
+// qu'au moment de payer quelqu'un. Le montant reste positif, ce champ dit
+// s'il entre ou s'il sort.
+// APPROUVEE ET VERSEE SONT DEUX CHOSES. « Approuvée » dit que la finance est
+// d'accord ; « versée » dit que l'argent est parti. Entre les deux il y a un
+// virement fait à la main, ailleurs, qui peut échouer ou attendre.
+enum PayoutStatus {
+  PAYOUT_STATUS_UNSPECIFIED = 0;
+  PAYOUT_STATUS_REQUESTED = 1;
+  PAYOUT_STATUS_APPROVED = 2;
+  PAYOUT_STATUS_PAID = 3;
+  PAYOUT_STATUS_REJECTED = 4;
+}
+
+enum LedgerDirection {
+  LEDGER_DIRECTION_UNSPECIFIED = 0;
+  // Ce que HBA doit au livreur.
+  LEDGER_DIRECTION_CREDIT = 1;
+  // Ce que HBA lui a versé.
+  LEDGER_DIRECTION_DEBIT = 2;
+}
+
+enum LedgerEntryKind {
+  LEDGER_ENTRY_KIND_UNSPECIFIED = 0;
+  // Rémunération d'une course livrée.
+  LEDGER_ENTRY_KIND_DELIVERY_EARNING = 1;
+  // Versement effectué par la finance.
+  LEDGER_ENTRY_KIND_PAYOUT = 2;
 }
 
 enum PaymentStatus {
@@ -75,4 +153,197 @@ message Refund {
   hba.common.v1.Money amount = 3;
   PaymentStatus status = 4;
   google.protobuf.Timestamp created_at = 5;
+}
+
+message RequestPayoutRequest {
+  // Montant demandé, en francs CFA. Le service refuse au-delà du disponible,
+  // et sous le minimum configuré s'il y en a un.
+  //
+  // PAS DE « TOUT RETIRER » DANS LE CONTRAT : le montant est figé à la
+  // demande. Entre la demande et la décision, une course peut être livrée et
+  // le solde bouger ; figer évite d'avoir à expliquer pourquoi le versement
+  // ne correspond pas à ce que le livreur avait sous les yeux.
+  int64 amount_xof = 1;
+}
+
+message PayoutRequest {
+  string id = 1;
+  string driver_id = 2;
+  int64 amount_xof = 3;
+  PayoutStatus status = 4;
+  google.protobuf.Timestamp requested_at = 5;
+  google.protobuf.Timestamp decided_at = 6;
+  // Renseigné pour un refus, et obligatoire dans ce cas : un refus sans motif
+  // laisse le livreur sans rien à corriger.
+  string rejection_reason = 7;
+  google.protobuf.Timestamp paid_at = 8;
+  // Référence du virement chez l'opérateur. « Versé » sans référence est une
+  // affirmation que rien ne soutient.
+  string payment_reference = 9;
+
+  // Qui a décidé : le sujet du jeton, jamais un nom d'affichage — un nom
+  // change, se corrige, se traduit ; l'identifiant reste celui par lequel on
+  // retrouvera la personne dans six mois.
+  //
+  // LA PASSERELLE NE LE REND PAS AU LIVREUR. Il n'a rien à faire de
+  // l'identifiant d'un compte interne ; la finance, elle, a besoin de savoir
+  // qui a engagé la maison. Le tri se fait là où l'on sait à qui l'on parle.
+  string decided_by = 10;
+}
+
+message ListDriverPayoutsRequest {
+  // Vide quand le livreur lit les siennes.
+  string driver_id = 1;
+  int32 limit = 2;
+}
+
+message ListDriverPayoutsResponse {
+  repeated PayoutRequest payouts = 1;
+}
+
+message ListPayoutRequestsRequest {
+  // ABSENT (UNSPECIFIED) VEUT DIRE « CE QUI ATTEND » — demandées ET
+  // approuvées —, pas « tout ». C'est l'écran d'ouverture de la finance : les
+  // demandes vivantes, LA PLUS ANCIENNE D'ABORD, parce qu'une file se sert
+  // dans l'ordre d'arrivée. Renseigné, c'est un historique, et il se lit du
+  // plus récent.
+  //
+  // « Approuvée » compte parmi ce qui attend : une demande approuvée dont le
+  // virement n'a jamais été consigné est exactement celle qu'il faut voir.
+  PayoutStatus status = 1;
+  int32 limit = 2;
+}
+
+message ListPayoutRequestsResponse {
+  repeated PayoutRequest payouts = 1;
+}
+
+message ApprovePayoutRequest {
+  string payout_id = 1;
+}
+
+message RejectPayoutRequest {
+  string payout_id = 1;
+  // OBLIGATOIRE, et le service refuse s'il est vide. Il est écrit pour être
+  // lu par le livreur, pas comme une note interne.
+  string reason = 2;
+}
+
+message MarkPayoutPaidRequest {
+  string payout_id = 1;
+  // Référence du virement chez l'opérateur. OBLIGATOIRE : « versé » sans
+  // référence est une affirmation que rien ne soutient.
+  string payment_reference = 2;
+
+  // PAS DE MONTANT DANS CE MESSAGE, ET C'EST VOULU. Le montant débité est
+  // celui de la demande. Un montant saisi ici ouvrirait un écart entre ce que
+  // le livreur avait demandé et ce qu'on lui retire ; un virement partiel est
+  // une règle à trancher, pas un champ à ajouter.
+}
+
+message GetDriverStatementRequest {
+  // Vide quand c'est le livreur qui lit son propre relevé : le service prend
+  // alors le driver_id de son jeton. Renseigné quand finance ou admin lit le
+  // relevé de quelqu'un.
+  string driver_id = 1;
+
+  // Plafond de lignes rendues. Zéro vaut la valeur par défaut du service.
+  //
+  // PAS DE JETON DE PAGE, ET L'ÉCRAN LE DIT. Le relevé complet demandera une
+  // pagination le jour où un livreur aura des centaines de lignes ; les
+  // totaux, eux, portent sur TOUT le compte et ne dépendent pas de ce
+  // plafond. C'est la distinction qui compte.
+  int32 limit = 2;
+}
+
+message LedgerEntry {
+  string id = 1;
+  LedgerEntryKind kind = 2;
+  LedgerDirection direction = 3;
+  // Toujours positif.
+  int64 amount_xof = 4;
+  // Renseignés pour une rémunération de course, vides pour un versement.
+  string delivery_id = 5;
+  string delivery_reference = 6;
+  // Instant du FAIT, pas de l'écriture : un rattrapage écrit aujourd'hui des
+  // lignes datées d'hier, et c'est la date d'hier qui compte.
+  google.protobuf.Timestamp occurred_at = 7;
+
+  // La demande de versement à l'origine du débit. Vide pour une rémunération.
+  //
+  // CE LIEN EST AUSSI CE QUI EMPÊCHE DE PAYER DEUX FOIS : un index unique en
+  // base s'appuie dessus. Au relevé, il permet de rattacher une sortie
+  // d'argent à la demande qui l'a produite, donc à sa référence de virement.
+  string payout_id = 8;
+}
+
+message DriverStatement {
+  string driver_id = 1;
+
+  // LES TROIS TOTAUX PORTENT SUR TOUT LE COMPTE, pas sur les lignes rendues.
+  // Un cumul qui dépendrait du plafond ne serait pas une dette.
+  int64 earned_xof = 2;
+  int64 paid_out_xof = 3;
+  // earned_xof - paid_out_xof. Calculé par le service : deux clients qui le
+  // referaient chacun de leur côté finiraient par ne pas tomber d'accord.
+  int64 due_xof = 4;
+
+  // Les plus récentes d'abord.
+  repeated LedgerEntry entries = 5;
+  // Nombre total de lignes au compte, pour dire ce que le plafond a coupé.
+  int64 total_entries = 6;
+}
+
+message GetPaymentStatsRequest {
+  // Absente, elle vaut les trente derniers jours (ADR 0019).
+  hba.common.v1.TimeWindow window = 1;
+  hba.common.v1.TimeGranularity granularity = 2;
+}
+
+message PaymentStatusCount {
+  PaymentStatus status = 1;
+  int64 count = 2;
+  int64 amount_xof = 3;
+}
+
+message PaymentMethodCount {
+  PaymentMethod method = 1;
+  int64 count = 2;
+  int64 amount_xof = 3;
+}
+
+// DEUX LECTURES DE LA MEME FENETRE, ET ELLES NE DONNENT PAS LE MEME CHIFFRE.
+//
+// Les champs « created_ » comptent les intentions OUVERTES dans la fenêtre :
+// c'est l'entonnoir, celui qui dit combien de tentatives aboutissent.
+//
+// Les champs « collected_ » comptent l'argent REÇU dans la fenêtre, quelle
+// que soit la date d'ouverture de l'intention. Une intention ouverte le
+// 31 août et payée le 1er septembre appartient à la cohorte d'août et à la
+// recette de septembre.
+//
+// Les confondre est l'erreur classique : la recette du mois ne tombe jamais
+// juste, et l'écart est trop petit pour être remarqué avant un rapprochement
+// comptable.
+message PaymentStats {
+  hba.common.v1.TimeWindow window = 1;
+
+  // --- Cohorte : intentions ouvertes dans la fenêtre ---
+  int64 created_count = 2;
+  int64 created_amount_xof = 3;
+  repeated PaymentStatusCount created_by_status = 4;
+  repeated PaymentMethodCount created_by_method = 5;
+
+  // --- Recette : paiements reçus dans la fenêtre ---
+  int64 collected_count = 6;
+  int64 collected_xof = 7;
+  // Par jour ou par mois du calendrier local, sur la date d'ENCAISSEMENT.
+  // Les périodes sans paiement y figurent à zéro.
+  repeated hba.common.v1.SeriesPoint collected_series = 8;
+
+  // Délai moyen entre l'ouverture de l'intention et le paiement, en secondes,
+  // sur les intentions de la cohorte qui ont abouti.
+  int32 avg_seconds_to_payment = 9;
+  // Nombre de paiements derrière cette moyenne.
+  int64 payment_samples = 10;
 }

@@ -12,7 +12,8 @@ public sealed record ListDeliveriesQuery(
     DateTimeOffset? CreatedAfter,
     DateTimeOffset? CreatedBefore,
     int PageSize,
-    int Offset) : IQuery<IReadOnlyList<DeliveryView>>;
+    int Offset,
+    string? CustomerId = null) : IQuery<IReadOnlyList<DeliveryView>>;
 
 public sealed class ListDeliveriesHandler(
     IDeliveryRepository repository,
@@ -28,6 +29,11 @@ public sealed class ListDeliveriesHandler(
 
         var filter = new DeliveryQueryFilter
         {
+            // DEMANDE, PAS ACCORDEE. ScopeFor ci-dessous ecrase ce champ pour
+            // tout appelant qui n'est pas du back-office : un client y verra
+            // son propre identifiant, un livreur le verra efface. Le filtre
+            // ne sert donc qu'a retrecir ce que l'appelant voyait deja.
+            CustomerId = string.IsNullOrWhiteSpace(query.CustomerId) ? null : query.CustomerId.Trim(),
             Statuses = query.Statuses,
             CreatedAfter = query.CreatedAfter,
             CreatedBefore = query.CreatedBefore,

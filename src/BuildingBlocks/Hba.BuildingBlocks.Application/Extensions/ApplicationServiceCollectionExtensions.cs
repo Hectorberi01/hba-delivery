@@ -2,7 +2,10 @@ using System.Reflection;
 using FluentValidation;
 using Hba.BuildingBlocks.Application.Abstractions;
 using Hba.BuildingBlocks.Application.Messaging;
+using Hba.BuildingBlocks.Application.Time;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Hba.BuildingBlocks.Application.Extensions;
 
@@ -28,6 +31,38 @@ public static class ApplicationServiceCollectionExtensions
                 services.AddScoped(@interface, type);
             }
         }
+
+        return services;
+    }
+
+    /// <summary>
+    /// Enregistre le calendrier métier : fuseau, fenêtre par défaut, plafond.
+    ///
+    /// A APPELER DANS TOUT SERVICE QUI AGREGE. Sans lui, chacun redéciderait
+    /// ce qu'est « aujourd'hui », et deux écrans montreraient deux chiffres
+    /// pour la même journée. La validation du fuseau se fait au démarrage, pas
+    /// au premier appel : une console qui tombe à midi parce qu'un fuseau est
+    /// mal écrit coûte plus cher qu'un service qui refuse de démarrer.
+    /// </summary>
+    public static IServiceCollection AddHbaTime(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        services.AddOptions<TimeOptions>()
+            .Bind(configuration.GetSection(TimeOptions.SectionName))
+            .Validate(
+                o => o.DefaultWindowDays is > 0 and <= 366,
+                "Time:DefaultWindowDays doit tenir entre 1 et 366 jours.")
+            .Validate(
+                o => o.MaxWindowDays >= o.DefaultWindowDays,
+                "Time:MaxWindowDays ne peut pas être inférieur à Time:DefaultWindowDays.")
+            .ValidateOnStart();
+
+        // TryAdd : AddHbaApplication pose déjà l'horloge, et l'ordre des deux
+        // appels ne doit pas décider laquelle est résolue.
+        services.TryAddSingleton<IClock, SystemClock>();
+        services.TryAddSingleton<ITimeCalendar, TimeCalendar>();
 
         return services;
     }

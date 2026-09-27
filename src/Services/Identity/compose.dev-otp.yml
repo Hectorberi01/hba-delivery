@@ -1,0 +1,29 @@
+# SURCOUCHE DE TEST, JAMAIS DE PRODUCTION.
+#
+# Elle fait passer Identity en Development le temps de creer un compte sans
+# recevoir de SMS : le code OTP devient la constante 000000, ce que le service
+# refuse categoriquement en dehors de Development.
+#
+#   docker compose -f docker-compose.yml -f compose.dev-otp.yml up -d --force-recreate identity
+#
+# Pour revenir a l'etat normal — a faire des le test termine :
+#
+#   docker compose up -d --force-recreate identity
+#
+# Ce fichier n'est PAS un docker-compose.override.yml, et c'est deliberé : un
+# override est charge automatiquement, donc oubliable. Celui-ci ne s'applique
+# que si on le nomme.
+
+services:
+  identity:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+
+      # SANS CES DEUX LIGNES, RIEN NE MARCHE. appsettings.Development.json fait
+      # ecouter Kestrel sur localhost:5001 et localhost:6001 — des valeurs
+      # pensees pour un « dotnet run » sur le poste. Dans un conteneur,
+      # ecouter sur localhost rend le service injoignable depuis la gateway et
+      # depuis tous les autres services : ils recevraient un refus de
+      # connexion, sans rapport visible avec le changement d'environnement.
+      Kestrel__Endpoints__Http__Url: "http://+:8080"
+      Kestrel__Endpoints__Grpc__Url: "http://+:8081"

@@ -3,6 +3,11 @@
   <ItemGroup>
     <ProjectReference Include="../Hba.BuildingBlocks.Application/Hba.BuildingBlocks.Application.csproj" />
     <ProjectReference Include="../Hba.BuildingBlocks.Domain/Hba.BuildingBlocks.Domain.csproj" />
+    <!-- Identity est l'autorite d'authentification de la plateforme : son
+         contrat de jeton est aussi fondamental ici que le format du JWT
+         lui-meme. L'alternative serait de recopier le fournisseur de jeton
+         dans chaque service qui appelle depuis un consommateur. -->
+    <ProjectReference Include="../../../contracts/Hba.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

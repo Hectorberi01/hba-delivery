@@ -1,0 +1,60 @@
+# Déploiement du service payment. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possède pas. Les réseaux sont
+# EXTERNES — la pile d'infrastructure les crée une fois — et tout ce qui change
+# d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Services/Payment && docker compose up -d
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-payment
+
+services:
+  payment:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-payment:${HBA_TAG:-latest}
+
+    # `build` sert au poste de développement et à la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Services/Payment/Hba.Payment.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte
+      # un mot de passe de developpement. La forme :? fait REFUSER le demarrage
+      # par Compose, avant tout conteneur. Sans elle, une variable absente
+      # devient la chaine vide et la base partirait ouverte a hba/hba.
+      ConnectionStrings__PaymentDb: ${PAYMENTDB_CONNECTION:?PAYMENTDB_CONNECTION absent - renseignez-le dans le .env du service}
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # FUSEAU METIER (ADR 0019). Les instants circulent en UTC ; c'est ici
+      # que le service apprend dans quel calendrier decouper les journees.
+      Time__ZoneId: ${HBA_TIMEZONE:-Africa/Porto-Novo}
+
+      # FEDAPAY. Les deux secrets sont DISTINCTS : la cle secrete signe les
+      # appels sortants, le secret de webhook verifie les notifications
+      # entrantes. La forme :? fait refuser le demarrage par Compose plutot que
+      # de lancer un service de paiement qui ne peut rien encaisser.
+      FedaPay__Environment: ${FEDAPAY_ENVIRONMENT:-sandbox}
+      FedaPay__SecretKey: ${FEDAPAY_SECRET_KEY:?FEDAPAY_SECRET_KEY absent - cle secrete du compte FedaPay}
+      FedaPay__WebhookSecret: ${FEDAPAY_WEBHOOK_SECRET:?FEDAPAY_WEBHOOK_SECRET absent - secret de l endpoint webhook, different de la cle secrete}
+      FedaPay__CallbackUrl: ${FEDAPAY_CALLBACK_URL:-}
+      FedaPay__CustomerCountry: ${FEDAPAY_CUSTOMER_COUNTRY:-bj}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

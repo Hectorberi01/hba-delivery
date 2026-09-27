@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ICONE ADAPTATIVE, exigee depuis Android 8. Le lanceur decoupe lui-meme la
+  forme — cercle, carre arrondi, goutte selon le constructeur — dans une
+  toile de 108 dp dont seuls les 72 dp centraux sont garantis visibles.
+
+  D'OU DEUX JEUX D'IMAGES, ET NON UN. « ic_launcher.png » reste le carre
+  arrondi complet, pour les telephones anterieurs a Android 8 ; le premier
+  plan, lui, ne porte que l'eclair, plus petit, pour survivre au decoupage
+  quelle que soit la forme choisie.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

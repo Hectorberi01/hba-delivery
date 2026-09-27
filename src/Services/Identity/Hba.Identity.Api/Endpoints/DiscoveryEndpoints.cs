@@ -1,4 +1,4 @@
-using Hba.Identity.Infrastructure.Security;
+using Hba.Identity.Infrastructure.Services.Security;
 using Microsoft.Extensions.Options;
 
 namespace Hba.Identity.Api.Endpoints;

@@ -1,6 +1,6 @@
 using Google.Protobuf.WellKnownTypes;
 using Hba.Contracts.Identity.V1;
-using Hba.Identity.Application.Views;
+using Hba.Identity.Application.Common.Views;
 using DomainAccountStatus = Hba.Identity.Domain.Accounts.AccountStatus;
 using ProtoAccount = Hba.Contracts.Identity.V1.Account;
 

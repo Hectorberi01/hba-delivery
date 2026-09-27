@@ -9,9 +9,13 @@
     <ProjectReference Include="../Hba.Payment.Domain/Hba.Payment.Domain.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Grpc/Hba.BuildingBlocks.Grpc.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Messaging/Hba.BuildingBlocks.Messaging.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Persistence/Hba.BuildingBlocks.Persistence.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- AddHttpClient : cette bibliotheque n'est pas un projet web, elle ne
+         recoit donc pas Microsoft.Extensions.Http par le framework. -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

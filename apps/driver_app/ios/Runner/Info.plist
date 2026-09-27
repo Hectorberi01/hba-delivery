@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>HBA Livreur</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>hba_driver</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- NSAllowsLocalNetworking, ET SURTOUT PAS NSAllowsArbitraryLoads.
+
+		     Meme raison que dans client_app. En developpement l'application
+		     livreur parle au BFF qui tourne sur le Mac, en http, sur une adresse
+		     privee du reseau local : sans exception iOS coupe la requete avant
+		     qu'elle parte, et l'application n'affiche que « Pas de reseau ».
+		     Le tunnel ngrok ne change rien ici : il expose la gateway a FedaPay,
+		     pas le BFF au telephone.
+
+		     Cette cle ouvre le clair UNIQUEMENT vers le reseau local (RFC 1918
+		     et .local). La production parle en https a un nom public, que cette
+		     cle ne concerne pas. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!-- Depuis iOS 14, joindre une adresse du reseau local declenche une
+	     demande d'autorisation. Sans ce texte, la demande n'apparait pas et la
+	     connexion echoue en silence. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>HBA Livreur se connecte au serveur de développement sur votre réseau local.</string>
+	<!-- Sans cette cle, iOS refuse la demande de permission SANS rien afficher :
+	     geolocator renvoie une erreur, le bouton « Passer en ligne » echoue, et
+	     le livreur ne voit que « Activez la localisation » sans aucun moyen de
+	     l'activer.
+
+	     « Quand l'application est utilisee », comme pour le client, mais pour
+	     une raison differente : le battement de coeur de position (20 s) ne
+	     tourne qu'application au premier plan. Un suivi en arriere-plan
+	     demanderait NSLocationAlwaysAndWhenInUseUsageDescription et
+	     UIBackgroundModes/location : ce n'est pas tranche dans le referentiel,
+	     donc ce n'est pas implemente ici. -->
+	<!-- Renseignee au build depuis Flutter/Secrets.xcconfig. Vide si le
+	     fichier n'existe pas : la carte s'affiche alors en gris et la console
+	     Xcode dit pourquoi. -->
+	<key>GMSApiKey</key>
+	<string>$(GOOGLE_MAPS_API_KEY)</string>
+	<!-- Depot des pieces du dossier. SANS CES CLES, iOS TUE L'APPLICATION
+	     a la premiere ouverture de l'appareil photo — pas une erreur, un
+	     arret net que rien dans les journaux Dart n'explique. -->
+	<key>NSCameraUsageDescription</key>
+	<string>HBA Livreur utilise l'appareil photo pour prendre vos pieces justificatives et la photo de votre vehicule.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>HBA Livreur accede a vos photos pour joindre une piece deja prise.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>HBA Livreur utilise votre position pour vous proposer les courses proches et suivre la livraison en cours.</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

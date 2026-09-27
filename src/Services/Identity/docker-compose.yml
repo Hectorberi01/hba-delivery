@@ -1,0 +1,80 @@
+# Déploiement du service identity. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possède pas. Les réseaux sont
+# EXTERNES — la pile d'infrastructure les crée une fois — et tout ce qui change
+# d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Services/Identity && docker compose up -d
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-identity
+
+services:
+  identity:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-identity:${HBA_TAG:-latest}
+
+    # `build` sert au poste de développement et à la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Services/Identity/Hba.Identity.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte
+      # un mot de passe de developpement. La forme :? fait REFUSER le demarrage
+      # par Compose, avant tout conteneur. Sans elle, une variable absente
+      # devient la chaine vide et la base partirait ouverte a hba/hba.
+      ConnectionStrings__IdentityDb: ${IDENTITYDB_CONNECTION:?IDENTITYDB_CONNECTION absent - renseignez-le dans le .env du service}
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+      Tokens__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:?REDIS_PASSWORD absent}"
+      JwtSigning__PrivateKeyPath: /var/hba/keys/identity-signing.pem
+      DataProtection__KeyBase64: ${DATA_PROTECTION_KEY:?DATA_PROTECTION_KEY absent - les jetons emis seraient invalides au redemarrage}
+      Otp__Pepper: ${OTP_PEPPER:?OTP_PEPPER absent - sans lui les codes OTP sont hachables hors ligne}
+
+      # PREMIER ADMINISTRATEUR. Sans lui le systeme est ferme sur lui-meme :
+      # creer un compte de back-office exige deja le role admin. Laisser ces
+      # deux valeurs vides desactive l'amorcage ; le service est idempotent et
+      # ne fait rien des qu'un administrateur existe.
+      Bootstrap__AdminEmail: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      Bootstrap__AdminPassword: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+
+      # REPRISE EN MAIN D'UN POSTE DE DEVELOPPEMENT dont le mot de passe admin
+      # est perdu. Le code refuse de demarrer si ce reglage vaut true hors
+      # Development. A passer en ligne de commande, le temps d'un demarrage :
+      #   BOOTSTRAP_ADMIN_RESET=true docker compose -f docker-compose.yml \
+      #     -f compose.dev-otp.yml up -d --build --force-recreate identity
+      Bootstrap__ResetPassword: ${BOOTSTRAP_ADMIN_RESET:-false}
+
+      # SERVICES INTERNES AUTORISES A DEMANDER UN JETON (ADR 0018). Un service
+      # qui appelle depuis un consommateur Kafka ou un planificateur n'a aucun
+      # utilisateur dont reporter le jeton : il s'authentifie avec ce secret.
+      # Le nom de la variable d'environnement PORTE le nom du service, donc
+      # ajouter un service ici veut dire ajouter une ligne, pas migrer une base.
+      ServiceClients__Clients__delivery: ${SERVICE_SECRET_DELIVERY:?SERVICE_SECRET_DELIVERY absent - sans lui Delivery ne peut pas affecter de livreur}
+      ServiceClients__Clients__dispatch: ${SERVICE_SECRET_DISPATCH:?SERVICE_SECRET_DISPATCH absent - sans lui le dispatch ne peut chercher aucun livreur}
+    volumes:
+      # La clé de signature survit aux redémarrages : sans cela, tous les
+      # jetons émis seraient invalidés à chaque déploiement.
+      - identity-keys:/var/hba/keys
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal
+
+volumes:
+  identity-keys:

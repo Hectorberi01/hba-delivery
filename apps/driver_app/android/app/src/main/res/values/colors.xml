@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      L'orange de la marque. IL EST RECOPIE ICI parce qu'une ressource Android
+      ne peut pas lire les jetons Dart : c'est la meme valeur que
+      HbaColors.primary dans apps/hba_ui/lib/src/tokens.dart, et les deux
+      doivent changer ensemble.
+    -->
+    <color name="ic_launcher_background">#F2690F</color>
+</resources>

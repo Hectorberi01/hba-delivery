@@ -1,28 +1,30 @@
-#!/bin/bash
+#!/bin/sh
 # Topics du système. Compaction désactivée : ce sont des flux d'événements, pas
 # des états. Rétention 7 jours en développement.
-set -euo pipefail
+set -eu
 
 BOOTSTRAP="${KAFKA_BOOTSTRAP:-kafka:9094}"
+# Image apache/kafka : les scripts ne sont pas dans le PATH.
+KT="${KAFKA_TOPICS_SH:-/opt/kafka/bin/kafka-topics.sh}"
 PARTITIONS="${PARTITIONS:-6}"
 REPLICATION="${REPLICATION:-1}"
 RETENTION_MS="${RETENTION_MS:-604800000}"
 
-TOPICS=(
-  "hba.identity.events.v1"
-  "hba.directory.events.v1"
-  "hba.delivery.events.v1"
-  "hba.dispatch.events.v1"
-  "hba.driver.events.v1"
-  "hba.payment.events.v1"
-  "hba.pricing.events.v1"
-  "hba.notification.commands.v1"
-  "hba.platform.order.events.v1"
-)
+TOPICS="
+hba.identity.events.v1
+hba.directory.events.v1
+hba.delivery.events.v1
+hba.dispatch.events.v1
+hba.driver.events.v1
+hba.payment.events.v1
+hba.pricing.events.v1
+hba.notification.commands.v1
+hba.platform.order.events.v1
+"
 
-for topic in "${TOPICS[@]}"; do
+for topic in $TOPICS; do
   echo "Topic $topic"
-  kafka-topics.sh --bootstrap-server "$BOOTSTRAP" \
+  "$KT" --bootstrap-server "$BOOTSTRAP" \
     --create --if-not-exists \
     --topic "$topic" \
     --partitions "$PARTITIONS" \
@@ -32,4 +34,4 @@ for topic in "${TOPICS[@]}"; do
 done
 
 echo "Topics en place :"
-kafka-topics.sh --bootstrap-server "$BOOTSTRAP" --list
+"$KT" --bootstrap-server "$BOOTSTRAP" --list

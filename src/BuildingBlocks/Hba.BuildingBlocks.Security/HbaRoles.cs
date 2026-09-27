@@ -47,4 +47,17 @@ public static class HbaPolicies
     public const string BackOffice = "policy:back-office";
     public const string Admin = "policy:admin";
     public const string Finance = "policy:finance";
+
+    /// <summary>
+    /// Annuaire des clients : admin, ops et support — PAS finance.
+    ///
+    /// UNE POLITIQUE A PART, ET NON BackOffice. Rattacher un paiement a un
+    /// client se fait par identifiant ; parcourir un annuaire de personnes et
+    /// lire des adresses de domicile n'entre pas dans le metier de finance.
+    /// Reutiliser BackOffice aurait ouvert la porte sans que personne ne
+    /// l'ait decide. Le service reverifie de toute facon : cette politique
+    /// evite seulement qu'un appel manifestement hors perimetre traverse la
+    /// passerelle.
+    /// </summary>
+    public const string AnnuaireClients = "policy:annuaire-clients";
 }

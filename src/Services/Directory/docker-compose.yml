@@ -1,0 +1,55 @@
+# Déploiement du service directory. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possède pas. Les réseaux sont
+# EXTERNES — la pile d'infrastructure les crée une fois — et tout ce qui change
+# d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Services/Directory && docker compose up -d
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-directory
+
+services:
+  directory:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-directory:${HBA_TAG:-latest}
+
+    # `build` sert au poste de développement et à la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Services/Directory/Hba.Directory.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte
+      # un mot de passe de developpement. La forme :? fait REFUSER le demarrage
+      # par Compose, avant tout conteneur. Sans elle, une variable absente
+      # devient la chaine vide et la base partirait ouverte a hba/hba.
+      ConnectionStrings__DirectoryDb: ${DIRECTORYDB_CONNECTION:?DIRECTORYDB_CONNECTION absent - renseignez-le dans le .env du service}
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # CONSERVATION DU JOURNAL DES LECTURES DE DONNEES PERSONNELLES.
+      #
+      # VIDE VEUT DIRE « ON NE PURGE RIEN », et le service l'annonce au
+      # demarrage plutot que de le taire. La duree legale de conservation
+      # d'une trace d'acces n'est pas une decision d'ingenierie : la poser
+      # dans le code en ferait une regle arretee alors qu'elle serait
+      # inventee. Renseignez-la quand elle sera tranchee.
+      PersonalDataReads__RetentionDays: ${PERSONAL_DATA_READS_RETENTION_DAYS:-0}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

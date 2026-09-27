@@ -59,6 +59,12 @@ internal sealed class DeliveryConfiguration : IEntityTypeConfiguration<DeliveryA
         builder.HasIndex(d => new { d.MerchantId, d.CreatedAt });
         builder.HasIndex(d => d.Status);
 
+        // TOUTE LECTURE AGREGEE COMMENCE PAR UNE PLAGE DE DATES (ADR 0019).
+        // Les deux index ci-dessus portent CreatedAt en seconde position,
+        // derriere un client ou un commercant : sans celui-ci, « du 1er au 30 »
+        // balaie la table entiere.
+        builder.HasIndex(d => d.CreatedAt);
+
         ConfigureLocation(builder, d => d.Pickup, "pickup");
         ConfigureLocation(builder, d => d.Dropoff, "dropoff");
         builder.Navigation(d => d.Pickup).IsRequired();

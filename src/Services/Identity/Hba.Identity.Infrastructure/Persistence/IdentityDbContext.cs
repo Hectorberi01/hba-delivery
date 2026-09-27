@@ -4,7 +4,7 @@ using Hba.BuildingBlocks.Messaging.Inbox;
 using Hba.BuildingBlocks.Messaging.Outbox;
 using Hba.BuildingBlocks.Persistence;
 using Hba.BuildingBlocks.Persistence.Configurations;
-using Hba.Identity.Application.IntegrationEvents;
+using Hba.Identity.Application.Common.IntegrationEvents;
 using Hba.Identity.Domain.Accounts;
 using Hba.Identity.Domain.Partners;
 using Hba.Identity.Domain.Sessions;

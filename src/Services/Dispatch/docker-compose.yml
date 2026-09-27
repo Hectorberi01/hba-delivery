@@ -1,0 +1,71 @@
+# Déploiement du service dispatch. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possède pas. Les réseaux sont
+# EXTERNES — la pile d'infrastructure les crée une fois — et tout ce qui change
+# d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Services/Dispatch && docker compose up -d
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-dispatch
+
+services:
+  dispatch:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-dispatch:${HBA_TAG:-latest}
+
+    # `build` sert au poste de développement et à la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Services/Dispatch/Hba.Dispatch.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte
+      # un mot de passe de developpement. La forme :? fait REFUSER le demarrage
+      # par Compose, avant tout conteneur. Sans elle, une variable absente
+      # devient la chaine vide et la base partirait ouverte a hba/hba.
+      ConnectionStrings__DispatchDb: ${DISPATCHDB_CONNECTION:?DISPATCHDB_CONNECTION absent - renseignez-le dans le .env du service}
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # FUSEAU METIER (ADR 0019). Les instants circulent en UTC ; c'est ici
+      # que le service apprend dans quel calendrier decouper les journees.
+      Time__ZoneId: ${HBA_TIMEZONE:-Africa/Porto-Novo}
+
+      # LE VERROU D'ACCEPTATION VIT DANS REDIS. Sans lui, deux livreurs
+      # pourraient gagner la meme course : le service refuse de demarrer.
+      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:?REDIS_PASSWORD absent - le verrou d acceptation en depend}"
+
+      # PORT 8081 : le gRPC de Driver, pas son REST.
+      Services__Driver: ${DRIVER_GRPC:-http://driver:8081}
+
+      # IDENTITE DU SERVICE (ADR 0018). Le planificateur ouvre les vagues sans
+      # aucun utilisateur derriere lui : sans ce jeton, Driver refuse la
+      # recherche et aucune offre ne part jamais.
+      ServiceToken__IdentityAddress: ${IDENTITY_GRPC:-http://identity:8081}
+      ServiceToken__ClientId: dispatch
+      ServiceToken__ClientSecret: ${SERVICE_SECRET_DISPATCH:?SERVICE_SECRET_DISPATCH absent - doit valoir la meme chose que cote Identity}
+
+      # Politique de vagues. Trois rayons separes par des virgules.
+      Dispatch__WaveRadiiMeters__0: ${DISPATCH_WAVE_1_METERS:-2000}
+      Dispatch__WaveRadiiMeters__1: ${DISPATCH_WAVE_2_METERS:-4000}
+      Dispatch__WaveRadiiMeters__2: ${DISPATCH_WAVE_3_METERS:-6000}
+      Dispatch__OfferSeconds: ${DISPATCH_OFFER_SECONDS:-30}
+      Dispatch__DriversPerWave: ${DISPATCH_DRIVERS_PER_WAVE:-5}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

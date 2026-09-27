@@ -68,8 +68,12 @@ public sealed class NotificationCommandsConsumer(
                 Copy(message.SendSms.Variables),
                 correlationId),
 
+            // CANAL NON IMPOSE, DELIBEREMENT. Demander WhatsApp, c'est demander la
+            // chaine du catalogue — WhatsApp puis SMS —, pas WhatsApp seul : un
+            // code de connexion qui ne part pas bloque l'utilisateur dehors.
+            // Le SMS, lui, reste impose : un destinataire n'a pas d'opt-in.
             NotificationCommand.PayloadOneofCase.SendWhatsapp => new SendNotificationCommand(
-                NotificationChannel.WhatsApp,
+                null,
                 message.SendWhatsapp.ToPhone,
                 message.SendWhatsapp.TemplateId,
                 Copy(message.SendWhatsapp.Variables),

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Hba.BuildingBlocks.Domain;
+using Hba.Identity.Domain.Exceptions;
 
 namespace Hba.Identity.Domain.ValueObjects;
 
@@ -24,7 +25,7 @@ public sealed partial class PhoneNumber : ValueObject
         if (!E164().IsMatch(normalized))
         {
             throw new DomainException(
-                "INVALID_PHONE",
+                IdentityErrorCodes.InvalidPhone,
                 "Numéro invalide. Format attendu : international, par exemple +22997000000.");
         }
 

@@ -1,0 +1,244 @@
+### Surface REST d'Identity, hors Docker.
+#
+# PREREQUIS : l'infrastructure de developpement tourne (make up). Postgres,
+# Redis et Kafka sont alors publies sur localhost ; Identity, lui, se lance en
+# local par « dotnet run » et applique ses migrations tout seul
+# (Database:AutoMigrate vaut true en Development).
+#
+# EN DEVELOPPEMENT LE CODE OTP EST FIGE A 000000. C'est Otp:FixedCodeForDevelopment
+# qui le decide : aucun SMS ne part, et il n'y a pas de journal a lire pour
+# retrouver le code. Cette valeur est refusee hors Development.
+#
+# Les requetes sont ordonnees : jouer la 1 puis la 2 remplit les variables
+# utilisees par les suivantes.
+
+@host = {{host}}
+
+### 1. Demande d'un code — anonyme
+# @name otpRequest
+POST {{host}}/api/v1/auth/otp/request
+Content-Type: application/json
+
+{
+  "phone": "{{phone}}",
+  "intent": "customer",
+  "deviceId": "rider-test"
+}
+
+> {% client.global.set("challengeId", response.body.challengeId); %}
+
+### 2. Verification du code — anonyme
+# @name otpVerify
+POST {{host}}/api/v1/auth/otp/verify
+Content-Type: application/json
+
+{
+  "challengeId": "{{challengeId}}",
+  "code": "000000",
+  "deviceId": "rider-test",
+  "displayName": "Client de test"
+}
+
+> {%
+client.global.set("accessToken", response.body.accessToken);
+client.global.set("refreshToken", response.body.refreshToken);
+%}
+
+### 3. Connexion par mot de passe — anonyme
+# Le compte admin est cree au demarrage par AdminBootstrap.
+# @name login
+POST {{host}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "login": "{{adminLogin}}",
+  "password": "{{adminPassword}}",
+  "deviceId": "rider-test"
+}
+
+> {%
+client.global.set("adminToken", response.body.accessToken);
+client.global.set("adminRefresh", response.body.refreshToken);
+%}
+
+### 4. Le porteur du jeton
+GET {{host}}/api/v1/auth/me
+Authorization: Bearer {{accessToken}}
+
+### 5. Renouvellement de session — anonyme
+POST {{host}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}",
+  "deviceId": "rider-test"
+}
+
+### 6. Changement de mot de passe (compte admin)
+POST {{host}}/api/v1/auth/password
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "currentPassword": "{{adminPassword}}",
+  "newPassword": "un-autre-mot-de-passe-long"
+}
+
+### 7. Fermeture de toutes les sessions du porteur
+POST {{host}}/api/v1/auth/sessions/revoke-all
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{}
+
+### 8. Deconnexion — anonyme a dessein
+POST {{host}}/api/v1/auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+### ------------------------------------------------------------ Comptes ---
+
+### 9. Creation d'un compte back-office — reserve au role admin
+# @name createBackOffice
+POST {{host}}/api/v1/accounts/back-office
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "email": "ops.test@hbatechettrade.com",
+  "displayName": "Ops de test",
+  "roles": ["ops"],
+  "initialPassword": "mot-de-passe-initial-long"
+}
+
+> {% client.global.set("accountId", response.body.id); %}
+
+### 10. Creation d'un compte rattache a un commercant
+POST {{host}}/api/v1/accounts/merchant
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "merchantId": "01a00000-0000-7000-8000-000000000001",
+  "email": "gerant.test@hbatechettrade.com",
+  "phone": null,
+  "displayName": "Gerant de test",
+  "role": "merchant_owner",
+  "initialPassword": "mot-de-passe-initial-long"
+}
+
+### 11. Changement de roles
+PUT {{host}}/api/v1/accounts/{{accountId}}/roles
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "roles": ["ops", "support"],
+  "reason": "Elargissement du perimetre de test"
+}
+
+### 12. Suspension
+POST {{host}}/api/v1/accounts/{{accountId}}/suspend
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "reason": "Test de suspension"
+}
+
+### 13. Reactivation
+POST {{host}}/api/v1/accounts/{{accountId}}/reactivate
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "reason": "Fin du test"
+}
+
+### 14. Rattachement d'une fiche livreur
+# CETTE ROUTE N'A PAS D'EQUIVALENT GRPC — voir le commentaire dans
+# AccountsController : a trancher, ajout au proto ou retrait de la route.
+POST {{host}}/api/v1/accounts/{{accountId}}/driver-profile
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "driverId": "01a00000-0000-7000-8000-000000000002"
+}
+
+### -------------------------------------------------------- Partenaires ---
+
+### 15. Enrolement d'un partenaire — reserve au role admin
+# LA REPONSE PORTE LES SECRETS EN CLAIR, UNE SEULE FOIS.
+# @name createPartner
+POST {{host}}/api/v1/partners
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "partnerName": "Partenaire de test",
+  "source": "test",
+  "webhookUrl": "https://example.invalid/hooks/hba",
+  "scopes": ["deliveries:write"],
+  "rateLimitPerMinute": 120
+}
+
+> {%
+client.global.set("partnerId", response.body.partnerId);
+client.global.set("clientId", response.body.clientId);
+client.global.set("clientSecret", response.body.clientSecret);
+%}
+
+### 16. Jeton OAuth2 client credentials — anonyme
+POST {{host}}/api/v1/oauth/token
+Content-Type: application/json
+
+{
+  "clientId": "{{clientId}}",
+  "clientSecret": "{{clientSecret}}",
+  "scopes": ["deliveries:write"]
+}
+
+### 17. Rotation du secret
+POST {{host}}/api/v1/partners/{{partnerId}}/rotate-secret
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "reason": "Test de rotation"
+}
+
+### 18. Configuration webhook — back-office uniquement
+GET {{host}}/api/v1/partners/{{partnerId}}/webhook-config
+Authorization: Bearer {{adminToken}}
+
+### ----------------------------------------------------------- Controles ---
+
+### 19. Numero invalide : doit repondre 409 INVALID_PHONE, pas 500
+POST {{host}}/api/v1/auth/otp/request
+Content-Type: application/json
+
+{
+  "phone": "0600000000"
+}
+
+### 20. Sans jeton : doit repondre 401, jamais 500
+GET {{host}}/api/v1/auth/me
+
+### 21. Identifiant mal forme : doit repondre 409 INVALID_ID
+POST {{host}}/api/v1/accounts/pas-un-guid/suspend
+Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
+{
+  "reason": "Controle du middleware"
+}
+
+### 22. Cles publiques, anonyme
+GET {{host}}/.well-known/jwks.json
+
+### 23. Decouverte, anonyme
+GET {{host}}/.well-known/openid-configuration

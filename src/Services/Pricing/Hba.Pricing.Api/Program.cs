@@ -1,8 +1,8 @@
 using Hba.BuildingBlocks.Grpc.Interceptors;
 using Hba.BuildingBlocks.Observability;
 using Hba.BuildingBlocks.Security;
-using Hba.Pricing.Application.Extensions;
-using Hba.Pricing.Infrastructure.Extensions;
+using Hba.Pricing.Application;
+using Hba.Pricing.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 

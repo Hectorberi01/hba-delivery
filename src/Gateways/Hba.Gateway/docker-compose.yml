@@ -1,0 +1,68 @@
+# Déploiement du gateway. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possède pas. Les réseaux sont
+# EXTERNES — la pile d'infrastructure les crée une fois — et tout ce qui change
+# d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Gateways/Hba.Gateway && docker compose up -d
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-gateway
+
+services:
+  gateway:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-gateway:${HBA_TAG:-latest}
+
+    # `build` sert au poste de développement et à la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Gateways/Hba.Gateway/Dockerfile
+
+    restart: unless-stopped
+
+    # ECOUTE SUR LA BOUCLE LOCALE PAR DEFAUT. Le gateway est le point d'entree
+    # public, mais en production c'est Traefik qui le sert, avec TLS : publier
+    # 8080 sur toutes les interfaces exposerait l'API en clair. Lier a 127.0.0.1
+    # la rend joignable depuis la machine — et depuis un simulateur — sans
+    # l'exposer au reseau. Passer GATEWAY_BIND a 0.0.0.0 pour tester depuis un
+    # telephone physique sur le meme reseau.
+    ports:
+      - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-5100}:8080"
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # MEME FUSEAU QUE LES SERVICES (ADR 0019) : c'est la passerelle qui
+      # resout la fenetre des indicateurs et l'impose aux quatre. Un fuseau
+      # different ici decalerait la fenetre par defaut d'une heure, sans que
+      # rien ne le signale.
+      Time__ZoneId: ${HBA_TIMEZONE:-Africa/Porto-Novo}
+
+    # LES QUATRE NOMS D'HOTE POINTENT SUR LE MEME CONTENEUR, ET LES CHEMINS LES
+    # DISTINGUENT. Les garder separes n'est pas decoratif : les applications
+    # deja installees connaissent api.hba.delivery, les partenaires ont signe
+    # sur partners.hba.delivery, et un nom d'hote se change plus difficilement
+    # qu'une route. Le jour ou l'une des surfaces doit redevenir un deployable
+    # a part, c'est une ligne de label a deplacer, pas une migration client.
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.gateway.rule: "Host(`api.hba.delivery`) || Host(`driver.hba.delivery`) || Host(`console.hba.delivery`) || Host(`partners.hba.delivery`)"
+      traefik.http.routers.gateway.entrypoints: "websecure"
+      traefik.http.routers.gateway.tls.certresolver: "letsencrypt"
+      traefik.http.routers.gateway.middlewares: "security-headers@file,compress@file"
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

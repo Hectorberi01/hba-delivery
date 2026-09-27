@@ -27,7 +27,44 @@ SERVICES=(
   "Directory:src/Services/Directory"
   "Delivery:src/Services/Delivery"
   "Notification:src/Services/Notification"
+  "Pricing:src/Services/Pricing"
+  "Payment:src/Services/Payment"
+  "Driver:src/Services/Driver"
+  "Dispatch:src/Services/Dispatch"
 )
+
+# CONTROLE PREALABLE, ET IL A UNE HISTOIRE. « dotnet ef » exige que le PROJET
+# DE DEMARRAGE — l'API, pas l'infrastructure — reference
+# Microsoft.EntityFrameworkCore.Design. Trois services de suite ont ete ecrits
+# sans cette reference, et chaque fois l'erreur est tombee apres une
+# compilation complete, loin de sa cause. Le dire ici coute une seconde.
+manquants=()
+for entry in "${SERVICES[@]}"; do
+  svc="${entry%%:*}"
+  path="${entry##*:}"
+  api="$path/Hba.$svc.Api/Hba.$svc.Api.csproj"
+
+  if [ -f "$api" ] && ! grep -q "EntityFrameworkCore.Design" "$api"; then
+    manquants+=("$api")
+  fi
+done
+
+if [ ${#manquants[@]} -gt 0 ]; then
+  echo "Ces projets de demarrage ne referencent pas Microsoft.EntityFrameworkCore.Design :" >&2
+  printf '  %s\n' "${manquants[@]}" >&2
+  echo >&2
+  echo "Ajoutez-y le bloc suivant avant </Project>, puis relancez :" >&2
+  cat >&2 <<'BLOC'
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+BLOC
+  exit 1
+fi
 
 for entry in "${SERVICES[@]}"; do
   svc="${entry%%:*}"

@@ -19,4 +19,14 @@
     <PackageReference Include="Grpc.AspNetCore.HealthChecks" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Projet de demarrage de « dotnet ef ». Ajoute des maintenant : le
+         controle prealable de create-migrations.sh le reclamera des que
+         Dispatch aura une migration. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
 </Project>

@@ -35,3 +35,18 @@ apps/web/out/
 
 # Données locales des conteneurs
 deploy/.data/
+
+# Cle de signature des jetons generee en developpement.
+#
+# JwtSigning:AllowEphemeralKey vaut true en Development : le premier demarrage
+# ecrit une cle privee RSA a cote du projet. C'est CETTE cle qui signe tous les
+# jetons ; un « git add -A » la publierait, et quiconque l'aurait pourrait
+# forger un jeton admin valide.
+.keys/
+*.pem
+
+# Variables privees du client HTTP de Rider.
+http-client.private.env.json
+
+# Journal du tunnel de developpement (make tunnel)
+.ngrok/

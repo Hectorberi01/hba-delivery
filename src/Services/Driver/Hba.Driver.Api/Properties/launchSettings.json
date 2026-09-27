@@ -3,10 +3,8 @@
     "Hba.Driver.Api": {
       "commandName": "Project",
       "dotnetRunMessages": true,
-      "applicationUrl": "http://localhost:5005",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_HTTP_PORTS": "5005"
+        "ASPNETCORE_ENVIRONMENT": "Development"
       }
     }
   }

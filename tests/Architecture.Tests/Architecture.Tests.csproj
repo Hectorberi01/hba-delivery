@@ -19,6 +19,8 @@
     <ProjectReference Include="../../src/Services/Directory/Hba.Directory.Application/Hba.Directory.Application.csproj" />
     <ProjectReference Include="../../src/Services/Notification/Hba.Notification.Domain/Hba.Notification.Domain.csproj" />
     <ProjectReference Include="../../src/Services/Notification/Hba.Notification.Application/Hba.Notification.Application.csproj" />
+    <ProjectReference Include="../../src/Services/Driver/Hba.Driver.Domain/Hba.Driver.Domain.csproj" />
+    <ProjectReference Include="../../src/Services/Driver/Hba.Driver.Application/Hba.Driver.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

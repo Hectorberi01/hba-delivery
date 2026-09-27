@@ -1,3 +1,4 @@
+using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Domain;
@@ -105,6 +106,60 @@ public sealed class DirectoryGrpcService(IDispatcher dispatcher) : DirectoryServ
             context.CancellationToken).ConfigureAwait(false);
 
         return DirectoryProtoMapper.ToProto(view);
+    }
+
+    public override async Task<ListCustomersResponse> ListCustomers(
+        ListCustomersRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var page = await dispatcher.QueryAsync(
+            new ListCustomersQuery(Nullify(request.Query), request.PageSize, request.Offset),
+            context.CancellationToken).ConfigureAwait(false);
+
+        var response = new ListCustomersResponse { Total = page.Total };
+        response.Customers.AddRange(page.Customers.Select(DirectoryProtoMapper.ToProto));
+
+        return response;
+    }
+
+    public override async Task<CustomerFile> GetCustomerFile(
+        GetCustomerFileRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var fiche = await dispatcher.QueryAsync(
+            new GetCustomerFileQuery(request.CustomerId),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return DirectoryProtoMapper.ToProto(fiche);
+    }
+
+    public override async Task<CustomerAccessLog> GetCustomerAccessLog(
+        GetCustomerAccessLogRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var entrees = await dispatcher.QueryAsync(
+            new GetCustomerAccessLogQuery(request.CustomerId, request.Limit),
+            context.CancellationToken).ConfigureAwait(false);
+
+        var reponse = new CustomerAccessLog();
+
+        reponse.Entries.AddRange(entrees.Select(e => new CustomerAccessEntry
+        {
+            ReaderId = e.ReaderId,
+            ReaderRoles = e.ReaderRoles,
+            ReadAt = Timestamp.FromDateTimeOffset(e.ReadAt),
+        }));
+
+        return reponse;
     }
 
     public override async Task<ListMerchantsResponse> ListMerchants(

@@ -22,14 +22,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        gateway:
-          - Hba.Bff.Client
-          - Hba.Bff.Driver
-          - Hba.Bff.Web
-          - Hba.PartnerApi
     steps:
       - uses: actions/checkout@v4
 
@@ -39,10 +31,10 @@ jobs:
 
       - name: Compiler
         run: >
-          dotnet build src/Gateways/${{ matrix.gateway }}/${{ matrix.gateway }}.csproj
+          dotnet build src/Gateways/Hba.Gateway/Hba.Gateway.csproj
           --configuration Release
 
       - name: Construire l'image
         run: >
-          docker build -f src/Gateways/${{ matrix.gateway }}/Dockerfile
-          -t hba/${{ matrix.gateway }}:${{ github.sha }} .
+          docker build -f src/Gateways/Hba.Gateway/Dockerfile
+          -t hba/gateway:${{ github.sha }} .

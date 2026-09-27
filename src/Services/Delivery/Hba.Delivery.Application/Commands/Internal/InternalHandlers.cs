@@ -73,6 +73,20 @@ public sealed class StartDriverSearchHandler(
             return Unit.Value;
         }
 
+        // DEUX MESSAGES PEUVENT SE CROISER : le client annule pendant qu'une
+        // offre part. Dispatch apprend l'annulation par Kafka, donc avec un
+        // temps de retard, et peut publier « OfferSent » entre-temps.
+        //
+        // Lever ici ferait rejouer le message indefiniment et bloquerait la
+        // partition pour toutes les autres courses. Une course close ne se
+        // remet pas en recherche : on l'ignore, et le moteur s'arretera de
+        // lui-meme au prochain evenement d'annulation.
+        if (delivery.Status != Domain.Deliveries.DeliveryStatus.Paid
+            && delivery.Status != Domain.Deliveries.DeliveryStatus.SearchingDriver)
+        {
+            return Unit.Value;
+        }
+
         delivery.StartDriverSearch(Actor.DispatchEngine, command.OccurredAt);
 
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -123,6 +137,24 @@ public sealed class MarkNoDriverFoundHandler(
         if (delivery is null)
         {
             return Unit.Value;
+        }
+
+        // LA RECHERCHE A PU N'ETRE JAMAIS VISIBLE ICI. Delivery n'apprend
+        // qu'une recherche a commencé que par « OfferSent » : si toutes les
+        // vagues sont parties vides — aucun livreur dans le rayon, ce qui est
+        // le cas ordinaire aux heures creuses et au lancement —, aucune offre
+        // n'a été publiée et la course est restée en PAID.
+        //
+        // Sans cette ligne, la transition PAID → NO_DRIVER_FOUND serait
+        // refusée par la table. Le consumer ne bloquerait pas la partition —
+        // KafkaConsumerBase abandonne après trois tentatives, consigne dans
+        // inbox_messages et avance l'offset — mais l'événement serait perdu :
+        // la course resterait affichée « payée » au client, indéfiniment,
+        // alors que le dispatch a déjà renoncé et qu'aucune vague ne
+        // reprendra.
+        if (delivery.Status == Domain.Deliveries.DeliveryStatus.Paid)
+        {
+            delivery.StartDriverSearch(Actor.DispatchEngine, command.OccurredAt);
         }
 
         delivery.MarkNoDriverFound(command.WavesAttempted, Actor.DispatchEngine, command.OccurredAt);

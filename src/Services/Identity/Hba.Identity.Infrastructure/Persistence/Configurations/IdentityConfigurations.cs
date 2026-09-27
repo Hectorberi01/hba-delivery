@@ -48,6 +48,18 @@ internal sealed class AccountConfiguration : IEntityTypeConfiguration<Account>
         builder.Property(a => a.MerchantId).HasColumnName("merchant_id").HasMaxLength(64);
         builder.Property(a => a.DriverId).HasColumnName("driver_id").HasMaxLength(64);
 
+        // Consentement WhatsApp. NON NULLABLE AVEC DEFAUT A FAUX : les comptes
+        // existants ne doivent surtout pas hériter d'un consentement qu'ils
+        // n'ont jamais donné.
+        builder.Property(a => a.WhatsAppOptIn)
+            .HasColumnName("whatsapp_opt_in")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(a => a.WhatsAppOptInAt).HasColumnName("whatsapp_opt_in_at");
+
+        builder.Ignore(a => a.CanReceiveWhatsApp);
+
         // Un numéro et une adresse identifient un compte : l'unicité est garantie
         // par la base, pas seulement par une vérification dans le code.
         builder.HasIndex(a => a.Phone).IsUnique().HasFilter("phone IS NOT NULL");

@@ -3,6 +3,7 @@ syntax = "proto3";
 package hba.driver.v1;
 
 import "google/protobuf/timestamp.proto";
+import "hba/common/v1/time.proto";
 import "hba/common/v1/enums.proto";
 import "hba/common/v1/geo.proto";
 
@@ -18,9 +19,54 @@ service DriverService {
   rpc UpdateLocation(UpdateLocationRequest) returns (UpdateLocationResponse);
   // Livreurs disponibles autour d'un point, pour le moteur de dispatch.
   rpc FindAvailableNearby(FindAvailableNearbyRequest) returns (FindAvailableNearbyResponse);
+  // --- Constitution du dossier par le livreur lui-même (ADR 0021) ---
+  //
+  // LE DÉPÔT D'UNE PIÈCE N'EST PAS ICI, et c'est délibéré : les octets
+  // arrivent par `POST /internal/v1/drivers/{id}/documents`, en HTTP, sur le
+  // port 8080 de ce service. C'est la seule exception à l'ADR 0002, et elle
+  // est motivée dans l'ADR 0021 — un binaire qui traverse gRPC traverse aussi
+  // les intercepteurs de trace, où une pièce d'identité n'a rien à faire.
+  rpc DeclareVehicle(DeclareVehicleRequest) returns (Driver);
+  // Envoie le dossier à l'examen. Refuse un dossier incomplet.
+  rpc SubmitApplication(SubmitApplicationRequest) returns (Driver);
+  // Les pièces d'un livreur, avec une URL signée à courte durée par pièce.
+  // Réservé au livreur concerné et au back-office.
+  rpc GetApplication(GetDriverRequest) returns (DriverApplication);
+
   // Admin : décision KYC. Auditée.
   rpc ReviewKyc(ReviewKycRequest) returns (Driver);
   rpc SuspendDriver(SuspendDriverRequest) returns (Driver);
+
+  // Back-office : l'annuaire. RESERVE AUX ROLES admin, ops, support et
+  // finance, et la verification est dans le handler — un annuaire de livreurs
+  // porte des noms et des telephones, ce n'est pas un profil public.
+  rpc ListDrivers(ListDriversRequest) returns (ListDriversResponse);
+
+  // Back-office : les effectifs. Même réserve que l'annuaire.
+  rpc GetDriverStats(GetDriverStatsRequest) returns (DriverStats);
+
+  // Back-office : où se trouvent les livreurs en ce moment.
+  //
+  // CE N'EST PAS FindAvailableNearby SANS CENTRE. Celui-ci sert au dispatch
+  // et ne rend que des candidats à une course ; celui-là sert à regarder, et
+  // rend aussi les livreurs en course ou réservés. Les deux lisent le même
+  // index, avec des questions différentes.
+  //
+  // LA DONNÉE DIT OÙ UNE PERSONNE SE TIENT. Réservée à admin, ops, support
+  // et finance, vérifié dans le service et pas seulement à la passerelle.
+  rpc ListDriverPositions(ListDriverPositionsRequest) returns (ListDriverPositionsResponse);
+
+  // « Puis-je proposer une course à CE livreur, depuis CE point ? »
+  //
+  // CE N'EST PAS FindAvailableNearby AVEC UN FILTRE. La recherche de
+  // proximité répond « les N plus proches d'ici » : aucun rayon, aucune
+  // limite ne garantit qu'un livreur nommé figure dans sa réponse, et les
+  // augmenter jusqu'à ce qu'il apparaisse reviendrait à balayer la ville pour
+  // interroger une ligne.
+  //
+  // Sert à l'affectation manuelle par l'exploitation, et à griser le bouton
+  // AVANT qu'on appuie dessus.
+  rpc CheckDriverAvailability(CheckDriverAvailabilityRequest) returns (DriverAvailability);
 }
 
 enum VerificationStatus {
@@ -38,6 +84,19 @@ enum OperationalStatus {
   // Une offre est en cours : le livreur ne peut pas en recevoir une autre.
   OPERATIONAL_STATUS_RESERVED = 3;
   OPERATIONAL_STATUS_ON_MISSION = 4;
+}
+
+// Nature d'une pièce du dossier. LA LISTE VIENT DU RÉFÉRENTIEL : « documents
+// KYC (CNI, permis, carte grise, photo) ». Rien n'y a été ajouté.
+enum DocumentType {
+  DOCUMENT_TYPE_UNSPECIFIED = 0;
+  DOCUMENT_TYPE_NATIONAL_ID = 1;
+  DOCUMENT_TYPE_DRIVING_LICENCE = 2;
+  DOCUMENT_TYPE_VEHICLE_REGISTRATION = 3;
+  // Photo d'identité, PIÈCE DU DOSSIER — à ne pas confondre avec la photo de
+  // profil, qui n'est pas une pièce et ne passe pas par l'examen (ADR 0021).
+  DOCUMENT_TYPE_IDENTITY_PHOTO = 4;
+  DOCUMENT_TYPE_VEHICLE_PHOTO = 5;
 }
 
 message Vehicle {
@@ -123,4 +182,168 @@ message ReviewKycRequest {
 message SuspendDriverRequest {
   string driver_id = 1;
   string reason = 2;
+}
+
+message ListDriversRequest {
+  // Recherche libre sur le nom ou le telephone. Vide = tout l'annuaire.
+  string query = 1;
+  // UNSPECIFIED vaut « tous », pas « le statut zero » : c'est la valeur par
+  // defaut de protobuf, la traiter comme un filtre ne rendrait personne.
+  VerificationStatus verification_status = 2;
+  OperationalStatus operational_status = 3;
+  int32 page_size = 4;
+  int32 offset = 5;
+}
+
+message ListDriversResponse {
+  repeated Driver drivers = 1;
+  // Total correspondant au filtre, toutes pages confondues.
+  int32 total = 2;
+}
+
+message ListDriverPositionsRequest {
+  // Plafond de points rendus. Zéro vaut la valeur par défaut du service ; au
+  // delà de mille, le service ramène à mille — une carte ne se lit plus, et
+  // la charge Redis n'a pas à dépendre d'un paramètre client.
+  int32 limit = 1;
+}
+
+message DriverPosition {
+  string driver_id = 1;
+  string display_name = 2;
+  double latitude = 3;
+  double longitude = 4;
+  // Instant de RÉCEPTION du point par le service, pas l'heure du téléphone :
+  // une horloge mal réglée ferait paraître neuve une position ancienne.
+  google.protobuf.Timestamp seen_at = 5;
+  OperationalStatus operational_status = 6;
+  hba.common.v1.VehicleType vehicle_type = 7;
+}
+
+message ListDriverPositionsResponse {
+  repeated DriverPosition positions = 1;
+  // La fenêtre qui définit la liste. « 14 livreurs » ne veut rien dire sans
+  // « vus dans les 120 dernières secondes » : sans elle, le client afficherait
+  // un effectif là où il n'y a qu'un compte de points récents.
+  int32 freshness_seconds = 2;
+}
+
+message CheckDriverAvailabilityRequest {
+  string driver_id = 1;
+  // Point de référence de la distance — le lieu de collecte de la course
+  // qu'on envisage de proposer. Obligatoire : une distance sans origine ne
+  // veut rien dire.
+  hba.common.v1.GeoPoint reference = 2;
+}
+
+message DriverAvailability {
+  string driver_id = 1;
+  string display_name = 2;
+  bool offerable = 3;
+  // Renseigné si offerable = false : DRIVER_NOT_FOUND, DRIVER_NOT_VERIFIED,
+  // DRIVER_NOT_AVAILABLE, DRIVER_POSITION_STALE.
+  //
+  // UN BOOLÉEN SEUL NE SUFFIT PAS : les quatre raisons appellent quatre
+  // gestes différents — valider un dossier, attendre la fin d'une course,
+  // rappeler quelqu'un, ou ne rien faire parce que le téléphone est éteint.
+  string reason = 4;
+  VerificationStatus verification_status = 5;
+  OperationalStatus operational_status = 6;
+  // Les trois champs suivants ne sont renseignés que si une position RÉCENTE
+  // existe, c'est-à-dire exactement quand reason n'est pas
+  // DRIVER_POSITION_STALE.
+  int32 distance_meters = 7;
+  hba.common.v1.GeoPoint position = 8;
+  google.protobuf.Timestamp seen_at = 9;
+}
+
+message GetDriverStatsRequest {
+  // Ne s'applique QU'AUX FLUX — inscriptions et validations. Les effectifs,
+  // eux, n'ont pas de fenêtre. Absente, elle vaut les trente derniers jours
+  // (ADR 0019).
+  hba.common.v1.TimeWindow window = 1;
+}
+
+message VerificationStatusCount {
+  VerificationStatus status = 1;
+  int64 count = 2;
+}
+
+message OperationalStatusCount {
+  OperationalStatus status = 1;
+  int64 count = 2;
+}
+
+// DEUX NATURES DE CHIFFRES DANS LE MEME MESSAGE, ET ELLES NE SE LISENT PAS
+// PAREIL.
+//
+// Les effectifs sont un ETAT, pris à l'instant de la lecture : « combien de
+// livreurs sont disponibles » n'a pas de période. Une fenêtre appliquée à ces
+// compteurs ne voudrait rien dire — un livreur n'est pas disponible « en
+// septembre », il l'est maintenant.
+//
+// Les flux sont un MOUVEMENT sur la fenêtre : qui s'est inscrit, quels
+// dossiers ont été validés.
+message DriverStats {
+  // La fenêtre appliquée aux flux uniquement.
+  hba.common.v1.TimeWindow window = 1;
+
+  // --- Effectifs, à l'instant de la lecture ---
+  int64 total = 2;
+  repeated VerificationStatusCount by_verification = 3;
+  repeated OperationalStatusCount by_operational = 4;
+
+  // --- Flux, sur la fenêtre ---
+  int64 registered_in_window = 5;
+  int64 verified_in_window = 6;
+}
+
+// ------------------------------------ Dossier du livreur (ADR 0021) ---------
+
+message DeclareVehicleRequest {
+  string driver_id = 1;
+  hba.common.v1.VehicleType type = 2;
+  // Obligatoire ici, contrairement à l'inscription : ops la compare à la
+  // carte grise.
+  string plate = 3;
+  int32 capacity_grams = 4;
+}
+
+message SubmitApplicationRequest {
+  string driver_id = 1;
+}
+
+message DocumentSummary {
+  DocumentType type = 1;
+  google.protobuf.Timestamp uploaded_at = 2;
+  int64 size_bytes = 3;
+  string content_type = 4;
+
+  // URL SIGNÉE, À COURTE DURÉE. La clé de stockage ne sort jamais du service :
+  // elle serait devinable d'un livreur à l'autre, et le tableau de visibilité
+  // du référentiel réserve les pièces à leur propriétaire et à l'admin.
+  string read_url = 5;
+  google.protobuf.Timestamp read_url_expires_at = 6;
+}
+
+message DriverApplication {
+  string driver_id = 1;
+  VerificationStatus verification_status = 2;
+  // Motif d'un refus. C'est la seule chose qui dise au livreur quoi corriger.
+  string status_reason = 3;
+  google.protobuf.Timestamp submitted_at = 4;
+
+  repeated DocumentSummary documents = 5;
+
+  // Pièces encore attendues. VIDE NE VEUT PAS DIRE « PRÊT » : le véhicule
+  // doit aussi être déclaré, ce que dit `can_submit`.
+  repeated DocumentType missing_documents = 6;
+
+  Vehicle vehicle = 7;
+  string profile_photo_url = 8;
+
+  // Le dossier peut-il partir à l'examen ? Calculé par le service, parce que
+  // la règle est métier : chaque client qui la recalculerait finirait par en
+  // avoir sa propre version.
+  bool can_submit = 9;
 }

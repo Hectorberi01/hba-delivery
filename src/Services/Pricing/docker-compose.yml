@@ -1,0 +1,67 @@
+# Déploiement du service pricing. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possède pas. Les réseaux sont
+# EXTERNES — la pile d'infrastructure les crée une fois — et tout ce qui change
+# d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Services/Pricing && docker compose up -d
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-pricing
+
+services:
+  pricing:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-pricing:${HBA_TAG:-latest}
+
+    # `build` sert au poste de développement et à la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Services/Pricing/Hba.Pricing.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte
+      # un mot de passe de developpement. La forme :? fait REFUSER le demarrage
+      # par Compose, avant tout conteneur. Sans elle, une variable absente
+      # devient la chaine vide et la base partirait ouverte a hba/hba.
+      ConnectionStrings__PricingDb: ${PRICINGDB_CONNECTION:?PRICINGDB_CONNECTION absent - renseignez-le dans le .env du service}
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # ZONE DE REPLI. Vide, aucun point n'est couvert et Pricing repond
+      # ZONE_NOT_COVERED : c'est le comportement voulu en production, ou les
+      # zones seront de vrais polygones PostGIS. Une valeur non vide fait
+      # entrer TOUTE coordonnee dans cette zone, y compris hors du Benin — a
+      # n'utiliser que pour tester.
+      Zones__FallbackZoneCode: ${PRICING_FALLBACK_ZONE:-}
+
+      # GRILLE INITIALE. Semee une seule fois si la table est vide, jamais mise
+      # a jour : une grille ne se modifie pas, on en cree une nouvelle version.
+      # Desactivee par defaut — les grilles de production sont administrees.
+      Tariff__Initial__Enabled: ${PRICING_SEED_TARIFF:-false}
+      Tariff__Initial__Version: ${PRICING_TARIFF_VERSION:-}
+      Tariff__Initial__ZoneCode: ${PRICING_FALLBACK_ZONE:-}
+      Tariff__Initial__VehicleType: ${PRICING_TARIFF_VEHICLE:-1}
+      Tariff__Initial__BaseFare: ${PRICING_BASE_FARE:-0}
+      Tariff__Initial__PerKilometer: ${PRICING_PER_KM:-0}
+      Tariff__Initial__PerMinute: ${PRICING_PER_MINUTE:-0}
+      Tariff__Initial__MinimumFare: ${PRICING_MINIMUM_FARE:-0}
+      Tariff__Initial__SurgeBasisPoints: ${PRICING_SURGE_BP:-10000}
+      Tariff__Initial__DriverShareBasisPoints: ${PRICING_DRIVER_SHARE_BP:-0}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

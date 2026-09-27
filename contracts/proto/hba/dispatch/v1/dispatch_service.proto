@@ -3,6 +3,8 @@ syntax = "proto3";
 package hba.dispatch.v1;
 
 import "google/protobuf/timestamp.proto";
+import "hba/common/v1/geo.proto";
+import "hba/common/v1/time.proto";
 
 option csharp_namespace = "Hba.Contracts.Dispatch.V1";
 
@@ -17,6 +19,19 @@ service DispatchService {
   rpc GetCurrentOffer(GetCurrentOfferRequest) returns (Offer);
   // Admin / ops : forcer une réaffectation.
   rpc ForceReassign(ForceReassignRequest) returns (ForceReassignResponse);
+
+  // Admin / ops : proposer une course à UN livreur choisi à la main.
+  //
+  // CE N'EST PAS ForceReassign. Celui-ci reprend une course à quelqu'un qui
+  // l'a déjà acceptée — ce qui touche à la politique d'annulation, non
+  // tranchée. Celui-là n'enlève rien à personne : la course cherche encore
+  // preneur, et l'exploitation désigne quelqu'un plutôt que d'attendre la
+  // vague suivante. Le livreur reste libre de refuser.
+  rpc OfferToDriver(OfferToDriverRequest) returns (OfferToDriverResponse);
+
+  // Back-office : la mesure de l'affectation. Réservé aux rôles admin, ops,
+  // support et finance, et vérifié dans le handler.
+  rpc GetDispatchStats(GetDispatchStatsRequest) returns (DispatchStats);
 }
 
 enum OfferStatus {
@@ -34,6 +49,9 @@ message Offer {
   string delivery_id = 2;
   string driver_id = 3;
   OfferStatus status = 4;
+  // Numéro de la vague qui a produit l'offre. ZÉRO SIGNIFIE « À LA MAIN » :
+  // une offre posée par l'exploitation n'appartient à aucune vague, et lui
+  // en attribuer une ferait croire que le moteur a tourné.
   int32 wave_number = 5;
   google.protobuf.Timestamp sent_at = 6;
   google.protobuf.Timestamp expires_at = 7;
@@ -43,6 +61,16 @@ message Offer {
   int32 distance_to_pickup_meters = 9;
   int32 trip_distance_meters = 10;
   int64 driver_earning_xof = 11;
+
+  // Point GPS du LIEU DE COLLECTE, pour situer la course sur une carte.
+  //
+  // LE POINT DE DESTINATION N'EST PAS ICI, ET N'Y SERA PAS. La regle du
+  // referentiel est que le livreur « ne voit l'adresse exacte de destination
+  // qu'apres acceptation » : c'est ce qui empeche de trier les courses par
+  // quartier d'arrivee. Le lieu de collecte, lui, est deja nomme par
+  // pickup_landmark ; ce champ ne fait que le rendre affichable sur une
+  // carte au lieu d'une ligne de texte.
+  hba.common.v1.GeoPoint pickup = 12;
 }
 
 message AcceptOfferRequest {
@@ -81,4 +109,80 @@ message ForceReassignRequest {
 message ForceReassignResponse {
   bool ok = 1;
   string new_offer_id = 2;
+}
+
+message OfferToDriverRequest {
+  string delivery_id = 1;
+  string driver_id = 2;
+  // Motif d'exploitation, journalisé avec l'auteur. Facultatif : le geste est
+  // déjà attribué, et exiger une phrase pour un clic urgent ferait écrire
+  // « urgent » à tout le monde.
+  string reason = 3;
+}
+
+message OfferToDriverResponse {
+  bool sent = 1;
+  // Renseigné si sent = false. Aux codes de DriverAvailability s'ajoutent
+  // DISPATCH_CLOSED (la course ne cherche plus) et ALREADY_OFFERED (ce
+  // livreur a déjà une offre en attente sur cette course).
+  string rejection_code = 2;
+  Offer offer = 3;
+}
+
+message GetDispatchStatsRequest {
+  // Absente, elle vaut les trente derniers jours (ADR 0019).
+  hba.common.v1.TimeWindow window = 1;
+}
+
+message OfferStatusCount {
+  OfferStatus status = 1;
+  int64 count = 2;
+}
+
+message WaveCount {
+  int32 wave_number = 1;
+  int64 count = 2;
+}
+
+// CE QUE MESURE CE BLOC : le moteur d'affectation, pas les livreurs.
+//
+// Il n'y a ni note, ni satisfaction, ni classement — rien de tout cela
+// n'existe dans le domaine. Ce que l'on sait dire est plus utile de toute
+// façon : combien de courses trouvent preneur, en combien de temps, et à
+// quelle vague.
+//
+// LES ETATS DE RECHERCHE SONT DES COMPTEURS NOMMES, PAS UNE ENUMERATION.
+// DispatchStatus n'est délibérément pas dans le contrat : la machine à états
+// publique est celle de la livraison, et Dispatch n'en est qu'un moteur.
+message DispatchStats {
+  hba.common.v1.TimeWindow window = 1;
+
+  // --- Recherches ouvertes dans la fenêtre ---
+  int64 dispatches = 2;
+  int64 assigned = 3;
+  int64 exhausted = 4;
+  int64 cancelled = 5;
+  // Encore en cours À L'INSTANT DE LA LECTURE, parmi celles de la fenêtre.
+  int64 still_searching = 6;
+
+  // --- Offres envoyées dans la fenêtre ---
+  int64 offers_sent = 7;
+  repeated OfferStatusCount offers_by_status = 8;
+
+  // Vague à laquelle la course a été prise. Trois rayons aujourd'hui — 2, 4
+  // et 6 km : c'est ce chiffre qui dira si le premier suffit aux heures
+  // creuses, ou si l'on fait attendre tout le monde pour rien.
+  //
+  // LA VAGUE 0 EST UNE MESURE À PART : ce sont les courses que quelqu'un a
+  // placées à la main. Leur nombre dit ce que le moteur n'a pas su faire
+  // seul, ce qui en fait le chiffre le plus intéressant de la liste.
+  repeated WaveCount accepted_by_wave = 9;
+
+  // Délai entre l'ouverture de la recherche et son affectation, en secondes.
+  int32 avg_seconds_to_assignment = 10;
+  int64 assignment_samples = 11;
+
+  // Délai entre l'envoi d'une offre et son acceptation, en secondes.
+  int32 avg_seconds_to_offer_response = 12;
+  int64 offer_response_samples = 13;
 }
