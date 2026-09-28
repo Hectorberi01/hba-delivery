@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="../Hba.BuildingBlocks.Storage.Abstractions/Hba.BuildingBlocks.Storage.Abstractions.csproj" />
+  </ItemGroup>
+
+  <!-- Options, journalisation et injection viennent du cadre, comme dans
+       Hba.BuildingBlocks.Security. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- LE SEUL PROJET DU DEPOT QUI REFERENCE LE SDK S3, et c'est la condition
+         que l'ADR 0021 pose a la reversibilite du moteur de stockage. -->
+    <PackageReference Include="Minio" />
+  </ItemGroup>
+
+</Project>

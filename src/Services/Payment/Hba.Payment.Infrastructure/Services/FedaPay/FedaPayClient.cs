@@ -27,10 +27,7 @@ namespace Hba.Payment.Infrastructure.Services.FedaPay;
 /// prelevement serveur, ni mandat pre-autorise — c'est ce qui rend le paiement
 /// d'un partenaire impossible par cette voie (point 2 des points a trancher).
 /// </summary>
-internal sealed class FedaPayClient(
-    HttpClient http,
-    IOptions<FedaPayOptions> options,
-    ILogger<FedaPayClient> logger) : IPaymentProvider
+internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> options, ILogger<FedaPayClient> logger) : IPaymentProvider
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

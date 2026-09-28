@@ -33,6 +33,26 @@ public sealed class DirectoryGrpcService(IDispatcher dispatcher) : DirectoryServ
         return DirectoryProtoMapper.ToProto(view);
     }
 
+    /// <summary>
+    /// Rattrapage : crée la fiche du client authentifié si elle manque.
+    ///
+    /// LA REQUETE EST VIDE, ET DOIT LE RESTER. Tout ce qui compose la fiche —
+    /// nom, téléphone, courriel — est lu dans le jeton que CE service a
+    /// validé. Ajouter un champ ici reviendrait à laisser l'appelant écrire
+    /// l'identité de quelqu'un d'autre.
+    /// </summary>
+    public override async Task<ProtoCustomer> EnsureCustomer(EnsureCustomerRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new EnsureCustomerProfileCommand(),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return DirectoryProtoMapper.ToProto(view);
+    }
+
     public override async Task<ProtoCustomer> UpdateCustomer(UpdateCustomerRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);

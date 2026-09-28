@@ -29,8 +29,8 @@ rpc_public_addr = "garage:3901"
 [s3_api]
 s3_region = "hba"
 api_bind_addr = "[::]:3900"
-# L'adressage par chemin, et non par sous-domaine : « garage/hba-driver-documents »
-# plutot que « hba-driver-documents.garage ». Sans cela, le SDK construirait un
+# L'adressage par chemin, et non par sous-domaine : « garage/hba-media »
+# plutot que « hba-media.garage ». Sans cela, le SDK construirait un
 # nom d'hote que le reseau Docker ne resout pas.
 root_domain = ".s3.hba.local"
 

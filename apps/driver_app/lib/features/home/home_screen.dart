@@ -47,6 +47,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// s'evanouir des livreurs en ligne, sans erreur nulle part.
   static const _positionInterval = Duration(seconds: 20);
 
+  /// Cadence de relecture du dossier tant qu'il n'est pas valide.
+  static const _cadenceDossier = Duration(seconds: 30);
+
   /// Age au-dela duquel le serveur cesse de compter ce livreur.
   ///
   /// CE NOMBRE EST LA COPIE D'UN AUTRE, DANS UN AUTRE DEPOT :
@@ -83,6 +86,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Timer? _poller;
   Timer? _heartbeat;
+
+  /// Veille sur le dossier, tant qu'il n'est pas valide. Voir
+  /// [_relireLeDossier].
+  Timer? _veille;
   bool _sheetOpen = false;
 
   /// Derniere position connue, pour la carte. Elle n'est pas relue pour
@@ -104,6 +111,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // AU DEMARRAGE AUSSI : une action mise en file hier soir doit partir des
     // la premiere ouverture, sans attendre que le livreur se remette en ligne.
     Future.microtask(_viderLaFile);
+
+    // TANT QUE LE DOSSIER N'EST PAS VALIDE, ON LE GUETTE. La veille se coupe
+    // toute seule au premier battement qui le trouve valide.
+    _veille = Timer.periodic(_cadenceDossier, (_) => _relireLeDossier());
 
     // ON REVEILLE LE REGLAGE DU SON MAINTENANT, PAS A LA PREMIERE OFFRE. Sa
     // lecture dans le coffre est asynchrone et rend « actif » en attendant :
@@ -212,6 +223,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.removeObserver(this);
     _poller?.cancel();
     _heartbeat?.cancel();
+    _veille?.cancel();
     super.dispose();
   }
 
@@ -219,11 +231,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   ///
   /// SANS LE SECOND, un livreur dont ops vient de valider les pieces resterait
   /// bloque jusqu'a ce qu'il pense a redemarrer l'application.
+  ///
+  /// LE PROFIL EST INVALIDE AUSSI, ET CETTE LIGNE MANQUAIT. Le commentaire
+  /// ci-dessus promettait « le statut du dossier » alors que seule la session
+  /// etait relue — or c'est le profil qui fait foi depuis la correction du
+  /// 28 septembre. La promesse etait tenue par le mauvais objet.
   Future<void> _refreshMission() async {
+    ref.invalidate(profilProvider);
+
     await Future.wait([
       ref.read(sessionProvider.notifier).refresh(),
       _loadMission(),
     ]);
+  }
+
+  /// Relit le dossier tant qu'il n'est pas valide.
+  ///
+  /// UN LIVREUR QUI ATTEND SA VALIDATION N'AVAIT AUCUN MOYEN DE L'APPRENDRE.
+  /// Il ne peut pas passer en ligne, donc le sondage d'offres ne tourne pas ;
+  /// l'accueil n'a pas de tirer-pour-rafraichir, parce qu'on ne tire pas une
+  /// carte vers le bas. Il ne lui restait qu'a tuer l'application et la
+  /// relancer — ce qu'aucun ecran ne lui disait.
+  ///
+  /// TRENTE SECONDES, ET SEULEMENT DANS CET ETAT. La veille s'arrete d'
+  /// elle-meme des que le dossier est valide : un livreur qui travaille ne
+  /// paie rien pour elle. Un livreur qui attend paie deux requetes par minute,
+  /// pendant qu'il ne peut de toute facon rien faire d'autre.
+  Future<void> _relireLeDossier() async {
+    if (ref.read(profilProvider).valueOrNull?.dossier == EtatDossier.valide) {
+      _veille?.cancel();
+      _veille = null;
+      return;
+    }
+
+    ref.invalidate(profilProvider);
+    await ref.read(sessionProvider.notifier).refresh();
   }
 
   Future<void> _loadMission() async {
@@ -573,8 +615,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
-    final approved = session is SessionSignedIn && session.kycApproved;
-    final name = session is SessionSignedIn ? session.displayName : '';
+
+    // DEUX COPIES DU MEME FAIT, ET C'EST CE QUI A MENTI A L'ECRAN.
+    //
+    // « /me » rend l'etat du dossier une seule fois, mais l'application en
+    // gardait DEUX exemplaires : « kycApproved » dans l'etat de session, et
+    // « dossier » dans le profil. Les deux viennent de la meme route et n'ont
+    // pas la meme duree de vie — la session ne se relit qu'au demarrage et au
+    // retour au premier plan, le profil se relit a chaque tirer-pour-
+    // rafraichir de l'ecran Profil. Un livreur valide pendant que
+    // l'application etait ouverte voyait donc « DOSSIER VALIDE » dans Profil
+    // et « DOSSIER EN COURS » sur l'accueil, en meme temps.
+    //
+    // LE PROFIL FAIT FOI, LA SESSION SERT DE REPLI. Le profil est celui des
+    // deux qui sait se relire ; la session garde son role quand « /me » n'a
+    // jamais repondu — premier demarrage hors ligne, profil pas encore ne —,
+    // cas ou elle porte le nom saisi a l'inscription et rien d'autre.
+    final profil = ref.watch(profilProvider).valueOrNull;
+
+    final approved = profil != null
+        ? profil.dossier == EtatDossier.valide
+        : session is SessionSignedIn && session.kycApproved;
+
+    final name = profil != null && profil.displayName.isNotEmpty
+        ? profil.displayName
+        : session is SessionSignedIn
+            ? session.displayName
+            : '';
+
     final mission = _mission;
 
     // La carte occupe tout le corps ; le reste flotte par-dessus. Google
@@ -867,11 +935,11 @@ class _KycPending extends StatelessWidget {
               children: [
                 const HbaChip(label: 'DOSSIER EN COURS', tone: HbaChipTone.warning),
                 const SizedBox(height: HbaSpacing.sm),
-                Text('Completez votre dossier', style: theme.textTheme.titleMedium),
+                Text('Complétez votre dossier', style: theme.textTheme.titleMedium),
                 const SizedBox(height: HbaSpacing.xs),
                 Text(
                   'Vous pourrez passer en ligne dès que vos pièces auront été '
-                  'verifiees.',
+                  'vérifiées.',
                   style: theme.textTheme.bodyMedium,
                 ),
               ],

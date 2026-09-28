@@ -29,7 +29,7 @@ public static class DependencyInjection
 
         services.AddDbContext<PricingDbContext>(options =>
             options.UseNpgsql(
-                configuration.GetConnectionString("PricingDb"),
+                configuration.Obligatoire("PricingDb"),
                 npgsql => npgsql.MigrationsHistoryTable("__ef_migrations", PricingDbContext.Schema)));
 
         services.AddHbaAutoMigration<PricingDbContext>();

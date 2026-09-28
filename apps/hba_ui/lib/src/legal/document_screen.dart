@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:hba_ui/hba_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../tokens.dart';
+import '../widgets/hba_button.dart';
+import '../widgets/hba_card.dart';
+import '../widgets/hba_chip.dart';
+import '../widgets/hba_relief.dart';
 import 'document_legal.dart';
 
 /// Affiche un document juridique.

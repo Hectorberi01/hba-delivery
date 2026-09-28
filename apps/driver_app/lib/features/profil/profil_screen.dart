@@ -17,8 +17,6 @@ import '../dossier/dossier_repository.dart';
 import 'profil_repository.dart';
 import '../legal/conditions_livreur.dart';
 import '../legal/confidentialite.dart';
-import '../legal/document_legal.dart';
-import '../legal/document_screen.dart';
 import 'reglages_app.dart';
 import 'suppression_compte.dart';
 
@@ -183,7 +181,7 @@ class _Identite extends StatelessWidget {
             const SizedBox(height: HbaSpacing.sm),
             Text(
               'Vous pourrez passer en ligne dès que vos pièces auront été '
-              'verifiees.',
+              'vérifiées.',
               style: theme.textTheme.bodyMedium,
             ),
           ],

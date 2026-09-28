@@ -20,6 +20,13 @@ dependencies:
   geolocator: ^13.0.1
   url_launcher: ^6.3.1
 
+  # LA PAGE DE PAIEMENT VIT DANS L'APPLICATION, PAS DANS LE NAVIGATEUR.
+  # url_launcher reste indispensable : la vue integree lui confie tout ce qui
+  # n'est pas http(s) — un code USSD, le schema propre d'un operateur mobile
+  # money — au lieu d'essayer de l'afficher, ce qui donnerait une page blanche
+  # au milieu d'un paiement.
+  webview_flutter: ^4.10.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

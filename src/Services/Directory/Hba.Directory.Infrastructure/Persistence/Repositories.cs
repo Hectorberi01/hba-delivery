@@ -13,6 +13,22 @@ internal sealed class CustomerRepository(DirectoryDbContext context) : ICustomer
     public Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken)
         => context.Customers.AnyAsync(c => c.Id == id, cancellationToken);
 
+    // COMPARAISON EXACTE, comme l'index. Le numero est normalise au format
+    // E.164 avant d'arriver ici, des deux cotes : une comparaison souple
+    // trouverait des fiches que l'index, lui, laisserait passer — et le 23505
+    // reviendrait plus loin, la ou plus rien ne l'attend.
+    public async Task<Guid?> FindIdByPhoneAsync(string phone, CancellationToken cancellationToken)
+    {
+        var id = await context.Customers
+            .AsNoTracking()
+            .Where(c => c.Phone == phone)
+            .Select(c => (Guid?)c.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return id;
+    }
+
     public async Task<IReadOnlyList<Customer>> SearchAsync(
         string? query,
         int pageSize,

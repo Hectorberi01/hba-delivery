@@ -35,6 +35,13 @@ public static class HbaClaims
     public const string MerchantId = "merchant_id";
     public const string PartnerId = "partner_id";
     public const string DriverId = "driver_id";
+
+    // CES TROIS-LA SONT DANS LE JETON DEPUIS LE DEBUT, mais rien ne les lisait.
+    // JwtTokenIssuer les pose (« name », « phone », « email ») ; les nommer ici
+    // evite qu'un service les cherche sous un autre nom et trouve vide.
+    public const string Name = "name";
+    public const string Phone = "phone";
+    public const string Email = "email";
 }
 
 /// <summary>Noms des politiques d'autorisation ASP.NET Core.</summary>

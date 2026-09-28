@@ -93,12 +93,36 @@ public sealed class CreateDeliveryHandler(
 
         if (orderer.CustomerId is not null)
         {
+            // LE PAYEUR EST CELUI QUI COMMANDE, PAS CELUI QUI REMET LE COLIS.
+            //
+            // Ce parametre recevait « command.Pickup.Phone » : le numero du
+            // contact AU POINT DE COLLECTE. Or c'est ce numero que FedaPay
+            // sollicite pour le mobile money — la demande de paiement partait
+            // donc chez l'expediteur, la boutique ou le voisin qui remet le
+            // colis, et le client qui commandait ne voyait jamais rien arriver.
+            //
+            // LE NUMERO VIENT DU JETON, ET IL EST BIEN LE SIEN : on n'entre ici
+            // que par la branche « customer » de ResolveOrderer, ou
+            // CustomerId EST le sujet du jeton. Un partenaire ou un commercant
+            // n'y passe pas.
+            var payeur = caller.Phone;
+
+            if (string.IsNullOrWhiteSpace(payeur))
+            {
+                // UN REFUS QUI NOMME LA CAUSE, PLUTOT QU'UN PAIEMENT ENVOYE AU
+                // HASARD. Retomber sur un autre numero ferait payer quelqu'un
+                // d'autre, ce qui est exactement le defaut qu'on corrige ici.
+                throw new DomainException(
+                    "MISSING_PAYER_PHONE",
+                    "Le jeton ne porte pas de téléphone : reconnectez-vous pour payer.");
+            }
+
             intent = await payments
                 .CreateIntentAsync(
                     command.IdempotencyKey ?? deliveryId.ToString(),
                     deliveryId,
                     orderer.CustomerId,
-                    command.Pickup.Phone,
+                    payeur,
                     snapshot.Total,
                     cancellationToken)
                 .ConfigureAwait(false);

@@ -1,7 +1,7 @@
-namespace Hba.Driver.Application.Common.Interfaces;
+namespace Hba.BuildingBlocks.Storage;
 
 /// <summary>
-/// Objet depose, tel que le domaine le connait.
+/// Objet deposé, tel que le domaine le connaît.
 /// </summary>
 /// <param name="Key">
 /// Clé dans le stockage. C'EST ELLE QUI TRAVERSE LE CONTRAT, jamais le
@@ -10,7 +10,7 @@ namespace Hba.Driver.Application.Common.Interfaces;
 public sealed record StoredObject(string Key, long SizeBytes, string ContentType);
 
 /// <summary>
-/// Stockage des binaires du livreur : pièces du dossier et photo de profil.
+/// Stockage des binaires : pièces du dossier livreur, photos de profil.
 ///
 /// CE PORT EXISTE POUR QUE LE CHOIX DU MOTEUR RESTE RÉVERSIBLE (ADR 0021).
 /// Garage, SeaweedFS et un stockage managé parlent tous S3 ; le point 14
@@ -19,6 +19,18 @@ public sealed record StoredObject(string Key, long SizeBytes, string ContentType
 /// endpoint ne doit connaître `Minio` : s'ils le connaissent, la réversibilité
 /// annoncée dans l'ADR est fausse, et personne ne s'en apercevra avant la
 /// migration.
+///
+/// IL A QUITTÉ LE SERVICE DRIVER LE 28 SEPTEMBRE 2026, quand Directory a eu
+/// besoin d'écrire la photo d'un client. Le dépôt duplique volontiers un
+/// objet-valeur de vingt lignes — PhoneNumber vit dans chaque service — mais un
+/// adaptateur de cent cinquante lignes en double dérive : un correctif appliqué
+/// d'un côté manque de l'autre, et personne ne s'en aperçoit avant la panne.
+/// La règle de l'ADR tient toujours : le SDK ne sort pas d'ici.
+///
+/// CE QUI RESTE AU SERVICE, EN REVANCHE, C'EST LA FORME DES CLÉS. Ranger les
+/// objets par livreur ou par client est une décision métier — c'est elle qui
+/// rend une suppression de compte possible d'un préfixe — et chaque service
+/// garde la sienne.
 /// </summary>
 public interface IObjectStore
 {
@@ -57,48 +69,8 @@ public interface IObjectStore
     Task<Uri> GetReadUrlAsync(string key, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Supprime un objet. Sert au remplacement d'une pièce : la précédente
-    /// n'a aucune raison de survivre à celle qui la corrige.
+    /// Supprime un objet. Sert au remplacement d'une pièce ou d'une photo : la
+    /// précédente n'a aucune raison de survivre à celle qui la remplace.
     /// </summary>
     Task DeleteAsync(string key, CancellationToken cancellationToken);
-}
-
-/// <summary>
-/// Construction des clés.
-///
-/// ELLE EST ICI, PAS DANS L'ADAPTATEUR : la forme de la clé est une décision
-/// métier — elle range les pièces par livreur, ce qui rend une suppression de
-/// compte possible d'un préfixe. Un adaptateur qui la déciderait la ferait
-/// changer à chaque changement de moteur.
-/// </summary>
-public static class ObjectKeys
-{
-    /// <summary>
-    /// <c>drivers/{id}/documents/{type}/{horodatage}{extension}</c>.
-    ///
-    /// L'HORODATAGE EST DANS LA CLÉ, donc une pièce corrigée n'écrase pas la
-    /// précédente : si un rejet porte sur la CNI, l'ancienne reste lisible le
-    /// temps qu'ops compare. C'est la suppression explicite qui l'efface, pas
-    /// un remplacement silencieux.
-    /// </summary>
-    public static string Document(Guid driverId, string documentType, DateTimeOffset now, string extension)
-        => $"drivers/{driverId:N}/documents/{documentType.ToLowerInvariant()}/"
-           + $"{now.UtcDateTime:yyyyMMddHHmmssfff}{Normaliser(extension)}";
-
-    public static string ProfilePhoto(Guid driverId, DateTimeOffset now, string extension)
-        => $"drivers/{driverId:N}/profile/{now.UtcDateTime:yyyyMMddHHmmssfff}{Normaliser(extension)}";
-
-    /// <summary>Préfixe de tout ce qui appartient à un livreur.</summary>
-    public static string DriverPrefix(Guid driverId) => $"drivers/{driverId:N}/";
-
-    private static string Normaliser(string extension)
-    {
-        if (string.IsNullOrWhiteSpace(extension))
-        {
-            return string.Empty;
-        }
-
-        var propre = extension.Trim().ToLowerInvariant();
-        return propre.StartsWith('.') ? propre : "." + propre;
-    }
 }

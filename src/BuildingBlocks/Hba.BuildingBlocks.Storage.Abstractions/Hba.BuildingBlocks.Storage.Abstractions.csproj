@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- AUCUNE DEPENDANCE, ET C'EST TOUT L'INTERET.
+       L'ADR 0021 fait reposer la reversibilite du moteur de stockage sur une
+       phrase : rien n'importe le SDK hors de l'adaptateur. Tant que le port
+       vivait dans le meme projet que l'adaptateur, toute couche Application qui
+       le referencait voyait Minio par transitivite — le test d'architecture
+       serait passe quand meme, parce qu'il inspecte les types de l'assembly et
+       non ses references. Une garantie verifiee par accident n'en est pas une.
+       Ce projet-ci ne peut pas voir le SDK : il ne reference rien. -->
+
+</Project>

@@ -1,0 +1,58 @@
+# Déploiement du service media. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un stockage qu'il ne possède pas. Les réseaux
+# sont EXTERNES, et tout ce qui change d'un environnement à l'autre passe par le
+# .env posé à côté.
+#
+#   make rebuild D=src/Services/Media
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-media
+
+services:
+  media:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-media:${HBA_TAG:-latest}
+
+    build:
+      context: ../../..
+      dockerfile: src/Services/Media/Hba.Media.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte un
+      # mot de passe de developpement. La forme :? fait REFUSER le demarrage par
+      # Compose, avant tout conteneur.
+      ConnectionStrings__MediaDb: ${MEDIADB_CONNECTION:?MEDIADB_CONNECTION absent - renseignez-le dans le .env du service}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # LE SEUL SERVICE QUI PORTE LA CLE DU STOCKAGE. Depuis le point 27, aucun
+      # autre ne l'a : c'est ce qui rend inutile la question de savoir si
+      # Directory pourrait lire les pieces d'identite d'un livreur.
+      ObjectStore__Endpoint: ${OBJECTSTORE_ENDPOINT:-garage:3900}
+      ObjectStore__Bucket: ${OBJECTSTORE_BUCKET:-hba-media}
+      ObjectStore__AccessKey: ${OBJECTSTORE_ACCESS_KEY:?OBJECTSTORE_ACCESS_KEY absent - lancez make garage-init}
+      ObjectStore__SecretKey: ${OBJECTSTORE_SECRET_KEY:?OBJECTSTORE_SECRET_KEY absent - lancez make garage-init}
+      ObjectStore__PublicEndpoint: ${OBJECTSTORE_PUBLIC_ENDPOINT:-}
+      ObjectStore__PublicUseSsl: ${OBJECTSTORE_PUBLIC_SSL:-false}
+
+    healthcheck:
+      # Le point « / » rend le nom du service : il repond des que Kestrel ecoute.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+networks:
+  hba-internal:
+    external: true

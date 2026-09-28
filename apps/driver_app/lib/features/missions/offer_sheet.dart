@@ -114,7 +114,13 @@ class _OfferSheetState extends State<OfferSheet> {
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+
+                // ETIREE, PAS ALIGNEE A GAUCHE. Avec « start », chaque enfant
+                // se dimensionne a son contenu : la carte de remuneration ne
+                // faisait que la largeur du mot le plus long, et flottait a
+                // gauche sous un titre pleine largeur. Les blocs de cet ecran
+                // sont des blocs, pas des etiquettes.
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
                     children: [

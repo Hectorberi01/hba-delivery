@@ -12,6 +12,11 @@ dependencies:
     sdk: flutter
   google_fonts: ^6.2.1
 
+  # Pour l'adresse en ligne d'un document juridique. Les deux magasins exigent
+  # une URL de politique de confidentialite dans la fiche du produit, et cette
+  # URL-la n'est pas un ecran.
+  url_launcher: ^6.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

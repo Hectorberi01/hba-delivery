@@ -1,4 +1,4 @@
-import 'document_legal.dart';
+import 'package:hba_ui/hba_ui.dart';
 
 /// La politique de confidentialite.
 ///

@@ -35,7 +35,7 @@ public static class DependencyInjection
 
         services.AddDbContext<PaymentDbContext>(options =>
             options.UseNpgsql(
-                configuration.GetConnectionString("PaymentDb"),
+                configuration.Obligatoire("PaymentDb"),
                 npgsql => npgsql.MigrationsHistoryTable("__ef_migrations", PaymentDbContext.Schema)));
 
         services.AddHbaAutoMigration<PaymentDbContext>();

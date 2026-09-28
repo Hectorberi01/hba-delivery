@@ -1,7 +1,7 @@
 # Raccourcis du quotidien. `make` seul affiche l'aide.
 
 .DEFAULT_GOAL := help
-.PHONY: terrain offre clients versements carte dossier garage-init kyc etape7 help net up down logs migrate identity-key tunnel tunnel-stop topics build services-up test test-domain test-arch test-e2e migrations lint-proto lint-compose infra-up prod-up prod-service clean
+.PHONY: chaines repartir trace fiche fedapay webhook rebuild terrain offre clients versements carte dossier garage-init kyc etape7 help net up down logs migrate identity-key tunnel tunnel-stop topics build services-up test test-domain test-arch test-e2e migrations lint-proto lint-compose infra-up prod-up prod-service clean
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -35,7 +35,7 @@ logs: ## Suit les journaux des dépendances
 SERVICE_DIRS := \
 	src/Services/Identity src/Services/Directory src/Services/Delivery \
 	src/Services/Pricing src/Services/Dispatch src/Services/Driver \
-	src/Services/Payment src/Services/Notification \
+	src/Services/Payment src/Services/Notification src/Services/Media \
 	src/Gateways/Hba.Gateway
 
 lint-compose: ## Valide chaque compose, infrastructure comprise
@@ -70,6 +70,24 @@ prod-up: infra-up services-up ## Infrastructure de production puis les douze ser
 prod-service: net ## Démarre un seul service : make prod-service D=src/Services/Identity
 	@test -n "$(D)" || (echo "Indiquez le dossier : make prod-service D=src/Services/Identity" && exit 1)
 	docker compose -f $(D)/docker-compose.yml up -d
+
+rebuild: net ## Reconstruit et relance un service : make rebuild D=src/Gateways/Hba.Gateway
+# DEUX DRAPEAUX, ET LES DEUX SERVENT.
+#
+# « --build » reprend le code : sans lui, on relance fidelement l'ANCIENNE
+# image, et le service redemarre avec le code d'avant. C'est la panne la plus
+# deroutante qui soit, parce que la modification est bien dans le fichier.
+#
+# « --force-recreate » fait relire le .env, qui n'est lu qu'a la CREATION du
+# conteneur : un simple redemarrage garde les anciennes variables.
+#
+# SE LANCE DEPUIS LA RACINE, et c'est tout l'interet. Les instructions en deux
+# lignes — un « cd » puis une commande — se collent a moitie, et « docker
+# compose » repond alors « no configuration file provided » depuis un
+# repertoire qui n'en a pas.
+	@test -n "$(D)" || (echo "Indiquez le dossier : make rebuild D=src/Gateways/Hba.Gateway" && exit 1)
+	@test -f "$(D)/docker-compose.yml" || (echo "Pas de docker-compose.yml dans $(D)" && exit 1)
+	docker compose -f $(D)/docker-compose.yml up -d --build --force-recreate
 
 build: ## Compile toute la solution
 	dotnet build HbaDelivery.sln
@@ -187,6 +205,30 @@ mesure-attente: ## Mesure ce que coute une heure d'attente a un livreur en ligne
 # le sondage change, la mesure suit toute seule.
 	./scripts/mesure-attente.sh
 
+fedapay: ## Les dernieres transactions telles que FedaPay les voit (make fedapay N=10)
+# QUAND UN PAIEMENT ECHOUE, LA PAGE DU FOURNISSEUR NE DIT RIEN D'UTILE :
+# « Transaction echouee. Veuillez reessayer ». Le statut, le mode et surtout le
+# numero que FedaPay a retenu pour le client sont dans l'objet transaction.
+# Deviner a partir du message de la page fait perdre une demi-journee.
+#
+# La cle vient du .env du service Paiement et n'est ni affichee ni passee en
+# argument : un secret en argument finit dans l'historique du shell.
+	./scripts/fedapay-transactions.sh $(if $(N),$(N),3) $(if $(BRUT),brut,)
+
+webhook: ## Etat reel de la chaine webhook : tunnel, .env, conteneur, appels recus
+# UN WEBHOOK QUI N'ARRIVE PAS NE PRODUIT AUCUNE ERREUR. Le client paie, la
+# livraison reste en attente, et les journaux du service sont vides — puisque
+# le service n'a rien recu. La preuve est en amont, chez ngrok, qui enregistre
+# chaque requete, y compris celles qui finissent en 404.
+	./scripts/webhook-etat.sh
+
+fiche: ## Ou s'est arretee la creation d'une fiche client : make fiche Q=+22966000001
+# LE 404 DE « GET /me » VIENT DE DIRECTORY, MAIS LA CAUSE EST EN AMONT. Trois
+# maillons doivent tenir — Identity pose l'evenement, le publicateur l'envoie,
+# Directory le consomme — et chacun peut lacher sans un mot. Ce script les
+# regarde dans l'ordre et dit lequel a cede.
+	./scripts/fiche-client.sh $(Q)
+
 carte: ## Exerce la carte des positions : deux livreurs, fraicheur, refus a un livreur
 # L'ETAPE 5 EST CELLE QUI COMPTE : une position vieillie doit sortir de la
 # carte. Si la lecture partait de l'index GEO au lieu de l'ensemble des
@@ -206,8 +248,64 @@ migrations: ## Génère la migration initiale des services qui ont une base (mak
 	./scripts/create-migrations.sh $(or $(NAME),Initial)
 
 lint-proto: ## Lint des contrats protobuf
+# « buf: command not found » NE DIT PAS OU LE PRENDRE. La cible echouait sur
+# cette ligne seule, et un outil absent se confond alors avec un depot casse.
+	@command -v buf >/dev/null 2>&1 || { \
+	  echo "buf n'est pas installe."; \
+	  echo "  brew install bufbuild/buf/buf     # ou : npm i -g @bufbuild/buf"; \
+	  exit 1; \
+	}
+# 119 AVERTISSEMENTS PREEXISTENT, tous sur deux regles : le nom des messages de
+# reponse, et leur partage entre plusieurs appels. Cette cible n'est donc jamais
+# passee. Les corriger renommerait soixante-dix types du contrat, dans tous les
+# services a la fois — une decision, pas un nettoyage. En attendant, elle sert a
+# verifier qu'un fichier NEUF n'ajoute rien a la dette.
 	cd contracts && buf lint
 
 clean: ## Nettoie les artefacts de build
 	dotnet clean HbaDelivery.sln
 	find . -type d \( -name bin -o -name obj \) -prune -exec rm -rf {} +
+
+trace: ## Retrouve la pile derriere une reference d'erreur : make trace R=8143711a...
+# « ERREUR INTERNE DU SERVICE. REFERENCE : X » NE DIT RIEN, PAR CONSTRUCTION.
+# L'intercepteur gRPC refuse d'exposer une exception brute — elle contient des
+# noms de tables, des hotes internes, parfois des valeurs — et rend une
+# reference a la place. La pile, elle, est journalisee AVEC cette reference,
+# dans le service qui a casse.
+#
+# ENCORE FAUT-IL SAVOIR LEQUEL. La reference voyage d'un service a l'autre par
+# l'en-tete de correlation : on cherche donc dans tous, et celui qui repond est
+# celui qui a lache. Chercher a la main service par service prend dix commandes
+# et se termine souvent sur le mauvais.
+	@test -n "$(R)" || { echo "Usage : make trace R=<reference>"; exit 1; }
+	@for f in src/Services/*/docker-compose.yml src/Gateways/*/docker-compose.yml; do \
+	  nom=$$(basename $$(dirname $$f)); \
+	  sortie=$$(docker compose -f $$f logs --no-color --tail 5000 2>/dev/null \
+	    | grep -A 40 -i "$(R)" || true); \
+	  if [ -n "$$sortie" ]; then \
+	    echo "═══ $$nom"; echo "$$sortie"; echo; \
+	  fi; \
+	done; \
+	echo "(aucune autre occurrence)"
+
+repartir: ## Vide TOUTES les donnees et repart a zero, l'admin recree au demarrage
+# DESTRUCTIF ET SANS RETOUR. Le script demande une confirmation tapee, et
+# affiche d'abord ce qu'il va detruire — une confirmation posee sans montrer ce
+# qu'on perd se tape sans lire.
+#
+# L'ORDRE EST LA RAISON D'ETRE DU SCRIPT : arreter les services, supprimer les
+# volumes, recreer les topics, reinitialiser le stockage objet, migrer, et
+# seulement ensuite redemarrer — c'est le demarrage d'Identity qui recree
+# l'administrateur. Une etape sautee laisse une pile qui repond a /health et ne
+# fonctionne pas.
+	./scripts/repartir-a-zero.sh
+
+chaines: ## Ce que chaque conteneur a recu comme chaine de connexion (valeurs masquees)
+# LE .ENV N'EST PAS CE QUI COMPTE, LE CONTENEUR SI. Un .env complet et un
+# conteneur cree avant sa derniere modification donnent une chaine amputee, et
+# la panne s'exprime tres loin : « No password has been provided », ou une base
+# vide au milieu d'une trace EF Core.
+#
+# AUCUNE VALEUR N'EST AFFICHEE : la chaine porte le mot de passe de la base. On
+# ne montre que les champs presents.
+	./scripts/chaines-de-connexion.sh

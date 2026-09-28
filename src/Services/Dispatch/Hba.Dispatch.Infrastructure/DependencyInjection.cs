@@ -31,7 +31,7 @@ public static class DependencyInjection
 
         services.AddDbContext<DispatchDbContext>(options =>
             options.UseNpgsql(
-                configuration.GetConnectionString("DispatchDb"),
+                configuration.Obligatoire("DispatchDb"),
                 npgsql => npgsql.MigrationsHistoryTable("__ef_migrations", DispatchDbContext.Schema)));
 
         services.AddHbaAutoMigration<DispatchDbContext>();
@@ -55,6 +55,10 @@ public static class DependencyInjection
             .Validate(
                 o => o.OfferSeconds > 0 && o.DriversPerWave > 0,
                 "Dispatch:OfferSeconds et Dispatch:DriversPerWave doivent etre strictement positifs.")
+            .Validate(
+                o => o.MaxDriversSolicited >= o.DriversPerWave,
+                "Dispatch:MaxDriversSolicited doit valoir au moins DriversPerWave : un plafond plus bas que la "
+                    + "largeur d'une vague arreterait la recherche avant la premiere offre.")
             .ValidateOnStart();
 
         AddRedis(services, configuration);

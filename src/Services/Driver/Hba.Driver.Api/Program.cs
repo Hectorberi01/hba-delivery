@@ -21,7 +21,7 @@ builder.Services.AddGrpcHealthChecks();
 builder.Services.AddHbaSecurity(builder.Configuration);
 
 // Traducteur des refus metier pour la surface HTTP (ADR 0021).
-builder.Services.AddSingleton<Hba.Driver.Api.Endpoints.TraduireLesRefus>();
+builder.Services.AddSingleton<Hba.BuildingBlocks.Http.TraduireLesRefus>();
 
 builder.Services.AddDriverApplication();
 builder.Services.AddDriverInfrastructure(builder.Configuration);

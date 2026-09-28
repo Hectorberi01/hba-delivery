@@ -23,8 +23,12 @@ RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$RACINE"
 
 COMPOSE="${COMPOSE:-deploy/docker-compose.yml}"
-BUCKET="${GARAGE_BUCKET:-hba-driver-documents}"
-CLE="${GARAGE_KEY_NAME:-hba-driver}"
+# LE SEAU A CHANGE DE NOM AVEC LE POINT 27. Il ne portait que les pieces du
+# dossier livreur ; il porte desormais tous les binaires de la plateforme, et
+# c'est le service Media qui detient la cle. « hba-driver-documents » aurait
+# decrit un contenu qu'il n'a plus.
+BUCKET="${GARAGE_BUCKET:-hba-media}"
+CLE="${GARAGE_KEY_NAME:-hba-media}"
 
 bleu()  { printf '\033[1;34m%s\033[0m\n' "$*"; }
 vert()  { printf '\033[1;32m%s\033[0m\n' "$*"; }
@@ -189,9 +193,15 @@ vert "Droits accordes sur $BUCKET."
 
 # ------------------------------------------------------------- 5. Les secrets --
 
-etape "5. Report dans src/Services/Driver/.env"
+etape "5. Report dans les .env concernes"
 
-ENV_DRIVER="src/Services/Driver/.env"
+# DEUX FICHIERS TANT QUE LA REPRISE N'EST PAS FINIE, UN SEUL ENSUITE.
+#
+# Le point 27 confie tous les binaires au service Media : lui seul portera la
+# cle. Driver la garde le temps que ses pieces de dossier basculent — ensuite sa
+# ligne disparait d'ici, et avec elle la possibilite qu'un autre service lise le
+# stockage.
+ENV_CIBLES="src/Services/Media/.env src/Services/Driver/.env"
 
 # LE SECRET NE S'AFFICHE QU'UNE FOIS, ET LA RECOPIE A LA MAIN A DEJA ECHOUE
 # DEUX FOIS. Le script connait les deux valeurs au moment de la creation : il
@@ -199,7 +209,7 @@ ENV_DRIVER="src/Services/Driver/.env"
 if [ "$CLE_EXISTE" = "1" ]; then
   jaune "La cle existait deja : GARAGE NE REAFFICHE JAMAIS UN SECRET."
   jaune ""
-  jaune "Si src/Services/Driver/.env ne l'a pas, supprimez la cle et relancez :"
+  jaune "Si l'un des .env ne l'a pas, supprimez la cle et relancez :"
   jaune "  docker compose -f $COMPOSE exec -T garage /garage key delete --yes $CLE"
   jaune "  ./scripts/garage-init.sh"
   echo
@@ -216,29 +226,33 @@ if [ -z "$ID" ] || [ -z "$SECRET" ]; then
   rouge "Impossible de lire la cle dans la sortie de Garage :"
   printf '%s\n' "$INFOS" | sed 's/^/    /' >&2
   rouge ""
-  rouge "Reportez-les a la main dans $ENV_DRIVER :"
+  rouge "Reportez-les a la main dans $ENV_CIBLES :"
   rouge "  OBJECTSTORE_ACCESS_KEY=…"
   rouge "  OBJECTSTORE_SECRET_KEY=…"
   exit 1
 fi
 
-if [ ! -f "$ENV_DRIVER" ]; then
-  rouge "$ENV_DRIVER est absent. Copiez d'abord le .env.example a cote."
-  exit 1
-fi
+for ENV_FICHIER in $ENV_CIBLES; do
+  if [ ! -f "$ENV_FICHIER" ]; then
+    rouge "$ENV_FICHIER est absent. Copiez d'abord le .env.example a cote."
+    exit 1
+  fi
+done
 
-# Un seul passage de sed, sur une copie, puis remplacement : une interruption
-# au milieu ne doit pas laisser un .env a moitie ecrit.
-TMP_ENV="$(mktemp)"
-sed -e "s|^OBJECTSTORE_ACCESS_KEY=.*|OBJECTSTORE_ACCESS_KEY=$ID|" \
-    -e "s|^OBJECTSTORE_SECRET_KEY=.*|OBJECTSTORE_SECRET_KEY=$SECRET|" \
-    "$ENV_DRIVER" > "$TMP_ENV"
-mv "$TMP_ENV" "$ENV_DRIVER"
+for ENV_FICHIER in $ENV_CIBLES; do
+  # Un seul passage de sed, sur une copie, puis remplacement : une interruption
+  # au milieu ne doit pas laisser un .env a moitie ecrit.
+  TMP_ENV="$(mktemp)"
+  sed -e "s|^OBJECTSTORE_ACCESS_KEY=.*|OBJECTSTORE_ACCESS_KEY=$ID|" \
+      -e "s|^OBJECTSTORE_SECRET_KEY=.*|OBJECTSTORE_SECRET_KEY=$SECRET|" \
+      "$ENV_FICHIER" > "$TMP_ENV"
+  mv "$TMP_ENV" "$ENV_FICHIER"
 
-grep -q "^OBJECTSTORE_ACCESS_KEY=$ID$" "$ENV_DRIVER" \
-  || { rouge "Le report dans $ENV_DRIVER a echoue."; exit 1; }
+  grep -q "^OBJECTSTORE_ACCESS_KEY=$ID$" "$ENV_FICHIER" \
+    || { rouge "Le report dans $ENV_FICHIER a echoue."; exit 1; }
 
-vert "Cles ecrites dans $ENV_DRIVER."
+  vert "Cles ecrites dans $ENV_FICHIER."
+done
 bleu "  OBJECTSTORE_ACCESS_KEY=$ID"
 bleu "  OBJECTSTORE_SECRET_KEY=${SECRET:0:6}… (masque)"
 echo

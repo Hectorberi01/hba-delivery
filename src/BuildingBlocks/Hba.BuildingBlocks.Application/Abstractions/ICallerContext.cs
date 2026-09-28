@@ -26,6 +26,22 @@ public interface ICallerContext
     /// <summary>Renseigné pour driver.</summary>
     string? DriverId { get; }
 
+    /// <summary>Nom affiché, tel que le jeton le porte.</summary>
+    ///
+    /// <remarks>
+    /// CE N'EST PAS UNE AUTORISATION, C'EST UNE IDENTITE. Un service qui doit
+    /// ECRIRE le nom ou le téléphone de l'appelant les lit ici, dans le jeton
+    /// qu'il a lui-même validé — jamais dans le corps d'une requête, où
+    /// l'appelant écrirait ceux d'un autre.
+    /// </remarks>
+    string? DisplayName { get; }
+
+    /// <summary>Téléphone du compte, tel que le jeton le porte.</summary>
+    string? Phone { get; }
+
+    /// <summary>Courriel du compte, absent tant que le client n'en a pas donné.</summary>
+    string? Email { get; }
+
     string? TraceId { get; }
 
     string? CorrelationId { get; }

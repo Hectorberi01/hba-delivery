@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package hba.media.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Hba.Contracts.Media.V1";
+
+// Media détient les BINAIRES de la plateforme : photos de profil, pièces des
+// dossiers livreurs, PDF, et les factures le jour où elles existeront.
+//
+// LES OCTETS N'ENTRENT PAS PAR ICI. Le dépôt se fait en HTTP, sur une route du
+// service ; ce contrat ne porte que des MÉTADONNÉES. C'est la raison d'être du
+// service : l'ADR 0021 avait écarté le transport de binaires par gRPC — un
+// fichier qui traverse les intercepteurs de trace y laisse ce qu'il ne devrait
+// pas — et la route HTTP de Driver était restée une exception isolée, avec la
+// consigne écrite de rouvrir l'ADR 0015 si une seconde apparaissait. Un service
+// dont le métier EST d'ingérer des octets n'a plus besoin d'exception.
+//
+// MEDIA NE DÉCIDE PAS QUI VOIT QUOI. Il tient l'inventaire, il écrit, il signe
+// et il supprime. Savoir si un livreur a le droit de voir la photo d'un client
+// suppose de savoir s'il est en mission sur SA course — une question que seul
+// Delivery peut trancher. L'autorisation reste donc au service propriétaire de
+// la donnée, qui appelle GetReadUrl seulement après avoir vérifié. Point 27 des
+// points à trancher, décidé le 28 septembre 2026.
+service MediaService {
+  // Métadonnées d'un média. Ne rend AUCUNE URL : la lecture se demande
+  // explicitement, et c'est cette demande qui se journalise.
+  rpc GetMedia(GetMediaRequest) returns (GetMediaResponse);
+
+  // URL de lecture signée, valable quelques minutes.
+  //
+  // L'APPELANT A DÉJÀ VÉRIFIÉ LE DROIT. Media ne redemande pas : il ne saurait
+  // pas. Ce qu'il fait, en revanche, c'est CONSIGNER la demande — qui a
+  // réclamé quoi, quand, et pour quel motif déclaré.
+  rpc GetReadUrl(GetReadUrlRequest) returns (GetReadUrlResponse);
+
+  // Tout ce qui appartient à quelqu'un. Sert au back-office, et à savoir ce
+  // qu'une suppression de compte doit emporter.
+  rpc ListMedia(ListMediaRequest) returns (ListMediaResponse);
+
+  rpc DeleteMedia(DeleteMediaRequest) returns (DeleteMediaResponse);
+
+  // Supprime TOUT ce qui appartient à un propriétaire.
+  //
+  // C'EST LA MOITIÉ MANQUANTE DE LA SUPPRESSION DE COMPTE. Le point 22 laisse
+  // ouverte la question des pièces dans le stockage objet, parce que personne
+  // ne savait les énumérer : une clé oubliée est un fichier qui survit à son
+  // propriétaire. L'inventaire de Media rend l'opération possible ; la durée de
+  // rétention, elle, reste à trancher.
+  rpc DeleteOwnerMedia(DeleteOwnerMediaRequest) returns (DeleteOwnerMediaResponse);
+}
+
+// À QUI APPARTIENT LE FICHIER. Pas « quel service l'a déposé » : le client
+// reste propriétaire de sa photo même si c'est Directory qui l'enregistre.
+enum MediaOwnerType {
+  MEDIA_OWNER_TYPE_UNSPECIFIED = 0;
+  MEDIA_OWNER_TYPE_CUSTOMER = 1;
+  MEDIA_OWNER_TYPE_DRIVER = 2;
+  MEDIA_OWNER_TYPE_MERCHANT = 3;
+  // Une preuve de livraison appartient à la course, pas à une personne.
+  MEDIA_OWNER_TYPE_DELIVERY = 4;
+}
+
+// CE QUE LE FICHIER EST, ET CE N'EST PAS SON TYPE MIME.
+//
+// « image/jpeg » ne dit pas si l'image est une photo de profil ou une carte
+// d'identité ; or les deux n'ont ni la même visibilité, ni la même rétention,
+// ni le même degré de sensibilité. La nature est donc déclarée au dépôt, et
+// c'est elle qui portera les règles.
+enum MediaKind {
+  MEDIA_KIND_UNSPECIFIED = 0;
+  MEDIA_KIND_PROFILE_PHOTO = 1;
+  MEDIA_KIND_NATIONAL_ID = 2;
+  MEDIA_KIND_DRIVING_LICENCE = 3;
+  MEDIA_KIND_VEHICLE_REGISTRATION = 4;
+  MEDIA_KIND_VEHICLE_PHOTO = 5;
+  MEDIA_KIND_DELIVERY_PROOF = 6;
+  MEDIA_KIND_INVOICE = 7;
+}
+
+message Media {
+  string id = 1;
+  MediaOwnerType owner_type = 2;
+  string owner_id = 3;
+  MediaKind kind = 4;
+  string content_type = 5;
+  int64 size_bytes = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // Acteur qui a déposé, au format du référentiel : « customer:<id> ».
+  string uploaded_by = 8;
+}
+
+message GetMediaRequest {
+  string media_id = 1;
+}
+
+// UNE REPONSE PAR APPEL, MEME QUAND ELLE N'ENVELOPPE QU'UNE CHOSE.
+//
+// Rendre « Media » directement aurait ete plus court, et c'est ce que fait le
+// reste du depot — 119 avertissements de buf en temoignent. Mais un message
+// partage entre plusieurs appels ne peut plus evoluer pour l'un sans changer
+// pour les autres : le jour ou GetMedia doit rendre un champ de plus, il
+// apparait partout. Ce fichier-ci est neuf ; il n'a aucune raison d'heriter de
+// la dette.
+message GetMediaResponse {
+  Media media = 1;
+}
+
+message GetReadUrlRequest {
+  string media_id = 1;
+
+  // POURQUOI CETTE LECTURE EST DEMANDÉE, en clair, pour le journal.
+  //
+  // CE N'EST PAS UNE FORMALITÉ : le référentiel exige que l'ouverture d'une
+  // pièce laisse une trace exploitable, et « quelqu'un a lu quelque chose » n'en
+  // est pas une. Le service appelant dit ce qu'il faisait — « fiche client,
+  // support », « mission en cours », « validation du dossier ».
+  string reason = 2;
+}
+
+message GetReadUrlResponse {
+  string url = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message ListMediaRequest {
+  MediaOwnerType owner_type = 1;
+  string owner_id = 2;
+  // Vide = toutes natures.
+  MediaKind kind = 3;
+}
+
+message ListMediaResponse {
+  repeated Media media = 1;
+}
+
+message DeleteMediaRequest {
+  string media_id = 1;
+}
+
+message DeleteOwnerMediaRequest {
+  MediaOwnerType owner_type = 1;
+  string owner_id = 2;
+}
+
+message DeleteMediaResponse {
+  bool deleted = 1;
+}
+
+message DeleteOwnerMediaResponse {
+  int32 deleted_count = 1;
+}

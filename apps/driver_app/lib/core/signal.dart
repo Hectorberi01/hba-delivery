@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:vibration/vibration.dart';
 
@@ -122,11 +123,41 @@ abstract final class Signal {
   /// Le moteur de vibration proprement dit ignore ce reglage et fonctionne
   /// telephone en sourdine — c'est exactement ce qu'il faut ici.
   static Future<void> _vibrer() async {
+    // SUR IPHONE, LE MOTIF NE PART PAS, ET IL ECHOUE SANS LEVER D'ERREUR.
+    //
+    // Constate le 28 septembre 2026 sur un iPhone 12 sous iOS 26. A chaque
+    // offre, la console native repetait :
+    //
+    //     Failed to play pattern: The operation couldn't be completed.
+    //     (com.apple.CoreHaptics error -4823.)
+    //
+    // Le greffon route « pattern » vers CoreHaptics, qui refuse. Le refus
+    // arrive du cote natif, APRES que l'appel Dart a rendu la main : aucune
+    // exception ne remonte, le « return » ci-dessous s'executait, et le repli
+    // sur le retour tactile n'etait jamais atteint. RESULTAT : l'iPhone ne
+    // vibrait pas du tout a l'arrivee d'une course, et rien ne le disait.
+    //
+    // C'EST LE MEME DEFAUT QUE CELUI DECRIT PLUS HAUT POUR ANDROID, retourne
+    // comme un gant : la-bas le repli fonctionnait et le vrai moteur etait
+    // ignore ; ici le vrai moteur est demande et c'est le repli qui manque.
+    // Dans les deux cas, un appel qui reussit en apparence et ne produit rien.
+    //
+    // ON NE TENTE DONC PLUS LE MOTIF SUR IOS. « hasCustomVibrationsSupport »
+    // ne sert a rien ici : il repond oui sur cet appareil, et le refus vient
+    // ensuite. Le retour tactile d'Apple, lui, passe par
+    // UIImpactFeedbackGenerator et fonctionne.
+    //
+    // CE QUE CELA COUTE, ET IL FAUT LE SAVOIR : trois impacts sont plus
+    // discrets qu'une vraie vibration. Sur iPhone, le SON porte donc davantage
+    // du signal que sur Android. Si un livreur iOS coupe le son dans les
+    // reglages, il lui reste moins qu'a un livreur Android qui fait pareil.
+    final iphone = defaultTargetPlatform == TargetPlatform.iOS;
+
     try {
       // « == true » ET NON UNE SIMPLE CONDITION : selon la version du greffon
       // cette methode rend « bool » ou « bool? ». La comparaison explicite
       // traverse les deux sans rien casser.
-      if (await Vibration.hasVibrator() == true) {
+      if (!iphone && await Vibration.hasVibrator() == true) {
         // Trois coups fermes de 400 ms, le dernier plus long pour fermer la
         // phrase. Les creux de 250 ms les separent assez pour qu'on les
         // compte au poignet.

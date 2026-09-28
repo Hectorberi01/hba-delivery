@@ -64,7 +64,10 @@ services:
       # un service qui accepterait des pieces et les perdrait.
       ObjectStore__Endpoint: ${OBJECTSTORE_ENDPOINT:-garage:3900}
       ObjectStore__Region: ${OBJECTSTORE_REGION:-hba}
-      ObjectStore__Bucket: ${OBJECTSTORE_BUCKET:-hba-driver-documents}
+      # LE SEAU A CHANGE DE NOM AVEC LE POINT 27 : il porte desormais tous les
+      # binaires, pas seulement les pieces du dossier. Cette ligne disparait
+      # quand les pieces basculent vers le service Media.
+      ObjectStore__Bucket: ${OBJECTSTORE_BUCKET:-hba-media}
       ObjectStore__UseSsl: ${OBJECTSTORE_USE_SSL:-false}
       # PAS DE FORME :? ICI, contrairement aux autres secrets de ce fichier.
       # Compose interpole le fichier entier meme pour « build », et ces deux

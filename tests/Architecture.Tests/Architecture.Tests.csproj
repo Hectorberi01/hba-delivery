@@ -13,6 +13,7 @@
     <ProjectReference Include="../../src/Services/Delivery/Hba.Delivery.Api/Hba.Delivery.Api.csproj" />
     <ProjectReference Include="../../src/BuildingBlocks/Hba.BuildingBlocks.Domain/Hba.BuildingBlocks.Domain.csproj" />
     <ProjectReference Include="../../src/BuildingBlocks/Hba.BuildingBlocks.Security/Hba.BuildingBlocks.Security.csproj" />
+    <ProjectReference Include="../../src/BuildingBlocks/Hba.BuildingBlocks.Storage.Abstractions/Hba.BuildingBlocks.Storage.Abstractions.csproj" />
     <ProjectReference Include="../../src/Services/Identity/Hba.Identity.Domain/Hba.Identity.Domain.csproj" />
     <ProjectReference Include="../../src/Services/Identity/Hba.Identity.Application/Hba.Identity.Application.csproj" />
     <ProjectReference Include="../../src/Services/Directory/Hba.Directory.Domain/Hba.Directory.Domain.csproj" />

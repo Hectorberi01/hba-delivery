@@ -1,4 +1,3 @@
-using Hba.Driver.Application.Common.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -6,7 +5,7 @@ using Minio;
 using Minio.DataModel.Args;
 using Minio.Exceptions;
 
-namespace Hba.Driver.Infrastructure.Services.Storage;
+namespace Hba.BuildingBlocks.Storage;
 
 /// <summary>
 /// Adaptateur S3 du port <see cref="IObjectStore"/>.

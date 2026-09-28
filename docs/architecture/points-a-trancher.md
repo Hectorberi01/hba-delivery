@@ -730,3 +730,460 @@ justifiera.
    permanente le lui rappelle. Ces deux phrases doivent entrer dans le document
    — et dans la version, qui est encore en `v0.1` — **avant** que le service ne
    démarre chez quelqu'un.
+
+---
+
+## 22 — Supprimer un compte client ou livreur — TRANCHÉ sur le principe
+
+**Une promesse est déjà faite, et rien ne peut la tenir.** L'écran « Supprimer
+mon compte » de l'application livreur affiche aujourd'hui, en production :
+
+> Ce qui sera supprimé : votre compte, votre profil livreur et vos pièces
+> justificatives. (…) Ce qui sera conservé : les courses déjà effectuées
+> restent dans l'historique de HBA (…) **Votre nom en est retiré.**
+>
+> DEMANDE, PAS SUPPRESSION IMMÉDIATE — votre demande part vers l'équipe HBA,
+> qui la traite et vous confirme la suppression.
+
+Cette demande part **par courriel**, et **aucun écran, aucune route, aucune
+table ne la reçoit**. Le livreur écrit, et le système ignore qu'il a écrit.
+
+**À corriger d'abord dans la tête : les fiches, elles, existent.** La console a
+`clients/page.tsx` (identifiant, téléphone, e-mail, inscription, adresses,
+cumul facturé, journal des accès) et `livreurs/page.tsx` (téléphone, véhicule,
+plaque, inscription, validation, motif, dossier KYC, activité, validation et
+suspension). Ce qui manque n'est pas la consultation.
+
+### Décidé le 27 septembre 2026
+
+1. **Supprimer veut dire ANONYMISER.** Compte fermé, pièces KYC effacées,
+   courses conservées sans le nom. Ce n'est pas un choix neuf : c'est le texte
+   déjà affiché au livreur. En choisir un autre obligeait à réécrire ce texte
+   d'abord.
+2. **Par une FILE DE DEMANDES**, pas par un bouton. L'application annonce une
+   demande traitée puis confirmée ; un bouton d'administrateur rendrait cette
+   phrase fausse.
+3. **`admin` seul.** Le référentiel réserve déjà à `admin` seul le journal des
+   accès aux données personnelles et le TOTAL facturé. Une suppression est
+   irréversible : même cercle. `support` reçoit la demande, `admin` l'exécute.
+
+### Ce que « retirer le nom » veut dire, et où
+
+**Aucune notion d'anonymisation n'existe dans le code — j'ai cherché dans les
+cinq services.** Un nom de personne vit aujourd'hui à quatre endroits au moins :
+
+| Service | Où | Ce qu'il faut en faire |
+|---|---|---|
+| Identity | `Account.DisplayName`, téléphone, e-mail | Fermer le compte, effacer les identifiants de connexion |
+| Directory | `Customer` — nom, téléphone, adresses favorites | Anonymiser ; les adresses favorites sont des données personnelles à part entière |
+| Driver | `DriverAggregate` — nom, téléphone, véhicule, **pièces dans le stockage objet** | Anonymiser, et effacer les objets |
+| Delivery | `AssignedDriver`, `Location.contactName` / `phone`, destinataire | **Le point le plus délicat** : ces champs sont dupliqués sur chaque course, et une course concerne AUSSI le client et le commerçant |
+
+C'est donc une **saga**, pas un DELETE : une demande approuvée publie un
+événement, chaque service anonymise sa part et confirme, et la demande ne passe
+à « faite » que lorsque tous ont répondu. Un service muet doit se voir.
+
+### Ce que cela NE tranche pas
+
+- **La purge des pièces KYC**, que le référentiel laisse explicitement ouverte :
+  « supprimer une carte d'identité veut dire effacer l'objet dans le stockage,
+  la ligne en base, et décider ce que devient un livreur validé dont les pièces
+  ont disparu — reste-t-il validé ? » Une suppression de compte tranche le cas
+  facile (le livreur s'en va) ; elle ne tranche pas la purge par ancienneté.
+- **Ce qui BLOQUE une suppression.** Une course en cours, une demande de
+  versement ouverte, un **solde non versé**. Supprimer un livreur à qui HBA
+  doit de l'argent est un problème comptable avant d'être un problème technique.
+- **Le côté client.** Aucun texte n'a été montré à un client, contrairement au
+  livreur : la politique de confidentialité de l'application cliente devra dire
+  la même chose avant qu'un client puisse demander quoi que ce soit.
+- **Le délai.** Combien de temps entre la demande et l'exécution, et le livreur
+  peut-il se rétracter ? La demande de versement, elle, a déjà tranché
+  l'inverse (point 15).
+
+### L'ordre de construction
+
+1. **La demande** — un agrégat dans Identity, qui possède le compte. Les routes
+   pour la déposer (livreur, client) et pour la lister, l'approuver, la refuser
+   (`admin`). L'application livreur cesse d'envoyer un courriel. **C'est la
+   moitié manquante de la promesse, et elle se tient seule.**
+2. **L'écran** dans la console, à côté des versements, dont il reprend la forme :
+   une file, une décision motivée, une trace.
+3. **L'anonymisation**, service par service, derrière l'événement — Identity,
+   Directory, Driver, puis Delivery, le plus délicat en dernier.
+4. **Les pièces du stockage objet**, une fois la question de la rétention
+   tranchée.
+
+**Rien n'est implémenté.** Les trois décisions ci-dessus fixent la forme ; les
+quatre questions ouvertes doivent l'être avant l'étape 3.
+
+---
+
+## 23 — Un livreur à la fois, le plus proche d'abord — TRANCHÉ
+
+**Constaté sur le terrain :** deux livreurs de la même zone reçoivent la même
+course en même temps, et c'est le plus rapide à appuyer qui l'emporte.
+
+**La cause, et elle n'était pas une décision.** `Dispatch:DriversPerWave` valait
+**5** : chaque vague diffusait la course à cinq livreurs d'un coup. Le point 5 a
+tranché *le nombre de vagues, les rayons et le délai* — **jamais la largeur de
+la diffusion**. Le 5 est arrivé dans le code sans discussion.
+
+### Décidé le 28 septembre 2026
+
+**Un seul livreur à la fois, le plus proche d'abord ; la recherche s'arrête
+quand tout le périmètre a été balayé.**
+
+Deux raisons, et la seconde pèse plus que la première :
+
+1. Chaque offre immobilise un livreur trente secondes. En solliciter cinq pour
+   une course en gèle quatre pour rien, et les courses voisines n'ont plus
+   personne.
+2. **La course revenait à celui qui tape le plus vite, pas au plus proche.** Le
+   client attendait donc un livreur plus loin que nécessaire, et celui qui était
+   à côté perdait une course qui lui revenait. Les candidats arrivent déjà
+   triés par distance : il suffisait de ne plus les mettre en concurrence.
+
+### Le défaut de structure trouvé en corrigeant, et qui comptait davantage
+
+Ramener `DriversPerWave` à 1 **sans toucher au reste aurait empiré la
+situation.** Le rayon se lisait dans le tableau **à l'indice de la vague** :
+
+```
+var rayon = _options.RadiusForWave(dispatch.CurrentWave + 1);
+if (rayon is null) { dispatch.Exhaust(...); }
+```
+
+Passé la troisième vague il n'y avait plus de rayon, donc plus de recherche.
+**Le nombre de tentatives était borné par la longueur d'un tableau de
+distances.** Un livreur à la fois aurait donc donné **trois livreurs sollicités
+au total**, puis `NO_DRIVER_FOUND` — même avec douze livreurs disponibles à deux
+kilomètres et aucun sollicité.
+
+Corrigé : on demande au **premier anneau qui rend encore quelqu'un**. Les déjà
+sollicités sont exclus côté Driver, donc un anneau épuisé ne rend plus rien et
+l'on passe au suivant tout seul. La recherche s'arrête quand le plus large des
+anneaux est vide. **La liste borne la recherche, plus le compteur.**
+
+`RadiusForWave` disparaît : plus personne ne l'appelle.
+
+### Ce que cela révoque, et qu'il faut assumer
+
+**Les quatre-vingt-dix secondes du point 5 ne tiennent plus.** Ce point les
+justifiait ainsi : « quatre-vingt-dix secondes est le plus long qu'un client
+accepte d'attendre sans croire que l'application est bloquée ». Avec un livreur
+toutes les trente secondes, dix livreurs dans le périmètre font **cinq
+minutes**.
+
+C'est le choix qui a été fait — la liste borne, pas le temps — et il a une
+conséquence à traiter ailleurs : **l'application cliente doit dire ce qui se
+passe pendant ce temps.** Un écran qui cherche en silence pendant cinq minutes
+sera fermé avant la fin.
+
+### Les trois questions ouvertes, tranchées le 28 septembre 2026
+
+**1. Le délai par offre reste à trente secondes.** L'argument pour quinze — un
+livreur seul en lice décide plus vite — suppose qu'il regarde son téléphone.
+Celui qui conduit, qui remet un colis ou qui traverse un carrefour ne décide pas
+plus vite parce qu'il est seul : il décide quand il peut s'arrêter. Quinze
+secondes n'auraient pas accéléré sa réponse, elles l'auraient éliminé — et
+c'est précisément le livreur le plus proche, donc le meilleur candidat, qu'on
+aurait éliminé le plus souvent. Le gain était un compteur, la perte un livreur.
+
+**2. Le plafond est un nombre de livreurs, pas une durée.**
+`Dispatch:MaxDriversSolicited = 10`. Un plafond de temps mesure la patience du
+client ; un plafond de livreurs mesure ce qu'on a réellement essayé. Les deux
+donnent aujourd'hui le même chiffre — dix livreurs à trente secondes font cinq
+minutes — mais ils ne vieillissent pas pareil : le jour où le délai passe à
+vingt secondes, le plafond en durée changerait silencieusement le nombre de
+livreurs atteints, alors que le plafond en nombre garde son sens. Et le sens est
+clair : **si dix livreurs ont laissé passer la course, le problème n'est pas le
+onzième.**
+
+Le plafond est vérifié **avant** d'interroger Driver, et il produit son propre
+message de journal — « plafond de 10 livreurs sollicités atteint » — distinct de
+« périmètre épuisé ». Les deux abandons se ressemblent dans la base et ne se
+ressemblent pas du tout à l'exploitation : l'un dit qu'il n'y a personne, l'autre
+que personne ne veut. Un seul message pour les deux aurait rendu la question
+impossible à poser.
+
+Une validation au démarrage refuse `MaxDriversSolicited < DriversPerWave` : la
+configuration qui abandonne avant la première vague ne doit pas démarrer.
+
+**3. Le client voit le temps écoulé et une phrase qui explique.** Écran de suivi,
+statut `searchingDriver` : un compteur qui avance à la seconde, et « HBA contacte
+les livreurs un par un, du plus proche au plus éloigné ».
+
+**Le compteur annonce ce qu'il mesure, et ce n'est pas la recherche.** Le client
+ne reçoit que `createdAt` : la date de la commande. Le libellé dit donc
+« Commandée il y a 2 min 05 », pas « Recherche depuis 2 min 05 ». L'écart est de
+quelques secondes aujourd'hui — celles du paiement — et personne ne le
+remarquerait ; c'est exactement ce qui rend l'approximation dangereuse, parce
+qu'elle survivra au jour où l'écart grandira.
+
+*Reste ouvert, mineur :* exposer côté client l'instant d'ouverture du dispatch
+permettrait d'afficher la vraie durée de recherche. Tant que ce n'est pas fait,
+le libellé reste celui de la commande.
+
+## 24 — Le client voit les livreurs autour de lui — TRANCHÉ
+
+**Demandé le 28 septembre 2026** : une carte d'accueil dans l'application
+cliente, montrant les livreurs alentour comme la carte de l'application
+livreur.
+
+### La contradiction, signalée avant d'écrire quoi que ce soit
+
+**Le référentiel ne dit rien des positions des livreurs côté client.** La
+matrice de visibilité accorde au client le téléphone du livreur *pendant la
+mission*, l'adresse de destination, l'OTP de remise. Elle est **muette** sur
+les positions — et le silence n'est pas une autorisation, la consigne de
+production étant : « N'invente pas d'acteur, d'attribut ou de règle qui n'y
+figure pas. Si une information manque, signale-la au lieu de la supposer. »
+
+Trois options ont été posées : ne rien afficher, des pastilles anonymes sans
+nombre exact, ou les positions réelles.
+
+### Décidé : les positions réelles
+
+**Ce que cela apporte.** Un client qui voit trois livreurs à deux rues de chez
+lui commande. Un écran vide, ou une carte sans personne dessus, laisse croire
+qu'il n'y a personne — et sur un marché où l'application est jeune et le
+maillage encore mince, cette impression coûte des courses réelles.
+
+### Ce que cela coûte, et qu'il faut assumer
+
+**La position d'un livreur est la donnée personnelle d'un indépendant, pas une
+donnée de l'entreprise.** L'afficher à tout titulaire de compte client signifie
+que n'importe qui peut ouvrir l'application et regarder les livreurs se
+déplacer, sans commander, sans se justifier, aussi longtemps qu'il veut.
+
+Trois conséquences qui ne se rattrapent pas après coup :
+
+1. **La politique de confidentialité de l'application livreur doit le dire.**
+   Elle annonce aujourd'hui « en ligne → position envoyée » sans préciser À QUI.
+   Tant qu'il ne s'agissait que du dispatch et du back-office, la formule
+   passait. Elle devient fausse le jour où des clients la voient.
+2. **Les livreurs doivent l'apprendre autrement que par surprise.** Un livreur
+   qui découvre que sa position est publique aux clients apprend en même temps
+   qu'on ne le lui avait pas dit.
+3. **Le grain d'affichage est un choix, pas un détail.** Une position au mètre
+   près suit un livreur jusque devant chez lui.
+
+### La limite qui n'a PAS été levée
+
+**Aucune identité avant `DRIVER_ASSIGNED`.** La ligne « Téléphone du livreur :
+pendant la mission » de la matrice tient toujours, et rien dans cette décision
+ne la touche. La route cliente rend donc des **coordonnées seules** : pas
+d'identifiant, pas de nom, pas de plaque, pas de type de véhicule. Un
+identifiant stable suffirait à suivre le même livreur d'un jour sur l'autre,
+ce qui est exactement ce que la matrice refuse.
+
+C'est la raison pour laquelle la mise en forme se fait **à la passerelle** :
+`FindAvailableNearby` rend des identifiants parce que le dispatch en a besoin,
+et c'est à la frontière du client qu'ils doivent disparaître.
+
+### Ce qui reste ouvert
+
+1. **Le grain.** Position exacte, ou arrondie à un pâté de maisons ? La
+   décision porte sur « les positions réelles » ; le nombre de décimales n'a
+   pas été discuté.
+2. **La fraîcheur et la cadence de rafraîchissement** côté client, qui décident
+   du coût en données pour le client et en charge pour Driver.
+3. **Le plafond du rayon et du nombre** rendus par la route, sans quoi une
+   requête suffit à cartographier une ville.
+
+---
+
+## 25 — Le client crée sa fiche quand l'inscription ne l'a pas fait — TRANCHÉ
+
+### La contradiction, signalée avant d'écrire quoi que ce soit
+
+`IdentityEventsConsumer.cs` porte cette phrase depuis l'origine : « C'est le
+**seul** chemin de création d'un profil client : aucune demande de livraison ne
+doit en fabriquer un au passage. » Ouvrir une route qui crée la fiche depuis
+l'application cliente la contredit de front. Elle a été signalée, et la décision
+prise en connaissance de cause.
+
+### Le fait qui a forcé la question
+
+Le compte `01a0e4d9-…` existe dans Identity depuis le 27 septembre 21:51:24.
+L'événement `AccountRegistered` a été **posé dans l'outbox et publié**, sans
+erreur, 0 tentative. Et pourtant Directory n'a aucune fiche. Le client se
+retrouve avec un compte valide, des livraisons qui fonctionnent, un écran de
+profil qui ne sait que s'excuser, et **aucune adresse favorite possible** — les
+quatre routes d'adresses chargent la fiche avant d'appliquer.
+
+Kafka ne rejoue pas un message pour un groupe de consommateurs qui n'existait
+pas quand il est passé. Un service arrêté au mauvais moment perd donc
+l'événement **définitivement**. Ce n'est pas un incident rare : c'est le
+comportement normal du transport.
+
+### Décidé le 28 septembre 2026 : une route de rattrapage, explicite
+
+`POST /api/client/v1/me` → `DirectoryService.EnsureCustomer`.
+
+Quatre propriétés la rendent acceptable, et les défaire reviendrait à annuler la
+décision :
+
+1. **Elle ne prend aucun champ.** `EnsureCustomerRequest` est vide et doit le
+   rester. Le nom, le téléphone et le courriel sont lus par Directory dans le
+   jeton qu'il a **lui-même validé** — jamais dans un corps de requête, jamais
+   sur la parole de la passerelle. Rien n'est forgeable par l'appelant.
+2. **Elle est explicite.** C'est un geste du client sur un bouton, pas un effet
+   de bord d'une lecture ni d'une demande de livraison. La règle citée plus haut
+   visait précisément l'effet de bord ; elle tient toujours.
+3. **Elle est idempotente.** Une fiche déjà présente est rendue telle quelle.
+4. **Elle journalise en AVERTISSEMENT.** Chaque ligne est un profil que
+   l'événement aurait dû créer. Si elles se multiplient, c'est la chaîne
+   Identity → Kafka → Directory qu'il faut réparer, pas ce rattrapage qu'il faut
+   élargir.
+
+Un livreur ou un commerçant ne peut pas s'en servir : le rôle `customer` est
+exigé. Savoir si un livreur peut aussi être client reste ouvert, et cette route
+ne le tranche pas à la place de la décision.
+
+### Ce que cela ne dit pas
+
+**Pourquoi l'événement s'est perdu n'est toujours pas établi.** La route rend le
+client autonome ; elle ne remplace pas le diagnostic. `make fiche` lit
+maintenant l'inbox de Directory, qui distingue « jamais reçu » de « reçu, marqué
+traité, jamais rejoué » — deux causes, deux réparations.
+
+### Le défaut trouvé en chemin, et qui comptait autant
+
+`Address.Create` (Directory) **exige** un téléphone valide, un nom de contact et
+un repère écrit : c'est l'objet-valeur d'un point de **collecte**, où quelqu'un
+attend sur place. L'application cliente envoyait `phone: ''` et
+`contactName: ''`, avec un commentaire affirmant que ce n'était pas un oubli.
+L'ajout d'adresse favorite ne pouvait donc **pas** fonctionner, même avec une
+fiche — et le commentaire expliquait pourquoi c'était normal.
+
+Décidé : la passerelle reprend le téléphone et le nom **du compte**, lus dans le
+jeton, quand l'application ne les fournit pas. C'est vrai — c'est son adresse,
+c'est lui le contact — et le corps garde la main pour « chez maman ». Le repère,
+lui, devient obligatoire **dans le formulaire** : l'échec arrive avant l'appel
+réseau, pas après.
+
+**La correction de fond n'est pas faite** : elle serait de donner à Directory un
+objet-valeur propre à l'adresse favorite, sans contact obligatoire. Elle touche
+le domaine, la base et le contrat, et n'a pas été décidée.
+
+---
+
+## 26 — Les textes légaux de l'application cliente — RÉDIGÉS EN BROUILLON
+
+Le 28 septembre 2026, l'application cliente a reçu ses deux documents :
+`conditions_client.dart` et `confidentialite_client.dart`, affichés hors ligne
+par le même écran que ceux du livreur — `DocumentLegal` et `DocumentScreen` ont
+quitté `driver_app` pour `hba_ui`, où les deux applications les atteignent.
+
+**Ils portent le drapeau `brouillon`, donc le bandeau « non relu ».** Le passer à
+faux est une décision de l'entreprise, pas une correction de code : une
+politique de confidentialité est un engagement sur ce qu'on fait des données,
+des conditions sont un contrat, et rien de tout cela n'a été relu par un
+juriste.
+
+### Ce qu'ils disent, et qui est vérifiable dans le dépôt
+
+Le prix figé à la confirmation (le devis est consommé), le code de remise jamais
+transmis au livreur, l'impossibilité d'un débit sans validation du payeur
+(aucun prélèvement serveur n'existe chez FedaPay), les coordonnées seules tant
+qu'aucun livreur n'est attribué (point 24), la position envoyée seulement à
+l'ouverture de la carte et au-delà de cinq cents mètres de déplacement.
+
+**Ce qu'ils ne disent PAS, et c'est délibéré :** l'application cliente n'envoie
+aucun rapport de plantage. Le document du livreur a une section Crashlytics ;
+recopier la section aurait déclaré à Google une transmission qui n'existe pas.
+
+### Les décisions que la rédaction a mises au jour
+
+Chacune est écrite dans le document comme un point non arrêté, visible du
+client, plutôt que comblée par une formule :
+
+1. **Le remboursement** — délai, canal, qui décide. Aucune règle appliquée.
+2. **L'annulation** — frais, remboursement, et à partir de quand elle est
+   tardive. Le système enregistre l'annulation et n'en tire rien.
+3. **La responsabilité** en cas de perte ou de dommage, et son plafond. Aucune
+   assurance n'est adossée aux courses.
+4. **La liste des objets interdits**, et ce qui se passe quand un colis en
+   contient. Aucun contrôle de contenu.
+5. **Les durées de conservation**, comme côté livreur : le mécanisme de purge
+   existe, aucun délai n'y est inscrit.
+6. **La raison sociale, le siège et le contact « données personnelles »**, qui
+   doivent figurer dans la politique et n'y sont pas.
+7. **L'acceptation d'une nouvelle version** : aucune n'est demandée ni
+   conservée, pour le client comme pour le livreur.
+
+### Le consentement WhatsApp, lui, n'était pas un point à trancher
+
+C'était un manque. Le domaine d'Identity le portait depuis le 25 septembre —
+colonne, événement auditable, `CanReceiveWhatsApp` qui décide déjà du canal du
+code de connexion — sans aucune commande pour l'appeler. `GetWhatsAppConsent` et
+`SetWhatsAppConsent` (Identity), `GET`/`PUT /api/client/v1/me/whatsapp`
+(passerelle) et un interrupteur dans le profil comblent le trou. Explicite : le
+défaut reste faux. Révocable : le même appel retire le consentement.
+
+---
+
+## 27 — Un service Media pour tous les binaires — TRANCHÉ
+
+**Décidé le 28 septembre 2026.** Les photos, les pièces de dossier, les PDF et
+les futures factures passent par un service dédié : **Media**.
+
+### Ce qui a forcé la question
+
+`DocumentEndpoints.cs` portait cette phrase depuis sa création : « LA SEULE
+ROUTE HTTP INTERNE DU DÉPÔT […] Si une deuxième route interne en HTTP se
+présente, ce n'est plus une exception mais une tendance, et l'ADR 0015 devra
+être rouvert. » La photo de profil du client était exactement cette deuxième
+route.
+
+Trois issues étaient possibles : assumer la tendance et réécrire l'ADR ; signer
+des URL d'écriture pour que le téléphone dépose en direct ; ou faire passer les
+octets par gRPC, ce que l'ADR 0021 avait déjà écarté. **Aucune n'a été retenue.**
+
+### Ce que la quatrième voie résout, et que les trois autres contournaient
+
+Un service dont le métier EST d'ingérer des octets n'a pas besoin d'une
+exception : une route HTTP y est la règle. L'ADR 0015 ne se rouvre pas à
+contrecœur, il se réécrit proprement — « les binaires entrent par Media, en
+HTTP ; tout le reste passe par gRPC ».
+
+### Les trois décisions qui fixent sa forme
+
+**1. Media a sa propre base.** Une table de médias : identifiant, propriétaire,
+nature, clé de stockage, type, taille, date, auteur du dépôt. Les autres
+services ne gardent qu'un identifiant de média.
+
+C'est ce qui rend possible ce que le point 22 laissait ouvert : une purge par
+rétention, un journal des consultations, et surtout une suppression de compte
+qui n'oublie pas les fichiers. Sans inventaire, personne ne sait ce qu'il y a
+dans le stockage — et un objet qu'on ne sait pas nommer ne se supprime pas.
+
+**2. L'autorisation reste au service propriétaire.** Directory décide qui voit
+la photo d'un client, Driver qui voit une pièce d'identité ; ils demandent
+ensuite une URL signée à Media, qui ne discute pas.
+
+Media ne peut pas savoir qui est le livreur en mission sur une course donnée :
+lui confier la règle l'obligerait à connaître le métier des autres. La règle du
+référentiel tient — « toute autorisation se vérifie côté service » — et c'est le
+service qui détient la donnée qui la vérifie.
+
+**3. Les pièces du dossier livreur migrent tout de suite.** Le chemin actuel
+disparaît, la route interne de Driver aussi.
+
+**LA FENETRE EST OUVERTE AUJOURD'HUI ET SE REFERMERA.** Les bases ont été vidées
+le 28 septembre : il n'existe aucune pièce déposée à reprendre. Migrer coûte
+donc le code et rien d'autre. Au premier dossier livreur réel, ce sera une
+reprise de données sur des pièces d'identité — l'opération qu'on repousse
+toujours.
+
+### Ce que cela ne dit pas
+
+1. **La rétention** — combien de temps garder une photo, une pièce, une facture.
+   Media rend la purge POSSIBLE ; aucun délai n'est décidé (point 22, question
+   ouverte n° 4).
+2. **Les factures n'existent pas.** Rien dans le dépôt n'en produit. Media est
+   prêt à les stocker ; il n'a pour l'instant que deux usages réels.
+3. **L'authentification de service à service** pour demander une URL signée.
+   `IssueServiceToken` existe dans le contrat d'Identity ; son usage ici n'a pas
+   été détaillé.

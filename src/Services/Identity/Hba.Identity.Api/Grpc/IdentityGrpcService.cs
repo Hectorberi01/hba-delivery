@@ -12,6 +12,7 @@ using Hba.Identity.Domain.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using DomainOtpIntent = Hba.Identity.Domain.Otp.OtpIntent;
 using ProtoAccount = Hba.Contracts.Identity.V1.Account;
+using ProtoWhatsAppConsent = Hba.Contracts.Identity.V1.WhatsAppConsent;
 
 namespace Hba.Identity.Api.Grpc;
 
@@ -153,6 +154,52 @@ public sealed class IdentityGrpcService(IDispatcher dispatcher) : IdentityServic
             context.CancellationToken).ConfigureAwait(false);
 
         return IdentityProtoMapper.ToProto(view);
+    }
+
+    /// <summary>
+    /// Consentement WhatsApp du titulaire. Les deux requêtes sont vides : le
+    /// compte visé est le sujet du jeton, et nul ne consent pour un autre.
+    /// </summary>
+    public override async Task<ProtoWhatsAppConsent> GetWhatsAppConsent(
+        GetWhatsAppConsentRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.QueryAsync(
+            new GetWhatsAppConsentQuery(),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(view);
+    }
+
+    public override async Task<ProtoWhatsAppConsent> SetWhatsAppConsent(
+        SetWhatsAppConsentRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new SetWhatsAppConsentCommand(request.Granted),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(view);
+    }
+
+    // LA DATE N'EST POSEE QUE SI ELLE EXISTE : un Timestamp protobuf n'a pas de
+    // valeur nulle, et « null » se dit en n'affectant pas le champ.
+    private static ProtoWhatsAppConsent ToProto(WhatsAppConsentView view)
+    {
+        var consent = new ProtoWhatsAppConsent { Granted = view.Granted };
+
+        if (view.GrantedAt is { } quand)
+        {
+            consent.GrantedAt = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(quand);
+        }
+
+        return consent;
     }
 
     public override async Task<ProtoAccount> CreateBackOfficeAccount(

@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace Hba.Driver.Infrastructure.Services.Storage;
+namespace Hba.BuildingBlocks.Storage;
 
 /// <summary>
 /// Accès au stockage objet (ADR 0021 — Garage).

@@ -10,6 +10,23 @@ public interface ICustomerRepository
     Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Identifiant de la fiche portant ce telephone, s'il en existe une.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// UNE REGLE DE DOMAINE ETAIT TENUE PAR UN INDEX SEUL, ET PAR PERSONNE
+    /// D'AUTRE. « IX_customers_phone » est unique : deux fiches ne peuvent pas
+    /// porter le meme numero. Aucun code ne le savait, donc la creation
+    /// partait, Postgres refusait, et le service rendait « Erreur interne » —
+    /// ou, cote consommateur Kafka, echouait sans que rien ne le dise.
+    ///
+    /// ELLE NE REND QUE L'IDENTIFIANT, PAS LA FICHE. Rendre le profil complet
+    /// ferait de cette methode une recherche par telephone accessible hors du
+    /// back-office, ce que SearchAsync reserve explicitement a celui-ci.
+    /// </remarks>
+    Task<Guid?> FindIdByPhoneAsync(string phone, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Recherche dans l'annuaire, sur le nom ou le telephone.
     ///
     /// LA RECHERCHE PAR TELEPHONE EST LA RAISON D'ETRE DE CETTE METHODE, et

@@ -60,43 +60,93 @@ public sealed class AdvanceDispatchHandler(
         }
 
         var prochaine = dispatch.CurrentWave + 1;
-        var rayon = _options.RadiusForWave(prochaine);
 
-        if (rayon is null)
+        // LE PLAFOND SE VERIFIE AVANT DE CHERCHER, PAS APRES AVOIR TROUVE.
+        //
+        // Interroger Driver pour jeter ensuite le candidat trouve ferait un
+        // aller-retour pour rien, et surtout laisserait croire aux journaux
+        // qu'un anneau etait vide alors qu'il ne l'etait pas.
+        if (dispatch.SolicitedDriverIds.Count >= _options.MaxDriversSolicited)
         {
             dispatch.Exhaust(acteur, now);
             await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+            // DEUX RAISONS D'ABANDONNER, DEUX MESSAGES. « Plafond atteint »
+            // veut dire que la course a ete refusee par tout le monde : c'est
+            // la course qu'il faut regarder — trop loin, mal payee, un
+            // quartier qu'on evite. « Perimetre epuise » veut dire qu'il n'y
+            // avait personne. Les confondre rendrait les journaux muets sur
+            // la seule question qui compte.
             logger.LogInformation(
-                "Aucun livreur pour la livraison {DeliveryId} apres {Vagues} vagues.",
+                "Abandon pour la livraison {DeliveryId} : plafond de {Plafond} livreurs sollicites atteint.",
                 dispatch.DeliveryId,
-                dispatch.CurrentWave);
+                _options.MaxDriversSolicited);
 
             return true;
         }
 
-        // L'EXCLUSION EST ENVOYEE A DRIVER, PAS FILTREE APRES : demander cinq
-        // livreurs puis en jeter trois deja sollicites rendrait des vagues de
-        // deux. Le contrat prevoit « exclude_driver_ids » exactement pour ca.
-        var candidats = await drivers
-            .FindAvailableNearbyAsync(
-                dispatch.Pickup,
-                rayon.Value,
-                _options.DriversPerWave,
-                [.. dispatch.SolicitedDriverIds],
-                cancellationToken)
-            .ConfigureAwait(false);
+        // ON ELARGIT QUAND L'ANNEAU EST VIDE, PAS QUAND LE COMPTEUR AVANCE.
+        //
+        // C'ETAIT « UN RAYON PAR VAGUE », ET CELA BORNAIT LA RECHERCHE A
+        // TROIS LIVREURS. Le rayon se lisait dans le tableau a l'indice de la
+        // vague ; passe la troisieme, il n'y avait plus de rayon et la course
+        // basculait en NO_DRIVER_FOUND — meme si douze livreurs attendaient a
+        // deux kilometres et qu'aucun n'avait ete sollicite. Le nombre de
+        // tentatives etait donc borne par la longueur d'un tableau de
+        // distances, ce que rien ne justifiait.
+        //
+        // DESORMAIS : on demande au premier anneau qui rend encore quelqu'un.
+        // Les deja sollicites sont exclus cote Driver, donc un anneau
+        // « epuise » ne rend plus rien et l'on passe au suivant tout seul. La
+        // recherche s'arrete quand le PLUS LARGE des anneaux est vide — la
+        // liste borne la recherche, plus le compteur.
+        foreach (var rayon in _options.WaveRadiiMeters)
+        {
+            // L'EXCLUSION EST ENVOYEE A DRIVER, PAS FILTREE APRES : demander
+            // des livreurs puis en jeter la moitie deja sollicites rendrait
+            // des vagues plus maigres que demande. Le contrat prevoit
+            // « exclude_driver_ids » exactement pour ca.
+            var candidats = await drivers
+                .FindAvailableNearbyAsync(
+                    dispatch.Pickup,
+                    rayon,
+                    _options.DriversPerWave,
+                    [.. dispatch.SolicitedDriverIds],
+                    cancellationToken)
+                .ConfigureAwait(false);
 
-        var offres = dispatch.OpenWave(candidats, _options.OfferLifetime, acteur, now);
+            if (candidats.Count == 0)
+            {
+                continue;
+            }
 
+            var offres = dispatch.OpenWave(candidats, _options.OfferLifetime, acteur, now);
+
+            await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+            logger.LogInformation(
+                "Tentative {Vague} pour la livraison {DeliveryId} : {Offres} offre(s) dans un rayon de {Rayon} m.",
+                prochaine,
+                dispatch.DeliveryId,
+                offres.Count,
+                rayon);
+
+            return true;
+        }
+
+        // Aucun anneau n'a rendu quelqu'un : tout le perimetre a ete sollicite,
+        // ou il est desert.
+        dispatch.Exhaust(acteur, now);
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         logger.LogInformation(
-            "Vague {Vague} pour la livraison {DeliveryId} : {Offres} offre(s) dans un rayon de {Rayon} m.",
-            prochaine,
+            "Aucun livreur pour la livraison {DeliveryId} apres {Tentatives} tentative(s), "
+                + "perimetre de {Rayon} m epuise.",
             dispatch.DeliveryId,
-            offres.Count,
-            rayon.Value);
+            dispatch.CurrentWave,
+            _options.WaveRadiiMeters.Length > 0
+                ? _options.WaveRadiiMeters[^1]
+                : 0);
 
         return true;
     }

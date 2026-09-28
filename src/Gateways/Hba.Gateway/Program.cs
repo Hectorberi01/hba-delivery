@@ -146,6 +146,7 @@ app.MapPaymentReturnEndpoint();
 app.MapClientAuthEndpoints();
 app.MapClientProfileEndpoints();
 app.MapClientDeliveryEndpoints();
+app.MapClientNearbyEndpoints();
 
 // --------------------------------------------------------------- Livreur ---
 app.MapDriverAuthEndpoints();

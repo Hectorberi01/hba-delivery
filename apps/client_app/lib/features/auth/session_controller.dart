@@ -59,6 +59,24 @@ class SessionController extends Notifier<SessionState> {
   void signedIn(SignedInCustomer customer) =>
       state = SessionSignedIn(displayName: customer.displayName);
 
+  /// DEUX COPIES DU MEME FAIT, ET C'EST DEJA CE QUI NOUS A COUTE UNE DEMI-
+  /// JOURNEE AILLEURS.
+  ///
+  /// La session lit « /me » au demarrage et garde le nom ; l'ecran de profil
+  /// lit « /me » de son cote. Quand le client change son nom, seule la copie du
+  /// profil est rafraichie, et la session garde l'ancien — indefiniment, sans
+  /// rien qui le signale.
+  ///
+  /// C'est EXACTEMENT le defaut corrige dans l'application livreur, ou l'etat
+  /// du dossier existait en deux exemplaires : le profil disait « valide » et
+  /// l'accueil « en cours », chacun ayant raison de son point de vue. Personne
+  /// n'affiche aujourd'hui le nom porte par la session — mais le jour ou
+  /// quelqu'un le fera, il sera faux, et la cause sera loin de l'ecran fautif.
+  void renommer(String nom) {
+    if (state is! SessionSignedIn) return;
+    state = SessionSignedIn(displayName: nom);
+  }
+
   void signedOut() => state = const SessionSignedOut();
 
   Future<void> signOut() async {

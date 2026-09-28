@@ -1,4 +1,5 @@
 using Hba.BuildingBlocks.Application.Messaging;
+using Hba.BuildingBlocks.Http;
 using Hba.Driver.Application.Features.Drivers.Commands;
 using Hba.Driver.Domain.Drivers;
 using Microsoft.AspNetCore.Authorization;

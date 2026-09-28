@@ -4,10 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hba_core/hba_core.dart';
 import 'package:hba_ui/hba_ui.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'delivery_providers.dart';
 import 'models.dart';
+import 'paiement_webview.dart';
 import 'point_field.dart';
 
 /// Creation d'une livraison : adresses, destinataire, devis, paiement.
@@ -147,7 +147,9 @@ class _NewDeliveryScreenState extends ConsumerState<NewDeliveryScreen> {
       ref.invalidate(deliveriesProvider);
       if (!mounted) return;
 
-      if (redirectUrl != null && !await _ouvrirPagePaiement(redirectUrl)) {
+      final issue = redirectUrl == null ? null : await _ouvrirPagePaiement(redirectUrl);
+
+      if (redirectUrl != null && issue == null) {
         // ON RESTE SUR L'ECRAN PLUTOT QUE D'ALLER AU SUIVI. La livraison
         // existe deja, mais elle n'est pas payee : l'envoyer vers un suivi
         // qui n'avancera jamais laisserait le client attendre un livreur qui
@@ -163,12 +165,22 @@ class _NewDeliveryScreenState extends ConsumerState<NewDeliveryScreen> {
       if (!mounted) return;
 
       if (redirectUrl != null) {
-        // Le paiement se termine hors de l'application ; le suivi passera en
-        // PAID des que le webhook signe sera arrive — jamais avant, et jamais
-        // sur la foi du retour du navigateur.
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Terminez le paiement pour lancer la course.')),
-        );
+        // LE MESSAGE SUIT CE QUI S'EST PASSE, ET AUCUN NE PROMET UN PAIEMENT.
+        //
+        // Meme arrive au bout de l'ecran, le client n'a rien prouve : le suivi
+        // ne passera en PAID que sur le webhook signe, relu chez le
+        // fournisseur (ADR 0017). « Confirmation en cours » est donc la chose
+        // la plus forte qu'on ait le droit d'ecrire.
+        final message = switch (issue) {
+          IssuePaiement.retour => 'Paiement en cours de confirmation.',
+          IssuePaiement.abandon =>
+            'Paiement interrompu. La course partira une fois payee.',
+          IssuePaiement.erreur =>
+            "La page de paiement n'a pas pu se charger. Reessayez depuis le suivi.",
+          null => 'Terminez le paiement pour lancer la course.',
+        };
+
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
       }
 
       context.pushReplacement('/suivi/${delivery.id}');
@@ -181,15 +193,27 @@ class _NewDeliveryScreenState extends ConsumerState<NewDeliveryScreen> {
     }
   }
 
-  /// Ouvre la page de paiement du fournisseur dans le navigateur du
-  /// telephone, et non dans une vue integree : le paiement mobile money passe
-  /// souvent par l'application de l'operateur, qui a besoin de reprendre la
-  /// main sur l'ecran.
-  Future<bool> _ouvrirPagePaiement(String url) async {
-    final cible = Uri.tryParse(url);
-    if (cible == null) return false;
+  /// Ouvre la page de paiement DANS l'application, et rend ce qu'il en est
+  /// advenu.
+  ///
+  /// C'ETAIT LE NAVIGATEUR DU TELEPHONE, ET LA RAISON ECRITE ICI ETAIT :
+  /// « le paiement mobile money passe souvent par l'application de
+  /// l'operateur, qui a besoin de reprendre la main sur l'ecran ». La crainte
+  /// etait juste ; elle est desormais traitee dans [PaiementWebView], qui
+  /// confie au systeme tout ce qui n'est pas http(s) — un code USSD, le schema
+  /// propre d'un operateur — au lieu de tenter de l'afficher.
+  ///
+  /// CE QUE LE NAVIGATEUR EXTERNE COUTAIT. Quand l'operateur rendait la main,
+  /// le client revenait dans Safari, devant une page « Merci », et devait
+  /// remarquer tout seul le lien de retour vers l'application. Rien ne l'y
+  /// ramenait : aucun schema d'URL n'est declare, ni sur iOS ni sur Android.
+  /// Un client qui ne revient pas ne voit jamais sa course partir.
+  Future<IssuePaiement?> _ouvrirPagePaiement(String url) {
+    if (Uri.tryParse(url) == null) return Future.value(null);
 
-    return launchUrl(cible, mode: LaunchMode.externalApplication);
+    return Navigator.of(context).push<IssuePaiement>(
+      MaterialPageRoute(builder: (_) => PaiementWebView(url: url)),
+    );
   }
 
   @override

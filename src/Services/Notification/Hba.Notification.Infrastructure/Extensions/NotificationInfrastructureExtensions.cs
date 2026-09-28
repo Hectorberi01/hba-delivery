@@ -30,7 +30,7 @@ public static class NotificationInfrastructureExtensions
 
         services.AddDbContext<NotificationDbContext>(options =>
             options.UseNpgsql(
-                configuration.GetConnectionString("NotificationDb"),
+                configuration.Obligatoire("NotificationDb"),
                 npgsql => npgsql.MigrationsHistoryTable("__ef_migrations", NotificationDbContext.Schema)));
 
         services.AddHbaAutoMigration<NotificationDbContext>();

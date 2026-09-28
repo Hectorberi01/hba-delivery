@@ -3,6 +3,14 @@
          COARSE suffit a centrer le plan sur le quartier, FINE sert a poser le
          point d'enlevement au bon endroit. Android demande les deux ensemble et
          laisse l'utilisateur choisir la precision qu'il accorde. -->
+    <!-- DECLARE ICI, ET PAS SEULEMENT HERITE. La permission arrivait jusqu'a
+         present par le manifeste fusionne d'une dependance ; l'application
+         elle-meme ne la demandait dans aucune variante sauf « profile ». Elle
+         fonctionnait donc par effet de bord, et aurait cesse de fonctionner le
+         jour ou cette dependance changerait — sans que rien ne relie la panne
+         a sa cause. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
 
@@ -57,6 +65,41 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+
+        <!-- ANDROID 11 CACHE LES AUTRES APPLICATIONS PAR DEFAUT. Sans ces
+             declarations, url_launcher ne VOIT pas le composeur ni le
+             navigateur : l'appel part, ne leve aucune erreur, et ne produit
+             rien. C'est la contrepartie exigee par la plateforme pour chaque
+             schema que l'application ouvre.
+
+             POURQUOI « tel » ICI. La vue integree du paiement confie au
+             systeme tout ce qui n'est pas http(s), et le mobile money bascule
+             volontiers sur un code USSD. Sans cette entree, le paiement
+             s'arreterait au moment precis ou l'operateur prend la main. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="tel"/>
+        </intent>
+
+        <!-- POURQUOI « mailto » AUSSI. « Ecrire au support » ouvre le client
+             de messagerie du telephone. Sans cette entree, l'appel part, ne
+             leve aucune erreur, et ne produit rien : le client appuie trois
+             fois et conclut que l'application est cassee. -->
+        <intent>
+            <action android:name="android.intent.action.SENDTO"/>
+            <data android:scheme="mailto"/>
+        </intent>
+
+        <!-- Le navigateur reste necessaire pour les liens qui sortent
+             franchement de l'application : conditions, confidentialite. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

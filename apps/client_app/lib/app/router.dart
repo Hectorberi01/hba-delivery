@@ -6,9 +6,13 @@ import '../features/auth/auth_repository.dart';
 import '../features/auth/code_screen.dart';
 import '../features/auth/phone_screen.dart';
 import '../features/auth/session_controller.dart';
+import '../features/aide/aide_screen.dart';
+import '../features/deliveries/courses_screen.dart';
 import '../features/deliveries/home_screen.dart';
 import '../features/deliveries/new_delivery_screen.dart';
 import '../features/deliveries/tracking_screen.dart';
+import '../features/profil/profil_screen.dart';
+import 'coque.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
@@ -44,12 +48,52 @@ final routerProvider = Provider<GoRouter>((ref) {
           return CodeScreen(challenge: args.$1, phone: args.$2);
         },
       ),
-      GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
-      GoRoute(path: '/nouvelle', builder: (_, __) => const NewDeliveryScreen()),
-      GoRoute(
-        path: '/suivi/:id',
-        builder: (context, state) =>
-            TrackingScreen(deliveryId: state.pathParameters['id']!),
+      // LES QUATRE ONGLETS, CHACUN AVEC SON PROPRE NAVIGATOR.
+      //
+      // « /nouvelle » ET « /suivi » VIVENT SOUS L'ACCUEIL, pas a cote. Poses a
+      // la racine, ils masqueraient la navigation : le client qui suit une
+      // course perdrait l'arc et ne pourrait plus aller nulle part sans
+      // revenir en arriere. Sous la branche, l'arc reste visible et l'onglet
+      // « Accueil » reste allume — ce qui est vrai, puisque c'est de la qu'on
+      // vient.
+      StatefulShellRoute.indexedStack(
+        builder: (_, __, shell) => Coque(shell: shell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/',
+                builder: (_, __) => const HomeScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'nouvelle',
+                    builder: (_, __) => const NewDeliveryScreen(),
+                  ),
+                  GoRoute(
+                    path: 'suivi/:id',
+                    builder: (context, state) =>
+                        TrackingScreen(deliveryId: state.pathParameters['id']!),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/courses', builder: (_, __) => const CoursesScreen()),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/profil', builder: (_, __) => const ProfilScreen()),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/aide', builder: (_, __) => const AideScreen()),
+            ],
+          ),
+        ],
       ),
     ],
   );

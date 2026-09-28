@@ -31,7 +31,7 @@ public static class DeliveryInfrastructureExtensions
 
         services.AddDbContext<DeliveryDbContext>(options =>
             options.UseNpgsql(
-                configuration.GetConnectionString("DeliveryDb"),
+                configuration.Obligatoire("DeliveryDb"),
                 npgsql => npgsql.MigrationsHistoryTable("__ef_migrations", DeliveryDbContext.Schema)));
 
         services.AddHbaAutoMigration<DeliveryDbContext>();

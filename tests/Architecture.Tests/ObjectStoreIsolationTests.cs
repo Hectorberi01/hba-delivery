@@ -21,7 +21,13 @@ public sealed class ObjectStoreIsolationTests
         typeof(Hba.Driver.Domain.Drivers.DriverAggregate).Assembly;
 
     private static readonly Assembly DriverApplication =
-        typeof(Hba.Driver.Application.Common.Interfaces.IObjectStore).Assembly;
+        typeof(Hba.Driver.Application.Common.Interfaces.ObjectKeys).Assembly;
+
+    /// <summary>
+    /// Le PORT, depuis qu'il a quitté Driver pour le socle partagé.
+    /// </summary>
+    private static readonly Assembly StorageAbstractions =
+        typeof(Hba.BuildingBlocks.Storage.IObjectStore).Assembly;
 
     [Fact]
     public void Le_domaine_Driver_ignore_toute_infrastructure()
@@ -46,6 +52,30 @@ public sealed class ObjectStoreIsolationTests
     public void La_couche_Application_de_Driver_ignore_le_SDK_de_stockage()
     {
         var result = Types.InAssembly(DriverApplication)
+            .ShouldNot()
+            .HaveDependencyOn("Minio")
+            .GetResult();
+
+        result.FailingTypeNames.Should().BeNullOrEmpty();
+    }
+
+    /// <summary>
+    /// LE PORT PARTAGÉ NE VOIT PAS LE SDK, ET C'EST CE QUI REND LA PROMESSE
+    /// VÉRIFIABLE.
+    ///
+    /// Le 28 septembre 2026, le port et l'adaptateur sont montés dans le socle
+    /// commun, pour que Directory écrive la photo d'un client sans dupliquer
+    /// cent cinquante lignes. Dans un premier temps ils ont partagé UN projet —
+    /// et le test ci-dessus serait passé quand même, parce qu'il inspecte les
+    /// types de l'assembly et non ses références : toute couche Application
+    /// référençant ce projet aurait vu Minio par transitivité, sans qu'aucun
+    /// test ne s'en plaigne. Une garantie vérifiée par accident n'en est pas
+    /// une. D'où deux projets, et ce test-ci sur celui qui porte le port.
+    /// </summary>
+    [Fact]
+    public void Le_port_de_stockage_partagé_ignore_le_SDK()
+    {
+        var result = Types.InAssembly(StorageAbstractions)
             .ShouldNot()
             .HaveDependencyOn("Minio")
             .GetResult();

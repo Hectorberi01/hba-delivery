@@ -33,6 +33,17 @@ service IdentityService {
 
   // --- Comptes ---
   rpc GetPrincipal(GetPrincipalRequest) returns (Principal);
+
+  // --- Consentement WhatsApp, par le titulaire du compte ---
+  //
+  // IDENTITY LE DETIENT PARCE QU'IL DETIENT LE TELEPHONE. C'est lui qui envoie
+  // le code de connexion, et « CanReceiveWhatsApp » decide deja du canal :
+  // mettre le consentement ailleurs obligerait a le rapatrier a chaque envoi.
+  //
+  // AUCUN IDENTIFIANT DANS LES DEUX REQUETES : le compte vise est le sujet du
+  // jeton. Un client ne consent pas a la place d'un autre.
+  rpc GetWhatsAppConsent(GetWhatsAppConsentRequest) returns (WhatsAppConsent);
+  rpc SetWhatsAppConsent(SetWhatsAppConsentRequest) returns (WhatsAppConsent);
   rpc CreateBackOfficeAccount(CreateBackOfficeAccountRequest) returns (Account);
   rpc CreateMerchantAccount(CreateMerchantAccountRequest) returns (Account);
   rpc SetAccountRoles(SetAccountRolesRequest) returns (Account);
@@ -178,6 +189,24 @@ message Account {
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp last_login_at = 11;
   string status_reason = 12;
+}
+
+message GetWhatsAppConsentRequest {
+}
+
+message SetWhatsAppConsentRequest {
+  // Vrai accorde, faux retire. REVOCABLE, comme le referentiel l'exige : la
+  // meme route rend le consentement et le retire, il n'y a pas de chemin plus
+  // difficile dans un sens que dans l'autre.
+  bool granted = 1;
+}
+
+message WhatsAppConsent {
+  bool granted = 1;
+  // Date de l'accord. Vide quand le consentement n'est pas accorde — le retrait
+  // efface la date, il ne garde pas la trace d'un accord revoque a cet endroit.
+  // L'historique, lui, vit dans l'evenement AccountWhatsAppConsentChanged.
+  google.protobuf.Timestamp granted_at = 2;
 }
 
 message GetPrincipalRequest {

@@ -63,7 +63,11 @@ services:
       Dispatch__WaveRadiiMeters__1: ${DISPATCH_WAVE_2_METERS:-4000}
       Dispatch__WaveRadiiMeters__2: ${DISPATCH_WAVE_3_METERS:-6000}
       Dispatch__OfferSeconds: ${DISPATCH_OFFER_SECONDS:-30}
-      Dispatch__DriversPerWave: ${DISPATCH_DRIVERS_PER_WAVE:-5}
+      # UN SEUL LIVREUR A LA FOIS, le plus proche d'abord (point 23).
+      Dispatch__DriversPerWave: ${DISPATCH_DRIVERS_PER_WAVE:-1}
+      # Plafond de secours : dix refus disent que le probleme est la course,
+      # pas le onzieme livreur.
+      Dispatch__MaxDriversSolicited: ${DISPATCH_MAX_DRIVERS:-10}
 
 networks:
   hba-internal:

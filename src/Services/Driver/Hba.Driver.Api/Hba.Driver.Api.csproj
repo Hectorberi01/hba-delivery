@@ -10,6 +10,7 @@
     <ProjectReference Include="../Hba.Driver.Application/Hba.Driver.Application.csproj" />
     <ProjectReference Include="../Hba.Driver.Infrastructure/Hba.Driver.Infrastructure.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Grpc/Hba.BuildingBlocks.Grpc.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Http/Hba.BuildingBlocks.Http.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Observability/Hba.BuildingBlocks.Observability.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Security/Hba.BuildingBlocks.Security.csproj" />
   </ItemGroup>

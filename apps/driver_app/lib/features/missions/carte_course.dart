@@ -188,9 +188,42 @@ class _CarteCourseState extends State<CarteCourse> {
   }
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(HbaRadius.card),
-        child: SizedBox(
+  Widget build(BuildContext context) =>
+      // ON NE DECOUPE PAS UNE VUE NATIVE SUR IOS. LES COINS SONT CARRES, ET
+      // C'EST DELIBERE.
+      //
+      // CE QU'IL S'EST PASSE. Cette carte etait enveloppee dans un ClipRRect,
+      // pour des coins arrondis comme le reste du style. Sur iPhone, la
+      // feuille d'offre perdait alors TOUT ce qui etait peint apres elle : les
+      // trois lignes d'information, la phrase, la glissiere d'acceptation. Un
+      // livreur iOS voyait une remuneration, une carte, et « Refuser ». Il ne
+      // pouvait pas accepter une course.
+      //
+      // COMMENT ON L'A SU, parce que la lecture a l'oeil menait a l'envers.
+      // Le debogage visuel de Flutter trace un contour autour de chaque objet
+      // de rendu qui peint. Analyse pixel par pixel, le vide de la feuille
+      // contenait 99 400 pixels echantillonnes d'une seule et meme couleur —
+      // le fond — et pas un seul contour. Les objets n'etaient donc pas
+      // invisibles : leur peinture n'etait jamais atteinte. Leur place, elle,
+      // etait bien reservee : 314 points mesures pour 314 attendus. Et la
+      // coupure tombait exactement au bord inferieur de la vue native.
+      //
+      // POURQUOI. GoogleMap est une vue UIKit, pas un dessin Flutter. iOS doit
+      // couper la scene en deux : ce qui est peint avant la vue native, puis
+      // une couche de recouvrement pour tout ce qui vient apres. Lui imposer
+      // en plus un masque aux coins arrondis faisait perdre cette couche.
+      //
+      // CE QU'ON RENONCE A FAIRE, ET IL FAUT LE SAVOIR : pas de ClipRRect, pas
+      // de ClipPath, pas de BorderRadius avec clipBehavior, pas de Material
+      // avec une forme, autour de cette carte ni d'aucune autre vue native.
+      // Repeindre les coins PAR-DESSUS ne marcherait pas davantage : ce dessin
+      // vivrait dans la couche de recouvrement, celle-la meme qui se perd.
+      //
+      // Le jour ou les coins arrondis redeviennent indispensables, la sortie
+      // n'est pas un decoupage mais une VIGNETTE D'IMAGE — une carte statique,
+      // qui n'est plus une vue native et se decoupe comme n'importe quelle
+      // image.
+      SizedBox(
           height: widget.hauteur,
           child: GoogleMap(
             // LA VIGNETTE, PAS LE STYLE DE L'ACCUEIL : sur cent-soixante
@@ -219,6 +252,5 @@ class _CarteCourseState extends State<CarteCourse> {
             mapToolbarEnabled: false,
             liteModeEnabled: false,
           ),
-        ),
-      );
+        );
 }

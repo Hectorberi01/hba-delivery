@@ -31,7 +31,7 @@ public static class DependencyInjection
 
         services.AddDbContext<IdentityDbContext>(options =>
             options.UseNpgsql(
-                configuration.GetConnectionString("IdentityDb"),
+                configuration.Obligatoire("IdentityDb"),
                 npgsql => npgsql.MigrationsHistoryTable("__ef_migrations", IdentityDbContext.Schema)));
 
         services.AddHbaAutoMigration<IdentityDbContext>();

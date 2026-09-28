@@ -15,6 +15,17 @@ option csharp_namespace = "Hba.Contracts.Directory.V1";
 service DirectoryService {
   // --- Client ---
   rpc GetCustomer(GetCustomerRequest) returns (Customer);
+
+  // Crée la fiche du client authentifié si elle manque, et rend la fiche dans
+  // tous les cas.
+  //
+  // CE N'EST PAS LE CHEMIN NORMAL, ET LE NOM LE DIT. Une fiche naît de
+  // l'événement AccountRegistered d'Identity ; cet appel est un RATTRAPAGE,
+  // pour le client dont l'événement s'est perdu et qui serait sinon bloqué
+  // sans profil ni adresses. Il ne prend AUCUN champ : tout vient du jeton
+  // propagé, que Directory relit lui-même. Rien n'est donc forgeable par
+  // l'appelant, et deux appels ne font pas deux fiches.
+  rpc EnsureCustomer(EnsureCustomerRequest) returns (Customer);
   rpc UpdateCustomer(UpdateCustomerRequest) returns (Customer);
   rpc AddFavoriteAddress(AddFavoriteAddressRequest) returns (Customer);
   rpc UpdateFavoriteAddress(UpdateFavoriteAddressRequest) returns (Customer);
@@ -178,6 +189,10 @@ message CustomerAccessLog {
 message GetCustomerRequest {
   // Vide = le client authentifié lui-même. Renseigné, réservé au back-office.
   string customer_id = 1;
+}
+
+// Vide, et destiné à le rester : l'identité vient du jeton, pas du corps.
+message EnsureCustomerRequest {
 }
 
 message UpdateCustomerRequest {

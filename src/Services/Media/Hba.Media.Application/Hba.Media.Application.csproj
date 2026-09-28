@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Hba.Media.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Hba.Media.Domain/Hba.Media.Domain.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Application/Hba.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Security/Hba.BuildingBlocks.Security.csproj" />
+
+    <!-- LE PORT SEUL, JAMAIS L'ADAPTATEUR. Referencer Hba.BuildingBlocks.Storage
+         ferait entrer le SDK S3 par transitivite dans cette couche, et l'ADR
+         0021 cesserait d'etre vrai sans qu'aucun test ne s'en plaigne. -->
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Storage.Abstractions/Hba.BuildingBlocks.Storage.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

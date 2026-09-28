@@ -8,9 +8,17 @@ using Microsoft.Extensions.Options;
 namespace Hba.Directory.Api.Messaging;
 
 /// <summary>
-/// Un compte créé dans Identity donne un profil dans Directory. C'est le seul
-/// chemin de création d'un profil client : aucune demande de livraison ne doit
+/// Un compte créé dans Identity donne un profil dans Directory. C'est le chemin
+/// NORMAL de création d'un profil client, et aucune demande de livraison ne doit
 /// en fabriquer un au passage.
+///
+/// CE COMMENTAIRE DISAIT « LE SEUL CHEMIN », ET CE N'EST PLUS VRAI. Il existe
+/// depuis le 28 septembre 2026 une seconde voie, EnsureCustomerProfileCommand,
+/// déclenchée par le client lui-même quand cet événement-ci s'est perdu — un
+/// message publié pendant que Directory était arrêté n'est jamais rejoué par
+/// Kafka pour un groupe de consommateurs qui n'existait pas encore. Ce que la
+/// phrase d'origine visait tient toujours : aucune création par effet de bord.
+/// Voir le point 25 de points-a-trancher.md.
 ///
 /// Les comptes de commerçants et du back-office sont ignorés : le premier est
 /// rattaché à un commerçant déjà référencé, le second n'a pas de profil ici.

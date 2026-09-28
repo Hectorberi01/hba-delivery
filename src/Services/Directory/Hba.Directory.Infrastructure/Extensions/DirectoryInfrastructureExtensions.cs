@@ -23,7 +23,7 @@ public static class DirectoryInfrastructureExtensions
 
         services.AddDbContext<DirectoryDbContext>(options =>
             options.UseNpgsql(
-                configuration.GetConnectionString("DirectoryDb"),
+                configuration.Obligatoire("DirectoryDb"),
                 npgsql => npgsql.MigrationsHistoryTable("__ef_migrations", DirectoryDbContext.Schema)));
 
         services.AddHbaAutoMigration<DirectoryDbContext>();

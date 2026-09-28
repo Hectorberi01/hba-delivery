@@ -29,6 +29,14 @@ internal sealed class CallerContext(IHttpContextAccessor accessor) : ICallerCont
 
     public string? DriverId => User?.FindFirst(HbaClaims.DriverId)?.Value;
 
+    // « MapInboundClaims = false » : les noms restent ceux du jeton, on les
+    // cherche donc tels quels et non sous leur equivalent ClaimTypes.
+    public string? DisplayName => User?.FindFirst(HbaClaims.Name)?.Value;
+
+    public string? Phone => User?.FindFirst(HbaClaims.Phone)?.Value;
+
+    public string? Email => User?.FindFirst(HbaClaims.Email)?.Value;
+
     public string? TraceId => accessor.HttpContext?.TraceIdentifier;
 
     public string? CorrelationId => accessor.HttpContext?.Request.Headers["hba-correlation-id"].FirstOrDefault();
