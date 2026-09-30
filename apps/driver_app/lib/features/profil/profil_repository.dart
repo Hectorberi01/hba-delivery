@@ -79,6 +79,8 @@ class Vehicule {
         'Motorcycle' || '1' => 'Moto',
         'Car' || '2' => 'Voiture',
         'Van' || '3' => 'Camionnette',
+        'Bicycle' || '4' => 'Vélo',
+        'Tricycle' || '5' => 'Tricycle',
         _ => 'Non déclaré',
       };
 
@@ -150,8 +152,38 @@ class ProfilRepository {
 
   final ApiClient _api;
 
-  Future<ProfilLivreur> lire() async =>
-      ProfilLivreur.fromJson(await _api.get('/me'));
+  /// Lit le profil, et LE CREE s'il n'existe pas.
+  ///
+  /// LE 404 N'ETAIT PAS UNE PANNE, C'ETAIT UNE IMPASSE A VIE.
+  ///
+  /// Le profil livreur nait d'un evenement : Identity publie AccountRegistered,
+  /// Driver le consomme. Cet evenement se perd — Kafka ne rejoue pas pour un
+  /// groupe de consommateurs qui n'existait pas encore au moment du passage, et
+  /// c'est arrive pour de bon. Le livreur avait alors un compte valide, un jeton
+  /// portant driver_id, et un GET /me qui repondait 404 a chaque appel. L'accueil
+  /// affichait « DOSSIER EN COURS » et renvoyait vers un ecran dont toutes les
+  /// routes echouaient de la meme facon. Rien ne lui disait pourquoi, et rien ne
+  /// pouvait le sortir de la.
+  ///
+  /// LA CREATION NE PREND AUCUN CORPS : le service relit le jeton qu'il a
+  /// lui-meme valide et en tire le nom et le telephone. Elle est idempotente,
+  /// donc deux appels rendent deux fois la meme fiche.
+  ///
+  /// SEUL LE 404 DECLENCHE LA CREATION. Un 401, un 500 ou une coupure reseau
+  /// remontent tels quels : creer un profil sur une panne masquerait la panne.
+  Future<ProfilLivreur> lire() async {
+    try {
+      return ProfilLivreur.fromJson(await _api.get('/me'));
+    } on ApiException catch (erreur) {
+      if (!erreur.isNotFound) rethrow;
+
+      return ProfilLivreur.fromJson(await _api.post(
+        '/me',
+        body: const <String, Object?>{},
+        idempotencyKey: 'ensure-driver',
+      ));
+    }
+  }
 }
 
 final profilRepositoryProvider = Provider<ProfilRepository>(

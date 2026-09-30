@@ -68,6 +68,19 @@ public sealed record DeliveryView
     public DateTimeOffset? PickedUpAt { get; init; }
 
     public DateTimeOffset? CompletedAt { get; init; }
+
+    /// <summary>
+    /// Instant où le remboursement a été constaté. Nul quand il n'y en a pas.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// RÉSERVÉ AU DONNEUR D'ORDRE ET AU BACK-OFFICE. Un livreur n'a rien à savoir
+    /// de ce qui s'est passé entre le client et HBA après la course.
+    /// </remarks>
+    public DateTimeOffset? RefundedAt { get; init; }
+
+    /// <summary>Vrai quand le remboursement constaté est partiel.</summary>
+    public bool RefundPartial { get; init; }
 }
 
 public sealed record LocationView(

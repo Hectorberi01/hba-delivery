@@ -20,6 +20,23 @@ public interface IDeliveryRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Les courses qui attendent un paiement depuis trop longtemps.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// DEUX CONDITIONS, ET LA SECONDE EST LA PLUS IMPORTANTE : le statut
+    /// PENDING_PAYMENT, ET une intention de paiement rattachée. Sans la
+    /// seconde, ce balayage emporterait les commandes des PARTENAIRES, qui
+    /// naissent dans le même statut et n'ont jamais d'intention parce que leur
+    /// règlement n'est pas tranché. Elles resteraient ouvertes pour toujours ;
+    /// elles doivent rester ouvertes pour toujours, jusqu'à ce qu'on tranche.
+    /// </remarks>
+    Task<IReadOnlyList<DeliveryAggregate>> ListUnpaidBeforeAsync(
+        DateTimeOffset limite,
+        int batchSize,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Ce qui a ete FACTURE a un client : somme des prix des courses
     /// LIVREES, et leur nombre.
     ///
@@ -57,6 +74,20 @@ public sealed record DeliveryQueryFilter
     public string? DriverId { get; init; }
 
     public IReadOnlyCollection<DeliveryStatus>? Statuses { get; init; }
+
+    /// <summary>
+    /// Statuts retirés d'office, quoi que l'appelant demande.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// CE N'EST PAS UN FILTRE, C'EST UNE REGLE DE VISIBILITE, et c'est pour cela
+    /// qu'il est distinct de <see cref="Statuses"/> : celui-là rétrécit ce que
+    /// l'appelant voyait déjà, celui-ci lui retire quelque chose qu'il ne doit
+    /// pas voir. Un client qui demanderait explicitement PENDING_PAYMENT ne doit
+    /// pas l'obtenir pour autant ; deux champs séparés rendent la chose
+    /// impossible à contourner par le paramètre.
+    /// </remarks>
+    public IReadOnlyCollection<DeliveryStatus>? ExcludedStatuses { get; init; }
 
     public DateTimeOffset? CreatedAfter { get; init; }
 

@@ -59,7 +59,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
       if (!mounted) return;
       context.push('/code', extra: (challenge, phone));
     } on OfflineException {
-      if (mounted) setState(() => _error = 'Pas de reseau. Reessayez.');
+      if (mounted) setState(() => _error = 'Pas de réseau. Réessayez.');
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {
@@ -93,7 +93,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
               Text('Envoyer un colis', style: theme.textTheme.displaySmall),
               const SizedBox(height: HbaSpacing.sm),
               Text(
-                'Entrez votre numero. Vous recevrez un code a six chiffres.',
+                'Entrez votre numéro. Vous recevrez un code à six chiffres.',
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: HbaSpacing.xl),
@@ -182,7 +182,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
               HbaButton(label: 'Continuer', busy: _busy, onPressed: _submit),
               const SizedBox(height: HbaSpacing.md),
               Text(
-                "En continuant, vous acceptez les conditions generales d'HBA Delivery.",
+                "En continuant, vous acceptez les conditions générales d'HBA Delivery.",
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: HbaColors.inkFaint),

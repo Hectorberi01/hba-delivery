@@ -35,10 +35,22 @@ message PaymentFailed {
   google.protobuf.Timestamp occurred_at = 4;
 }
 
+// L'argent a été rendu. CONSTATÉ, JAMAIS DEMANDÉ PAR NOUS : FedaPay n'expose
+// aucune API de remboursement — vérifié le 30 septembre 2026, tableau de bord
+// uniquement et MTN Mobile Money seulement. Ce message naît de la relecture de
+// la transaction, quand son statut a changé après un geste humain chez le
+// fournisseur.
 message PaymentRefunded {
+  // VIDE POUR L'INSTANT : il n'existe pas d'objet « remboursement » de notre
+  // côté, et le fournisseur ne nous en donne pas par ce chemin.
   string refund_id = 1;
   string payment_intent_id = 2;
   string delivery_id = 3;
+  // RENSEIGNÉ UNIQUEMENT POUR UN REMBOURSEMENT TOTAL. Le statut du fournisseur
+  // dit « partiellement remboursé » sans dire combien : mettre le total ferait
+  // croire à un remboursement complet, et inventer une somme serait pire.
   hba.common.v1.Money amount = 4;
   google.protobuf.Timestamp occurred_at = 5;
+  // Vrai quand le remboursement est partiel, donc quand « amount » est absent.
+  bool partial = 6;
 }

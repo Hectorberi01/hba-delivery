@@ -81,6 +81,30 @@
 	     AppDelegate la lit ici plutot que de la porter en dur dans le code. -->
 	<key>GMSApiKey</key>
 	<string>$(MAPS_API_KEY)</string>
+	<!-- PHOTO DE PROFIL. SANS CES DEUX CLES, iOS TUE L'APPLICATION a la
+	     premiere ouverture de l'appareil photo ou de la photothèque — pas une
+	     erreur que Dart pourrait attraper, un arrêt net que rien dans les
+	     journaux n'explique. L'application livreur les portait déjà ; le client
+	     ne les a jamais eues, alors qu'il ouvre les deux
+	     (photo_profil.dart : ImageSource.camera et ImageSource.gallery).
+
+	     LES DEUX SONT NECESSAIRES, PAS UNE SEULE : la feuille de choix propose
+	     « Prendre une photo » et « Choisir dans mes photos », et c'est le geste
+	     de l'utilisateur qui décide laquelle des deux autorisations iOS
+	     réclame. N'en déclarer qu'une ferait planter l'autre moitié des
+	     utilisateurs.
+
+	     ELLES CONDITIONNENT AUSSI LA PUBLICATION : la revue de l'App Store
+	     refuse un binaire qui accède à l'appareil photo sans expliquer
+	     pourquoi. Le texte ci-dessous est ce que l'utilisateur lit dans la
+	     demande d'autorisation ; il dit l'usage, pas la fonctionnalité. -->
+	<key>NSCameraUsageDescription</key>
+	<string>HBA Delivery utilise l'appareil photo pour prendre votre photo de profil.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>HBA Delivery accède à vos photos pour que vous puissiez en choisir une comme photo de profil.</string>
+	<!-- PAS DE NSPhotoLibraryAddUsageDescription : l'application ne RANGE
+	     jamais rien dans la photothèque, elle y lit seulement. Déclarer une
+	     autorisation dont on ne se sert pas se paie en questions à la revue. -->
 	<!-- « Quand l'application est utilisee » et pas « toujours » : HBA n'a
 	     aucune raison de suivre un client en arriere-plan. Le livreur, lui,
 	     releve d'une autre application et d'une autre demande. -->

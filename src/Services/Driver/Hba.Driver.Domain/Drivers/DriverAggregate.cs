@@ -47,6 +47,9 @@ public sealed class DriverAggregate : AggregateRoot
 
     public Vehicle Vehicle { get; private set; } = null!;
 
+    /// <summary>Le vehicule a-t-il ete declare ? Voir <see cref="Drivers.Vehicle.EstDeclare"/>.</summary>
+    public bool VehiculeDeclare => Vehicle.EstDeclare;
+
     public VerificationStatus VerificationStatus { get; private set; }
 
     public OperationalStatus OperationalStatus { get; private set; }
@@ -73,14 +76,13 @@ public sealed class DriverAggregate : AggregateRoot
     public bool CanWork => VerificationStatus == VerificationStatus.Verified;
 
     /// <summary>
-    /// Pieces exigees avant l'examen.
+    /// Pieces exigees d'un vehicule a moteur, avant l'examen.
     ///
     /// LA CARTE GRISE ET LA PHOTO DU VEHICULE SONT DANS LA LISTE parce que le
     /// referentiel place la carte grise parmi les pieces KYC, et qu'ops ne
-    /// peut verifier une plaque qu'en la voyant. Si une piece devait devenir
-    /// facultative, c'est ici, et nulle part ailleurs.
+    /// peut verifier une plaque qu'en la voyant.
     /// </summary>
-    public static readonly IReadOnlySet<DocumentType> PiecesRequises = new HashSet<DocumentType>
+    public static readonly IReadOnlySet<DocumentType> PiecesDUnVehiculeAMoteur = new HashSet<DocumentType>
     {
         DocumentType.NationalId,
         DocumentType.DrivingLicence,
@@ -89,9 +91,53 @@ public sealed class DriverAggregate : AggregateRoot
         DocumentType.VehiclePhoto,
     };
 
+    /// <summary>
+    /// Pieces exigees d'un velo.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// NI PERMIS NI CARTE GRISE, ET CE N'EST PAS UNE FACILITE : un velo n'en a
+    /// pas. Les exiger fermait ce type de livreur avant meme de l'ouvrir.
+    /// Tranche le 30 septembre 2026 (point 28).
+    ///
+    /// LA PHOTO DU VEHICULE RESTE, et c'est ce qui distingue cette liste du
+    /// minimum absolu : sans elle, ops ne voit jamais l'engin, ne peut pas
+    /// ecarter un velo hors d'etat, et n'a rien pour reconnaitre le vehicule le
+    /// jour d'une reclamation.
+    /// </remarks>
+    public static readonly IReadOnlySet<DocumentType> PiecesDUnVelo = new HashSet<DocumentType>
+    {
+        DocumentType.NationalId,
+        DocumentType.IdentityPhoto,
+        DocumentType.VehiclePhoto,
+    };
+
+    /// <summary>
+    /// Ce qu'on exige de CE vehicule-la.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LA LISTE DEPEND DU VEHICULE DEPUIS LE 30 SEPTEMBRE 2026. Elle etait
+    /// unique, et ce n'etait pas un oubli : tant que tous les vehicules avaient
+    /// un moteur, une plaque et des papiers, une seule liste disait la verite.
+    /// Le velo est le premier type dont ce n'est pas vrai.
+    ///
+    /// LE TRICYCLE N'EST PAS UNE EXCEPTION : c'est un trois-roues motorise,
+    /// immatricule comme tel. Meme liste que la moto.
+    ///
+    /// LE DEFAUT EST LA LISTE COMPLETE, et c'est le bon sens du refus : un type
+    /// de vehicule qu'on n'aurait pas pense a traiter ici se verrait demander
+    /// TROP de pieces, pas trop peu. L'erreur se voit alors au guichet, pas sur
+    /// la route.
+    /// </remarks>
+    public static IReadOnlySet<DocumentType> PiecesRequisesPour(VehicleType vehicule) =>
+        vehicule == VehicleType.Bicycle ? PiecesDUnVelo : PiecesDUnVehiculeAMoteur;
+
     /// <summary>Pieces encore attendues. Vide, le dossier est complet.</summary>
     public IReadOnlyList<DocumentType> PiecesManquantes =>
-        PiecesRequises.Where(type => !_documents.Exists(d => d.Type == type)).ToList();
+        PiecesRequisesPour(Vehicle.Type)
+            .Where(type => !_documents.Exists(d => d.Type == type))
+            .ToList();
 
     /// <summary>
     /// Le dossier accepte-t-il encore des modifications ?
@@ -187,7 +233,10 @@ public sealed class DriverAggregate : AggregateRoot
 
         ExigerDossierModifiable();
 
-        if (string.IsNullOrWhiteSpace(vehicle.Plate))
+        // ELLE RESTE OBLIGATOIRE POUR TOUT CE QUI A UN MOTEUR. Ce qui a change
+        // le 30 septembre 2026, c'est qu'un velo n'en a pas : exiger sa plaque
+        // fermait ce type de livreur avant meme de l'ouvrir.
+        if (vehicle.ExigeUnePlaque && string.IsNullOrWhiteSpace(vehicle.Plate))
         {
             throw new DomainException(
                 DriverErrorCodes.MissingVehiclePlate,
@@ -270,7 +319,11 @@ public sealed class DriverAggregate : AggregateRoot
                 + string.Join(", ", manquantes.Select(t => t.ToString())) + ".");
         }
 
-        if (string.IsNullOrWhiteSpace(Vehicle.Plate))
+        // « DECLARE » ET NON « A UNE PLAQUE ». Un velo n'en a pas, et la
+        // condition d'origine l'aurait retenu au guichet pour toujours. Voir
+        // Vehicle.EstDeclare : ce qui rend la regle sure, c'est qu'aucun
+        // vehicule ne NAIT sans plaque — le defaut est une moto.
+        if (!VehiculeDeclare)
         {
             throw new DomainException(
                 DriverErrorCodes.MissingVehiclePlate,
@@ -335,6 +388,54 @@ public sealed class DriverAggregate : AggregateRoot
         }
 
         Raise(new DriverKycReviewed(Id, VerificationStatus, reason ?? string.Empty, reviewedBy, actor, now));
+    }
+
+    /// <summary>
+    /// Ops leve une suspension.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// SANS CETTE METHODE, UNE SUSPENSION ETAIT DEFINITIVE. Le commentaire de
+    /// SubmitForReview promet pourtant « Seul ops la leve » : personne ne la
+    /// levait. Une fois suspendu, ReviewKyc levait une transition invalide,
+    /// SubmitForReview refusait, AttachDocument et DeclareVehicle refusaient,
+    /// GoOnline refusait. Un livreur suspendu par erreur etait exclu a vie, et
+    /// la seule reparation passait par la base.
+    ///
+    /// LE STATUT RETROUVE SE DEDUIT, IL NE S'INVENTE PAS. VerifiedAt n'est pose
+    /// qu'a une validation et efface a un refus : s'il est la, le dossier etait
+    /// valide avant la suspension et le redevient ; sinon le livreur repasse en
+    /// attente d'examen et resoumet. Retenir le statut d'avant aurait demande
+    /// une colonne de plus pour la meme information.
+    ///
+    /// LE LIVREUR RESTE HORS LIGNE. La suspension l'avait force hors ligne ;
+    /// c'est a lui de revenir, pas au back-office de le remettre au travail.
+    /// </remarks>
+    public void Reinstate(string reason, Actor actor, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new DomainException(
+                DriverErrorCodes.MissingRejectionReason,
+                "Une levee de suspension doit etre motivee : l'audit doit dire pourquoi.");
+        }
+
+        if (VerificationStatus != VerificationStatus.Suspended)
+        {
+            throw new DomainException(
+                DriverErrorCodes.ApplicationNotEditable,
+                "Ce compte n'est pas suspendu.");
+        }
+
+        VerificationStatus = VerifiedAt is null
+            ? VerificationStatus.PendingVerification
+            : VerificationStatus.Verified;
+
+        StatusReason = reason;
+
+        Raise(new DriverKycReviewed(Id, VerificationStatus, reason, actor.Id, actor, now));
     }
 
     public void Suspend(string reason, Actor actor, DateTimeOffset now)

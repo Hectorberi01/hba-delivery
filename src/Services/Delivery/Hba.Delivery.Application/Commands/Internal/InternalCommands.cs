@@ -18,6 +18,20 @@ public sealed record FailPaymentCommand(
     string Reason,
     DateTimeOffset OccurredAt) : ICommand;
 
+/// <summary>
+/// Le remboursement du client a été constaté chez le fournisseur.
+/// </summary>
+///
+/// <remarks>
+/// AUCUN CHANGEMENT D'ÉTAT : la course reste ce qu'elle est. On note seulement
+/// que l'argent est revenu, pour pouvoir le dire au client — c'est tout ce qui
+/// manquait à l'écran, qui lui promettait qu'HBA reviendrait vers lui.
+/// </remarks>
+public sealed record MarkDeliveryRefundedCommand(
+    Guid DeliveryId,
+    bool Partial,
+    DateTimeOffset OccurredAt) : ICommand;
+
 /// <summary>Première vague d'offres envoyée par le moteur de dispatch.</summary>
 public sealed record StartDriverSearchCommand(Guid DeliveryId, DateTimeOffset OccurredAt) : ICommand;
 

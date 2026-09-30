@@ -13,6 +13,29 @@ internal sealed class AccountRepository(IdentityDbContext context) : IAccountRep
     public Task<Account?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => context.Accounts.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
 
+    /// <summary>
+    /// ON FILTRE SUR LE STATUT *ET* SUR LA DATE, alors que l'un devrait suffire.
+    /// Les deux champs bougent ensemble dans le domaine ; s'ils cessaient de le
+    /// faire — une migration maladroite, une écriture directe en base — la
+    /// requête la plus laxiste des deux effacerait des comptes qui n'ont rien
+    /// demandé. Ici, il faut que les deux soient d'accord.
+    ///
+    /// L'ORDRE EST CELUI DES ECHEANCES : sous le plafond, le plus ancien dû
+    /// part d'abord, et personne n'attend indéfiniment derrière un afflux.
+    /// </summary>
+    public async Task<IReadOnlyList<Account>> ListDeletionsDueAsync(
+        DateTimeOffset now,
+        int limit,
+        CancellationToken cancellationToken)
+        => await context.Accounts
+            .Where(a => a.Status == AccountStatus.PendingDeletion
+                        && a.DeletionScheduledFor != null
+                        && a.DeletionScheduledFor <= now)
+            .OrderBy(a => a.DeletionScheduledFor)
+            .Take(limit < 1 ? 1 : limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     public Task<Account?> GetByPhoneAsync(string phone, CancellationToken cancellationToken)
     {
         if (!PhoneNumber.IsValid(phone))
@@ -76,6 +99,8 @@ internal sealed class AccountRepository(IdentityDbContext context) : IAccountRep
             cancellationToken);
 
     public void Add(Account account) => context.Accounts.Add(account);
+
+    public void Remove(Account account) => context.Accounts.Remove(account);
 }
 
 internal sealed class RefreshTokenRepository(IdentityDbContext context) : IRefreshTokenRepository

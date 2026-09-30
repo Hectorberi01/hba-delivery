@@ -10,6 +10,7 @@
     <ProjectReference Include="../Hba.Delivery.Application/Hba.Delivery.Application.csproj" />
     <ProjectReference Include="../Hba.Delivery.Infrastructure/Hba.Delivery.Infrastructure.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Grpc/Hba.BuildingBlocks.Grpc.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Http/Hba.BuildingBlocks.Http.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Observability/Hba.BuildingBlocks.Observability.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Hba.BuildingBlocks.Security/Hba.BuildingBlocks.Security.csproj" />
   </ItemGroup>

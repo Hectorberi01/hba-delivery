@@ -33,5 +33,31 @@ public interface IAccountRepository
     /// </summary>
     Task<bool> AnyWithRoleAsync(string role, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Les comptes dont l'échéance d'effacement est atteinte.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LE PLAFOND EST DANS LA SIGNATURE, ET NON LAISSE A L'APPELANT. Un
+    /// effacement fait travailler Directory et Media par événement ; après un
+    /// arrêt prolongé, tout prendre d'un coup saturerait le topic. Le passage
+    /// suivant reprend la suite.
+    /// </remarks>
+    Task<IReadOnlyList<Account>> ListDeletionsDueAsync(
+        DateTimeOffset now,
+        int limit,
+        CancellationToken cancellationToken);
+
     void Add(Account account);
+
+    /// <summary>
+    /// Retire la ligne pour de bon.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LA SEULE SUPPRESSION DE TOUT IDENTITY, et elle n'est appelée que par le
+    /// travail d'effacement, après que le titulaire l'a demandée et que le délai
+    /// de grâce a couru. L'administration ne supprime pas : elle suspend.
+    /// </remarks>
+    void Remove(Account account);
 }

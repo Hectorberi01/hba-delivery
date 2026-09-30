@@ -107,6 +107,25 @@ public sealed class AssignDriverHandler(
         var delivery = await repository.GetByIdAsync(command.DeliveryId, cancellationToken).ConfigureAwait(false)
             ?? throw new NotFoundException("Livraison", command.DeliveryId.ToString());
 
+        // LA COURSE S'EST CLOSE PENDANT QUE LE LIVREUR ACCEPTAIT.
+        //
+        // Une seconde suffit : le temps qu'un tour d'Outbox porte l'annulation
+        // jusqu'a Dispatch. L'acceptation a reussi de son cote, donc Driver l'a
+        // note EN MISSION ; ici, l'affectation etait refusee sur un etat
+        // terminal, l'evenement echouait trois fois et finissait abandonne. Le
+        // livreur restait en mission sur une course qui n'existe plus, sans
+        // pouvoir ni se mettre hors ligne ni recevoir d'offre.
+        //
+        // ON NE LEVE PLUS : on constate, on le libere, et le message est acquitte.
+        if (delivery.IsClosed)
+        {
+            delivery.ReleaseLateAcceptance(command.DriverId, Actor.DispatchEngine, command.AssignedAt);
+
+            await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+            return Unit.Value;
+        }
+
         // Le dispatch peut accepter une offre avant que Delivery ait traité la
         // première vague : on ouvre la recherche si besoin, plutôt que d'échouer.
         if (delivery.Status == Domain.Deliveries.DeliveryStatus.Paid)
@@ -118,6 +137,36 @@ public sealed class AssignDriverHandler(
             ?? throw new NotFoundException("Livreur", command.DriverId);
 
         delivery.AssignDriver(profile, command.OfferId, Actor.DispatchEngine, command.AssignedAt);
+
+        await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Unit.Value;
+    }
+}
+
+public sealed class MarkDeliveryRefundedHandler(
+    IDeliveryRepository repository,
+    IUnitOfWork unitOfWork) : ICommandHandler<MarkDeliveryRefundedCommand, Unit>
+{
+    public async Task<Unit> HandleAsync(
+        MarkDeliveryRefundedCommand command,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        var delivery = await repository.GetByIdAsync(command.DeliveryId, cancellationToken).ConfigureAwait(false);
+
+        if (delivery is null)
+        {
+            // PAS D'EXCEPTION, ET SURTOUT PAS DE REJEU. Une notification de
+            // remboursement pour une course inconnue arrive pour de vrai : une
+            // transaction creee a la main dans le tableau de bord, ou un autre
+            // environnement partageant le meme compte marchand. Lever ferait
+            // rejouer ce message neuf fois pour rien.
+            return Unit.Value;
+        }
+
+        delivery.MarkRefunded(command.Partial, Actor.FedaPay, command.OccurredAt);
 
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

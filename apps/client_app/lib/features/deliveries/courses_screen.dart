@@ -40,7 +40,7 @@ class CoursesScreen extends ConsumerWidget {
                   padding: const EdgeInsets.all(HbaSpacing.lg),
                   child: Text(
                     'Impossible de charger vos courses. Tirez vers le bas '
-                    'pour reessayer.',
+                    'pour réessayer.',
                     style: theme.textTheme.bodyMedium,
                   ),
                 ),

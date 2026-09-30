@@ -185,6 +185,12 @@ public static class ClientDeliveryEndpoints
         {
             displayName = livraison.Driver.DisplayName,
             phone = livraison.Driver.Phone,
+
+            // LE TYPE VOYAGEAIT JUSQU'A LA PASSERELLE ET S'ARRETAIT LA. La
+            // course le porte depuis toujours, mais il n'etait pas rendu au
+            // client : l'ecran de suivi dessinait donc une MOTO en dur, quel
+            // que soit le vehicule. Un cycliste apparaissait en motard.
+            vehicleType = livraison.Driver.VehicleType.ToString(),
             vehiclePlate = livraison.Driver.VehiclePlate,
         },
         deliveryOtp = livraison.DeliveryOtp,
@@ -192,6 +198,14 @@ public static class ClientDeliveryEndpoints
         // ISO 8601, PAS { seconds, nanos }. C'est cette date qui fait avancer
         // le compteur « Commandee il y a … » de l'ecran de suivi.
         createdAt = livraison.CreatedAt?.ToDateTimeOffset(),
+
+        // LE REMBOURSEMENT CONSTATE. Nul tant qu'il n'y en a pas — c'est ce
+        // « nul » qui fait la difference, a l'ecran, entre « HBA revient vers
+        // vous » et « le montant vous a ete rendu ». FedaPay n'ayant pas d'API de
+        // remboursement, c'est finance qui rend l'argent depuis le tableau de
+        // bord et le webhook qui nous l'apprend.
+        refundedAt = livraison.RefundedAt?.ToDateTimeOffset(),
+        refundPartial = livraison.RefundPartial,
     };
 
     /// <summary>

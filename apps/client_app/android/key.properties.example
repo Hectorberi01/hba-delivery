@@ -1,0 +1,25 @@
+# Identifiants du magasin de cles de publication.
+#
+# COPIEZ CE FICHIER EN key.properties ET NE LE VERSIONNEZ JAMAIS : android/.gitignore
+# ecarte deja key.properties, *.jks et *.keystore — verifie le 30/09/2026 avec
+# « git check-ignore », et non sur la foi d'un commentaire. Un magasin de cles
+# divulgue permet a n'importe qui de publier une mise a jour de votre
+# application ; un magasin de cles PERDU est pire encore — la ligne de mise a
+# jour est definitivement condamnee, et il faut republier sous un autre
+# identifiant, en laissant tous les clients sur l'ancienne version.
+#
+# UN MAGASIN PAR APPLICATION. Ne reutilisez pas celui de l'application livreur :
+# deux applications qui partagent un magasin partagent aussi le risque, et une
+# divulgation en emporterait alors deux.
+#
+# Creer le magasin de cles (une seule fois, et gardez-en une copie hors du Mac) :
+#
+#   keytool -genkey -v -keystore ~/hba-client.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias hba-client
+#
+# Le chemin ci-dessous est relatif au dossier android/, ou absolu.
+
+storePassword=
+keyPassword=
+keyAlias=hba-client
+storeFile=/Users/hector/hba-client.jks

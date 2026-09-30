@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:hba_core/hba_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hba_ui/hba_ui.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/navigation_externe.dart';
 import '../../core/plantages.dart';
@@ -12,6 +15,7 @@ import 'carte_course.dart';
 import 'mission_providers.dart';
 import 'mission_repository.dart';
 import 'models.dart';
+import 'preuve_repository.dart';
 
 /// Un point exploitable, ou null.
 ///
@@ -39,12 +43,145 @@ class _MissionScreenState extends ConsumerState<MissionScreen> {
   bool _busy = false;
   String? _error;
 
+  /// La photo choisie pour l'etape EN COURS, pas encore envoyee.
+  ///
+  /// ELLE SE PREND AVANT LE GESTE, ET PART APRES. C'est la seule facon de
+  /// tenir les deux moities de la decision du point 7 : la photo est proposee
+  /// aux deux etapes, et « l'etape ne l'attend jamais ». Si on la prenait
+  /// apres, il faudrait retenir le livreur sur un ecran dont il est deja
+  /// parti ; si on l'envoyait avant, un envoi qui echoue bloquerait une remise
+  /// faite devant un client qui attend.
+  File? _photo;
+
+  /// Un mot discret sur la photo — jamais dans « _error ».
+  ///
+  /// DEUX MESSAGES QUI NE PESENT PAS PAREIL. « _error » parle de la COURSE :
+  /// le code est faux, le reseau est tombe, l'etape n'est pas passee. Celui-ci
+  /// parle d'un complement facultatif. Les melanger ferait lire « echec » a un
+  /// livreur dont la remise a parfaitement abouti.
+  String? _motSurLaPhoto;
+
+  /// A quelle etape une photo se rapporterait, maintenant. Null quand il n'y a
+  /// rien a prouver : avant l'arrivee, ou une fois la course close.
+  EtapeDeLaPreuve? get _etapePhotographiable => switch (_mission.status) {
+        DeliveryStatus.driverAtPickup => EtapeDeLaPreuve.collecte,
+        DeliveryStatus.pickedUp => EtapeDeLaPreuve.remise,
+        _ => null,
+      };
+
+  Future<void> _choisirLaPhoto() async {
+    final source = await _choisirLaSource();
+    if (source == null || !mounted) return;
+
+    final XFile? prise;
+    try {
+      prise = await ImagePicker().pickImage(
+        source: source,
+        // LE REDIMENSIONNEMENT SERIEUX EST FAIT APRES, par la compression
+        // native du depot. Ces bornes evitent seulement de charger en memoire
+        // une photo de cinquante megapixels le temps d'arriver la.
+        maxWidth: 3000,
+        maxHeight: 3000,
+      );
+    } on Object {
+      // L'APPAREIL PHOTO REFUSE NE BLOQUE RIEN. Permission retiree, memoire
+      // pleine : la course continue sans photo, et c'est exactement ce que la
+      // decision prevoit.
+      if (mounted) {
+        setState(() => _motSurLaPhoto = "Impossible d'ouvrir l'appareil photo. "
+            "L'étape se fera sans photo.");
+      }
+      return;
+    }
+
+    final chemin = prise?.path;
+    if (chemin == null || !mounted) return;
+
+    setState(() {
+      _photo = File(chemin);
+      _motSurLaPhoto = null;
+    });
+  }
+
+  Future<ImageSource?> _choisirLaSource() => showModalBottomSheet<ImageSource>(
+        context: context,
+        // MEME RAISON QUE LES AUTRES FEUILLES : les onglets ont chacun leur
+        // Navigator, loge au-dessus de la barre du bas.
+        useRootNavigator: true,
+        backgroundColor: HbaColors.background,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(HbaRadius.card)),
+        ),
+        builder: (feuille) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('Prendre une photo'),
+                onTap: () => Navigator.of(feuille).pop(ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Choisir dans la galerie'),
+                onTap: () => Navigator.of(feuille).pop(ImageSource.gallery),
+              ),
+              const SizedBox(height: HbaSpacing.sm),
+            ],
+          ),
+        ),
+      );
+
+  /// Envoie la photo APRES que l'etape a abouti cote serveur.
+  ///
+  /// RIEN DE CE QUI SE PASSE ICI NE PEUT FAIRE ECHOUER L'ETAPE. Elle est deja
+  /// enregistree quand cette methode est appelee ; une exception qui
+  /// remonterait ferait lire un echec a un livreur dont la course a avance.
+  /// D'ou le « on Object » — un refus du serveur, une coupure, un fichier
+  /// disparu : tous finissent par le meme mot discret.
+  ///
+  /// ET ELLE NE REESSAIE PAS. Le point 7 : « une photo rattrapee plus tard ne
+  /// prouverait plus le meme instant ». Le service borne d'ailleurs le depot a
+  /// une demi-heure apres l'etape, et la file hors ligne ne sait pas transporter
+  /// un fichier — c'est le fait meme qui a fait ecarter « photo exigee ».
+  Future<void> _envoyerLaPhoto(EtapeDeLaPreuve etape) async {
+    final fichier = _photo;
+    if (fichier == null) return;
+
+    // ON L'OUBLIE AVANT D'ENVOYER, pas apres : une photo de collecte qui
+    // resterait en memoire partirait une seconde fois a la remise, et le
+    // serveur la refuserait en « preuve deja jointe » — un message
+    // incomprehensible pour un livreur qui n'a rien redemande.
+    if (mounted) setState(() => _photo = null);
+
+    try {
+      await ref.read(preuveRepositoryProvider).deposer(
+            missionId: _mission.id,
+            etape: etape,
+            fichier: fichier,
+          );
+
+      if (mounted) setState(() => _motSurLaPhoto = 'Photo envoyée.');
+    } on Object catch (erreur, pile) {
+      Plantages.noter(erreur, pile, contexte: 'depot de preuve ${etape.code}');
+
+      if (mounted) {
+        setState(() => _motSurLaPhoto = "La photo n'est pas partie. "
+            "L'étape, elle, est bien enregistrée.");
+      }
+    }
+  }
+
   Future<void> _advance() async {
     final repository = ref.read(missionRepositoryProvider);
 
     setState(() {
       _busy = true;
       _error = null;
+
+      // LE MOT DE L'ETAPE PRECEDENTE S'EFFACE ICI. « Photo envoyee » laisse
+      // sous la glissiere de la remise, il parlerait de la collecte.
+      _motSurLaPhoto = null;
     });
 
     try {
@@ -57,7 +194,14 @@ class _MissionScreenState extends ConsumerState<MissionScreen> {
       if (!mounted) return;
 
       if (issue.mission case final aJour?) {
+        final collecte = _mission.status == DeliveryStatus.driverAtPickup;
         setState(() => _mission = aJour);
+
+        // LA PHOTO PART APRES, ET SEULEMENT SI L'ETAPE EST PASSEE. Le serveur
+        // refuse une preuve sur une etape qui n'a pas eu lieu — c'est sa
+        // regle, et elle est juste : une preuve de ce qui n'est pas arrive
+        // n'est pas une preuve.
+        if (collecte) await _envoyerLaPhoto(EtapeDeLaPreuve.collecte);
         return;
       }
 
@@ -78,8 +222,78 @@ class _MissionScreenState extends ConsumerState<MissionScreen> {
           );
           _error = 'Pas de réseau. L étape est enregistrée et repartira toute '
               'seule dès que la connexion revient.';
+
+          // LA PHOTO NE SUIT PAS, ET LE LIVREUR DOIT L'APPRENDRE MAINTENANT.
+          // « Sans reseau, l'etape part SANS photo et n'y revient pas » — une
+          // photo rattrapee plus tard ne prouverait plus le meme instant. La
+          // taire laisserait croire qu'elle est jointe.
+          if (_photo != null) {
+            _photo = null;
+            _motSurLaPhoto = "La photo n'a pas pu être jointe : elle ne "
+                "montrerait plus ce moment si elle partait plus tard.";
+          }
         });
       }
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Le livreur constate que la course ne peut pas aboutir.
+  ///
+  /// CONFIRMATION EN DEUX TEMPS : on choisit un motif, puis on confirme. La
+  /// course part en ECHEC et ne se rouvre pas ; ce n'est pas un geste qu'on
+  /// annule.
+  Future<void> _declarerIncident() async {
+    final motif = await showModalBottomSheet<String>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: HbaColors.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(HbaRadius.card)),
+      ),
+      builder: (_) => const _IncidentSheet(),
+    );
+
+    if (motif == null || !mounted) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+
+      // LE MOT DE L'ETAPE PRECEDENTE S'EFFACE ICI. « Photo envoyee » laisse
+      // sous la glissiere de la remise, il parlerait de la collecte.
+      _motSurLaPhoto = null;
+    });
+
+    try {
+      final issue =
+          await ref.read(missionRepositoryProvider).declareIncident(_mission.id, motif);
+
+      if (!mounted) return;
+
+      if (issue.miseEnFile) {
+        // MEME PRUDENCE QUE POUR LA REMISE : le serveur peut refuser — une
+        // course deja close par l'exploitation, par exemple. Tant qu'il n'a
+        // pas repondu, on n'annonce pas au livreur qu'il est libere.
+        setState(() => _error = "Pas de réseau. Le signalement est enregistré "
+            'et partira dès que la connexion revient ; la course reste '
+            'ouverte en attendant.');
+        return;
+      }
+
+      final updated = issue.mission;
+      if (updated == null) return;
+
+      setState(() => _mission = updated);
+
+      Plantages.trace('incident declare');
+
+      widget.onClosed();
+      if (mounted) Navigator.of(context).pop();
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {
@@ -110,6 +324,10 @@ class _MissionScreenState extends ConsumerState<MissionScreen> {
     setState(() {
       _busy = true;
       _error = null;
+
+      // LE MOT DE L'ETAPE PRECEDENTE S'EFFACE ICI. « Photo envoyee » laisse
+      // sous la glissiere de la remise, il parlerait de la collecte.
+      _motSurLaPhoto = null;
     });
 
     try {
@@ -125,9 +343,17 @@ class _MissionScreenState extends ConsumerState<MissionScreen> {
         // recopie. Annoncer « course livree » et afficher la remuneration
         // serait promettre au livreur quelque chose qui n'est peut-etre pas
         // arrive.
-        setState(() => _error = 'Pas de réseau. La remise est enregistrée et '
-            'partira toute seule ; elle sera confirmee au retour de la '
-            'connexion.');
+        setState(() {
+          _error = 'Pas de réseau. La remise est enregistrée et '
+              'partira toute seule ; elle sera confirmee au retour de la '
+              'connexion.';
+
+          if (_photo != null) {
+            _photo = null;
+            _motSurLaPhoto = "La photo n'a pas pu être jointe : elle ne "
+                "montrerait plus ce moment si elle partait plus tard.";
+          }
+        });
         return;
       }
 
@@ -139,6 +365,11 @@ class _MissionScreenState extends ConsumerState<MissionScreen> {
       Plantages.trace('colis remis');
 
       if (updated.status == DeliveryStatus.delivered) {
+        // AVANT LE RECAPITULATIF, PAS APRES. La feuille ne se ferme que sur
+        // « Terminer », et l'ecran se depile juste derriere : une photo
+        // envoyee apres partirait d'un widget qui n'existe plus.
+        await _envoyerLaPhoto(EtapeDeLaPreuve.remise);
+
         // LE RECAPITULATIF PASSE AVANT LA FERMETURE. Jusqu'ici l'ecran se
         // refermait sec : le livreur remettait un colis et se retrouvait sur
         // la carte, sans que rien ne lui dise ce que la course lui avait
@@ -208,7 +439,28 @@ class _MissionScreenState extends ConsumerState<MissionScreen> {
     final atDelivery = mission.status == DeliveryStatus.pickedUp;
 
     return Scaffold(
-      appBar: AppBar(title: Text(mission.reference)),
+      appBar: AppBar(
+        title: Text(mission.reference),
+        actions: [
+          // LA SEULE SORTIE QUAND LA REMISE EST IMPOSSIBLE, et elle n'existait
+          // pas. Depuis « colis recupere », la seule chose que le livreur
+          // pouvait declarer etait la remise : destinataire absent, adresse
+          // fausse ou code bloque apres cinq essais, il gardait le colis et
+          // restait en mission — donc sans pouvoir se mettre hors ligne ni
+          // recevoir la moindre offre — jusqu'a ce qu'un ops cloture a sa
+          // place.
+          //
+          // DISCRETE, PAS CACHEE. Une icone dans la barre, loin de la
+          // glissiere : ce n'est pas un geste qu'on fait par erreur, et ce
+          // n'est pas non plus un geste qu'on doit deviner.
+          if (mission.isOpen)
+            IconButton(
+              onPressed: _busy ? null : _declarerIncident,
+              icon: const Icon(Icons.report_problem_outlined),
+              tooltip: 'Signaler un problème',
+            ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: HbaSpacing.gutter),
@@ -334,6 +586,32 @@ class _MissionScreenState extends ConsumerState<MissionScreen> {
                     ?.copyWith(color: HbaColors.danger),
               ),
             ],
+            // LA PHOTO, FACULTATIVE, ET AU-DESSUS DU GESTE.
+            //
+            // AU-DESSUS PARCE QU'ELLE SE PREND AVANT. Le point 7 a tranche :
+            // proposee aux deux etapes, jamais exigee, et « l'etape ne
+            // l'attend jamais ». La placer sous la glissiere reviendrait a la
+            // proposer apres coup, c'est-a-dire a un livreur deja reparti.
+            if (_etapePhotographiable case final etape?) ...[
+              const SizedBox(height: HbaSpacing.lg),
+              _BlocPhoto(
+                etape: etape,
+                photo: _photo,
+                busy: _busy,
+                onChoisir: _choisirLaPhoto,
+                onRetirer: () => setState(() => _photo = null),
+              ),
+            ],
+            if (_motSurLaPhoto != null) ...[
+              const SizedBox(height: HbaSpacing.sm),
+              Text(
+                _motSurLaPhoto!,
+                // PAS EN ROUGE, MEME QUAND LA PHOTO A ECHOUE. Le rouge dit
+                // « votre course a un probleme » ; ici la course va bien, et
+                // c'est un complement facultatif qui n'est pas parti.
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
             const SizedBox(height: HbaSpacing.lg),
             if (action != null)
               // CHAQUE ETAPE SE GLISSE. « Je suis au point de collecte »
@@ -377,6 +655,104 @@ class _MissionScreenState extends ConsumerState<MissionScreen> {
         DeliveryStatus.delivered => 'REMISE',
         _ => '--',
       };
+}
+
+/// Le bloc « ajouter une photo » d'une etape.
+///
+/// IL DIT « FACULTATIF », ET CE MOT EST LA REGLE ELLE-MEME. Ce qui fait foi
+/// est le CODE DE REMISE dicte par le destinataire (ADR 0005) ; la photo n'est
+/// qu'un complement, et elle ne dit rien de plus qu'un etat de colis. Un
+/// livreur qui croirait sa course bloquee sans elle prendrait une photo dans
+/// un couloir sombre pour s'en debarrasser.
+class _BlocPhoto extends StatelessWidget {
+  const _BlocPhoto({
+    required this.etape,
+    required this.photo,
+    required this.busy,
+    required this.onChoisir,
+    required this.onRetirer,
+  });
+
+  final EtapeDeLaPreuve etape;
+  final File? photo;
+  final bool busy;
+  final VoidCallback onChoisir;
+  final VoidCallback onRetirer;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final jointe = photo;
+
+    final aide = switch (etape) {
+      EtapeDeLaPreuve.collecte => "L'état du colis au moment où vous le prenez.",
+      EtapeDeLaPreuve.remise => 'Le colis remis, ou l\'endroit où vous le laissez.',
+    };
+
+    if (jointe == null) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            OutlinedButton.icon(
+              // GRISE PENDANT L'ENVOI DE L'ETAPE : ouvrir l'appareil photo a
+              // cet instant ferait revenir le livreur sur un ecran qui a
+              // change d'etape entre-temps.
+              onPressed: busy ? null : onChoisir,
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Ajouter une photo (facultatif)'),
+            ),
+            const SizedBox(height: HbaSpacing.xs),
+            Text(aide, style: theme.textTheme.bodySmall),
+          ],
+        ),
+      );
+    }
+
+    return HbaCard(
+      padding: const EdgeInsets.all(HbaSpacing.md),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(HbaRadius.card),
+            child: Image.file(
+              jointe,
+              width: 56,
+              height: 56,
+              fit: BoxFit.cover,
+              // UN FICHIER PEUT AVOIR DISPARU ENTRE LA PRISE ET L'AFFICHAGE
+              // — cache systeme vide, photo supprimee de la galerie. Sans
+              // ceci, l'ecran de la course se casse pour une vignette.
+              errorBuilder: (_, __, ___) => const SizedBox(
+                width: 56,
+                height: 56,
+                child: Icon(Icons.image_not_supported_outlined),
+              ),
+            ),
+          ),
+          const SizedBox(width: HbaSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Photo jointe', style: theme.textTheme.titleSmall),
+                Text(
+                  "Elle partira une fois l'étape enregistrée.",
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: busy ? null : onRetirer,
+            icon: const Icon(Icons.close),
+            tooltip: 'Retirer la photo',
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _PlaceCard extends StatelessWidget {
@@ -785,6 +1161,130 @@ class _Recapitulatif extends StatelessWidget {
 ///
 /// LE CODE N'EST JAMAIS AFFICHE NI PRE-REMPLI. Le livreur ne l'a pas recu : le
 /// destinataire le lui dicte. Rien ici ne le conserve ni ne le journalise.
+/// Le choix d'un motif d'incident, puis la confirmation.
+///
+/// LES MOTIFS PROPOSES NE SONT PAS UN CONTRAT. Le service enregistre un texte
+/// libre : aucune liste d'incidents n'est tranchee, et la graver dans le proto
+/// ou dans la base avant qu'elle soit decidee la rendrait tres difficile a
+/// corriger. Ces quatre-la sont les cas qu'on sait deja possibles ; « Autre »
+/// laisse le livreur ecrire ce qu'on n'avait pas prevu, ce qui est exactement
+/// ce dont on a besoin pour fixer la liste plus tard.
+class _IncidentSheet extends StatefulWidget {
+  const _IncidentSheet();
+
+  @override
+  State<_IncidentSheet> createState() => _IncidentSheetState();
+}
+
+class _IncidentSheetState extends State<_IncidentSheet> {
+  static const _motifs = [
+    'Destinataire injoignable',
+    'Adresse introuvable',
+    'Destinataire refuse le colis',
+    'Code de remise bloqué',
+  ];
+
+  String? _choisi;
+  final _autre = TextEditingController();
+
+  @override
+  void dispose() {
+    _autre.dispose();
+    super.dispose();
+  }
+
+  bool get _libre => _choisi == null;
+
+  String get _motif => _libre ? _autre.text.trim() : _choisi!;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: HbaSpacing.gutter,
+        right: HbaSpacing.gutter,
+        top: HbaSpacing.lg,
+        // LE CLAVIER POUSSE LA FEUILLE, il ne la recouvre pas : le champ libre
+        // est en bas, et sans ceci il disparait sous le clavier a la seconde ou
+        // on le touche.
+        bottom: MediaQuery.of(context).viewInsets.bottom + HbaSpacing.lg,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Que se passe-t-il ?', style: theme.textTheme.titleLarge),
+          const SizedBox(height: HbaSpacing.sm),
+          Text(
+            'La course sera clôturée en échec et HBA vous recontactera pour le '
+            'colis. Ce geste ne s\'annule pas.',
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: HbaSpacing.lg),
+          // LE GROUPE PORTE LE CHOIX, PLUS CHAQUE TUILE.
+          //
+          // « groupValue » et « onChanged » sont depreciees sur RadioListTile
+          // depuis Flutter 3.32, remplacees par un RadioGroup ancetre — arrive
+          // en 3.35, d'ou le plancher remonte dans le pubspec de cette seule
+          // application.
+          //
+          // CE N'EST PAS QU'UN DEPLACEMENT DE PARAMETRES. La tuile « Autre »
+          // forcait « null » dans son propre gestionnaire, en doublon de sa
+          // « value » : deux facons de dire la meme chose, dont l'une pouvait
+          // cesser d'etre d'accord avec l'autre. Maintenant c'est la valeur de
+          // la tuile qui decide, et il n'y a plus qu'un gestionnaire.
+          RadioGroup<String?>(
+            groupValue: _choisi,
+            onChanged: (valeur) => setState(() => _choisi = valeur),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final motif in _motifs)
+                  RadioListTile<String?>(
+                    value: motif,
+                    title: Text(motif),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                // CONSTANTE DEPUIS QU'ELLE N'A PLUS DE FERMETURE. Elle
+                // portait un « onChanged » qui capturait « this » ; sans lui,
+                // rien dans cette tuile ne depend de l'etat, et Flutter peut
+                // la construire une fois pour toutes.
+                const RadioListTile<String?>(
+                  value: null,
+                  title: Text('Autre'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+          ),
+          if (_libre) ...[
+            const SizedBox(height: HbaSpacing.sm),
+            TextField(
+              controller: _autre,
+              autofocus: true,
+              maxLength: 200,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Décrivez le problème',
+              ),
+            ),
+          ],
+          const SizedBox(height: HbaSpacing.lg),
+          HbaButton(
+            label: 'Signaler et clôturer',
+            onPressed: _motif.isEmpty
+                ? null
+                : () => Navigator.of(context).pop(_motif),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _OtpSheet extends StatefulWidget {
   const _OtpSheet();
 

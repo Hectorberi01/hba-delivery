@@ -25,10 +25,25 @@ public sealed record DriverApplicationView(
     DateTimeOffset? SubmittedAt,
     IReadOnlyList<DocumentView> Documents,
     IReadOnlyList<DocumentType> MissingDocuments,
+
+    /// <summary>
+    /// Pieces exigees POUR CE VEHICULE, deposees ou non.
+    ///
+    /// ELLE A CESSE D'ETRE LA MEME POUR TOUT LE MONDE le 30 septembre 2026 :
+    /// un velo n'exige ni permis ni carte grise. L'application l'affichait en
+    /// dur, et un cycliste y aurait vu deux lignes impossibles a satisfaire.
+    /// </summary>
+    IReadOnlyList<DocumentType> RequiredDocuments,
     VehicleType VehicleType,
     string VehiclePlate,
     int VehicleCapacityGrams,
     Uri? ProfilePhotoUrl,
+
+    /// <summary>
+    /// Le vehicule a-t-il ete declare ? L'application le devinait par « la
+    /// plaque n'est pas vide » ; un velo n'en a pas.
+    /// </summary>
+    bool VehicleDeclared,
 
     /// <summary>
     /// CALCULE PAR LE SERVICE, PAS PAR LE CLIENT. La regle « complet, ou

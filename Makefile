@@ -1,7 +1,7 @@
 # Raccourcis du quotidien. `make` seul affiche l'aide.
 
 .DEFAULT_GOAL := help
-.PHONY: chaines repartir trace fiche fedapay webhook rebuild terrain offre clients versements carte dossier garage-init kyc etape7 help net up down logs migrate identity-key tunnel tunnel-stop topics build services-up test test-domain test-arch test-e2e migrations lint-proto lint-compose infra-up prod-up prod-service clean
+.PHONY: chaines repartir trace fiche fedapay webhook rebuild terrain offre clients versements carte dossier test-media test-identity garage-secrets garage-init kyc etape7 help net up down logs migrate identity-key tunnel tunnel-stop topics build services-up test test-domain test-billing test-billing-integration test-arch test-e2e migrations migration adresses relancer lint-accents lint-proto lint-compose infra-up prod-up prod-service clean
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -36,6 +36,7 @@ SERVICE_DIRS := \
 	src/Services/Identity src/Services/Directory src/Services/Delivery \
 	src/Services/Pricing src/Services/Dispatch src/Services/Driver \
 	src/Services/Payment src/Services/Notification src/Services/Media \
+	src/Services/Billing \
 	src/Gateways/Hba.Gateway
 
 lint-compose: ## Valide chaque compose, infrastructure comprise
@@ -54,7 +55,7 @@ lint-compose: ## Valide chaque compose, infrastructure comprise
 infra-up: net ## Démarre l'infrastructure partagée
 	docker compose -f deploy/compose.infra.yml up -d
 
-services-up: net ## Démarre les douze services, SANS toucher à l'infrastructure
+services-up: net ## Démarre tous les services, SANS toucher à l'infrastructure
 # Separe de infra-up a dessein. Depuis que tout partage le reseau hba-internal,
 # les services conteneurises fonctionnent aussi bien contre l'infra de
 # developpement (« make up », qui PUBLIE 5432) que contre celle de production
@@ -65,7 +66,34 @@ services-up: net ## Démarre les douze services, SANS toucher à l'infrastructur
 		docker compose -f $$d/docker-compose.yml up -d || exit 1; \
 	done
 
-prod-up: infra-up services-up ## Infrastructure de production puis les douze services
+prod-up: infra-up services-up ## Infrastructure de production puis tous les services
+
+relancer: net ## Reconstruit ET recree TOUS les services (make relancer)
+# « services-up » NE SUFFIT PAS POUR RELANCER APRES UNE MODIFICATION, et c'est
+# la panne la plus deroutante qui soit : il fait « up -d » sans drapeau, donc
+# il relance fidelement l'ANCIENNE image, avec les ANCIENNES variables. Le
+# code est bien dans le fichier, le conteneur tourne, et rien n'a change.
+#
+# LES DEUX DRAPEAUX SERVENT, comme pour « rebuild » :
+#   --build           reprend le code ;
+#   --force-recreate  fait relire le .env, qui n'est lu qu'a la CREATION.
+#
+# L'ORDRE DES SERVICES N'EST PAS ALPHABETIQUE : Identity d'abord, parce que
+# tous les autres lui demandent un jeton de service au demarrage.
+#
+# ATTENTION — LE SCHEMA D'ABORD. Reconstruire un service dont le modele EF a
+# gagne une colonne que la base n'a pas fait echouer TOUTES ses lectures en
+# « 42703 : column does not exist ». Avant cette cible :
+#   make migration SERVICE=<X> NAME=<Y>   pour chaque modele qui a bouge
+#   make build                            pour verifier que tout compile
+#   make migrate                          pour poser le schema
+	@for d in $(SERVICE_DIRS); do \
+		echo "── $$d"; \
+		docker compose -f $$d/docker-compose.yml up -d --build --force-recreate || exit 1; \
+	done
+	@echo
+	@echo "Tous les services sont reconstruits et recrees."
+	@echo "Verifiez qu'aucun ne boucle :  docker compose ls"
 
 prod-service: net ## Démarre un seul service : make prod-service D=src/Services/Identity
 	@test -n "$(D)" || (echo "Indiquez le dossier : make prod-service D=src/Services/Identity" && exit 1)
@@ -97,6 +125,35 @@ test: ## Lance tous les tests
 
 test-domain: ## Tests du domaine Delivery, sans infrastructure
 	dotnet test src/Services/Delivery/tests/Hba.Delivery.Domain.Tests/Hba.Delivery.Domain.Tests.csproj
+
+test-billing: ## Tests du domaine Billing et de son autorisation, sans infrastructure
+	dotnet test src/Services/Billing/tests/Hba.Billing.Domain.Tests/Hba.Billing.Domain.Tests.csproj
+	dotnet test src/Services/Billing/tests/Hba.Billing.Application.Tests/Hba.Billing.Application.Tests.csproj
+
+test-billing-integration: ## Verrou de ligne et unicites de Billing (Docker requis)
+# UNE VRAIE BASE, PARCE QUE CE QUI EST TESTE N'EXISTE QUE LA : « FOR UPDATE » et
+# deux index uniques. Le fournisseur en memoire les ignore tous les trois, donc
+# ces tests y passeraient meme apres suppression de ce qu'ils verifient.
+	dotnet test src/Services/Billing/tests/Hba.Billing.Integration.Tests/Hba.Billing.Integration.Tests.csproj
+
+test-media: ## Matrice d'acces aux medias : qui lit, liste et supprime quoi
+# QUATRE GESTIONNAIRES SUR CINQ N'AVAIENT AUCUNE VERIFICATION D'APPELANT
+# (constat B3 du 30/09/2026). La regle vit desormais en un seul endroit,
+# MediaAccess, partagee avec le depot ; ces tests en tiennent la frontiere.
+	dotnet test src/Services/Media/tests/Hba.Media.Application.Tests/Hba.Media.Application.Tests.csproj
+
+test-identity: ## Tests du domaine Identity : comptes, roles, jetons
+	dotnet test src/Services/Identity/tests/Hba.Identity.Domain.Tests/Hba.Identity.Domain.Tests.csproj
+
+test-pricing: ## Tests du domaine Pricing : le devis ne paie que le trajet chiffre
+	dotnet test src/Services/Pricing/tests/Hba.Pricing.Domain.Tests/Hba.Pricing.Domain.Tests.csproj
+
+test-delivery-integration: ## Verrou du code de remise de Delivery (Docker requis)
+# UNE VRAIE BASE, PARCE QUE C'EST LE RECHARGEMENT QUI EST TESTE. Le verrou des
+# cinq tentatives etait couvert par un test de domaine vert et ne fonctionnait
+# pas : le test enchainait cinq refus sur la meme instance en memoire, la
+# production perdait le compteur a chaque requete.
+	dotnet test src/Services/Delivery/tests/Hba.Delivery.Integration.Tests/Hba.Delivery.Integration.Tests.csproj
 
 test-arch: ## Règles de dépendance entre couches
 	dotnet test tests/Architecture.Tests/Architecture.Tests.csproj
@@ -138,6 +195,15 @@ identity-key: ## Pose la clé de signature d'Identity dans son volume, si elle m
 		echo "Cle generee, deposee dans le volume identity-keys, Identity redemarre."; \
 	fi
 
+fedapay-essai: ## Demande a FedaPay ce qu'il pense de notre corps de requete (bac a sable)
+	@bash scripts/fedapay-essai.sh
+
+fedapay-transaction: ## Etat d une transaction chez FedaPay (make fedapay-transaction R=trx_...)
+	@bash scripts/fedapay-transaction.sh $(R)
+
+fedapay-brut: ## L objet transaction entier, sans filtre (make fedapay-brut ID=514996)
+	@bash scripts/fedapay-brut.sh $(ID)
+
 tunnel: ## Expose la gateway via ngrok et cable FedaPay dessus (NGROK_DOMAIN=… optionnel)
 # Sans adresse publique, FedaPay ne peut ni joindre le webhook, ni renvoyer le
 # payeur. L'echec est muet : le client paie, la livraison reste en
@@ -148,6 +214,15 @@ etape4: ## Exerce la boucle complete : paiement, dispatch, offre, affectation
 # Pose deux surcouches de developpement (OTP fixe, paiement factice) et les
 # retire a la sortie, y compris en cas d'echec.
 	./scripts/etape4-boucle.sh
+
+garage-secrets: ## Pose ou fait tourner les trois secrets internes de Garage
+# ILS ETAIENT EN CLAIR DANS UN FICHIER SUIVI PAR GIT, dans un depot public
+# (corrige le 30/09/2026). Cette cible les ecrit dans deploy/.env, qui n'est pas
+# versionne, et n'affiche jamais une valeur — seulement une empreinte courte.
+#
+#   make garage-secrets            # rotation
+#   ./scripts/garage-secrets.sh --si-absent   # premiere installation
+	./scripts/garage-secrets.sh
 
 garage-init: ## Initialise Garage : disposition, bucket, cle d'acces (idempotent)
 # GARAGE NE SERT RIEN AVANT CETTE ETAPE. Il repond « no storage nodes » a la
@@ -246,6 +321,42 @@ tunnel-stop: ## Ferme le tunnel ngrok
 
 migrations: ## Génère la migration initiale des services qui ont une base (make migrations NAME=Initial)
 	./scripts/create-migrations.sh $(or $(NAME),Initial)
+
+# UNE MIGRATION POUR UN SEUL SERVICE.
+#
+# « make migrations » les parcourt tous les neuf : c'est ce qu'il faut pour la
+# migration initiale, et c'est huit fichiers vides quand une seule colonne a
+# bouge. Une migration vide n'est pas inoffensive — elle se relit, elle se
+# revoit, et elle fait croire a un changement qui n'existe pas.
+#
+#   make migration SERVICE=Directory NAME=CustomerPhoto
+migration: ## Génère une migration pour UN service (make migration SERVICE=Directory NAME=CustomerPhoto)
+	@test -n "$(SERVICE)" || { echo "SERVICE manquant. Ex : make migration SERVICE=Directory NAME=CustomerPhoto"; exit 1; }
+	@test -n "$(NAME)"    || { echo "NAME manquant. Ex : make migration SERVICE=Directory NAME=CustomerPhoto"; exit 1; }
+	@test -d "src/Services/$(SERVICE)" || { echo "Service inconnu : $(SERVICE)"; ls src/Services; exit 1; }
+	dotnet ef migrations add $(NAME) \
+	  --project src/Services/$(SERVICE)/Hba.$(SERVICE).Infrastructure \
+	  --startup-project src/Services/$(SERVICE)/Hba.$(SERVICE).Api \
+	  --output-dir Persistence/Migrations
+
+# LES ACCENTS DES TEXTES AFFICHES.
+#
+# CE DEPOT ECRIT SES COMMENTAIRES SANS ACCENTS, DELIBEREMENT, ET SES TEXTES
+# AVEC. Un « Pas de reseau. Reessayez. » se lit comme une faute chez le client
+# et comme la maison chez le developpeur : rien dans flutter analyze ne fait
+# la difference, et dix-sept chaines ont vecu des semaines a l'ecran avant
+# qu'on ne les voie.
+#
+# L'OUTIL NE FAIT PAS AUTORITE, il montre ou regarder. Il ne connait qu'une
+# liste de formes fautives frequentes, et il rate ce qui n'y figure pas :
+# « Payee », « Echouee » et « Etat inconnu » ont ete trouves a la main, en
+# relisant les chaines qu'il designait.
+adresses: ## Pourquoi « Ajouter une adresse » retombe en 500 (make adresses C=<id client>)
+	./scripts/adresses-client.sh $(C)
+
+lint-accents: ## Cherche les textes affiches qui ont perdu leurs accents
+	@python3 scripts/accents.py apps/client_app/lib apps/client_app/test \
+	         apps/driver_app/lib apps/hba_ui/lib apps/hba_core/lib
 
 lint-proto: ## Lint des contrats protobuf
 # « buf: command not found » NE DIT PAS OU LE PRENDRE. La cible echouait sur

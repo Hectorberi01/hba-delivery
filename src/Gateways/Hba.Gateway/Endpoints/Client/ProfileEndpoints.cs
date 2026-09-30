@@ -1,7 +1,9 @@
+using Hba.BuildingBlocks.Application.Abstractions;
 using Hba.BuildingBlocks.Security;
 using Hba.Contracts.Common.V1;
 using Hba.Contracts.Directory.V1;
 using Hba.Contracts.Identity.V1;
+using Hba.Gateway.Endpoints.Relais;
 
 namespace Hba.Gateway.Endpoints.Client;
 
@@ -105,6 +107,135 @@ public static class ProfileEndpoints
                 cancellationToken: cancellationToken);
 
             return Results.Ok(Lisible(consent));
+        });
+
+        // LA PHOTO DE PROFIL : DEUX SERVICES, UNE SEULE ROUTE POUR LE CLIENT.
+        //
+        // LE TELEPHONE N'ENVOIE QU'UNE REQUETE, ET C'EST TOUT L'INTERET. Le
+        // depot se fait en deux temps — les octets vers Media, l'identifiant
+        // obtenu vers Directory — et faire porter cet enchainement a
+        // l'application aurait laisse un etat a mi-chemin a chaque coupure de
+        // reseau : un fichier depose dans le stockage que le profil ne
+        // reclamera jamais. Sur une 3G a Cotonou, ce n'est pas un cas rare.
+        //
+        // CE N'EST PAS LA PASSERELLE QUI AUTORISE. Elle renseigne le
+        // proprietaire depuis le jeton, mais Media verifie qu'on ne depose que
+        // pour soi, et Directory refuse un media qui ne serait pas une photo de
+        // profil appartenant a l'appelant. Deux services verifient ; aucun ne
+        // la croit sur parole (referentiel des acteurs).
+        group.MapPost("/me/photo", async (
+            HttpRequest requete,
+            HttpContext http,
+            IMediaUploadRelay media,
+            ICallerContext appelant,
+            DirectoryService.DirectoryServiceClient directory,
+            CancellationToken cancellationToken) =>
+        {
+            // ICallerContext ET NON UNE LECTURE DE CLAIM A LA MAIN : le sujet
+            // d'un jeton se lit sous « nameidentifier » ou sous « sub » selon
+            // la couche qui l'a deserialise, et cette bascule est deja ecrite
+            // une fois, la. La recopier ici ferait deux endroits a corriger le
+            // jour ou elle bouge, dont un qu'on oublierait.
+            var depot = await media.DeposerAsync(
+                requete,
+                http,
+                ownerType: "Customer",
+                ownerId: appelant.SubjectId,
+                kind: "ProfilePhoto",
+                cancellationToken);
+
+            if (!depot.EstUnSucces)
+            {
+                return depot.Refus!;
+            }
+
+            var customer = await directory.SetCustomerPhotoAsync(
+                new SetCustomerPhotoRequest { MediaId = depot.MediaId.ToString() },
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(customer);
+        }).DisableAntiforgery();
+
+        group.MapDelete("/me/photo", async (
+            DirectoryService.DirectoryServiceClient directory,
+            CancellationToken cancellationToken) =>
+        {
+            var customer = await directory.RemoveCustomerPhotoAsync(
+                new RemoveCustomerPhotoRequest(),
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(customer);
+        });
+
+        // LE LIEN D'AFFICHAGE, DEMANDE A PART.
+        //
+        // PAS DANS « GET /me », ET CE N'EST PAS UN OUBLI. Une URL signee expire
+        // en quelques minutes : la poser dans la fiche obligerait a appeler
+        // Media a chaque lecture de profil — y compris pour les clients qui
+        // n'ont pas de photo, c'est-a-dire presque tous au debut — et rendrait
+        // fausse toute reponse gardee en memoire par l'application.
+        group.MapGet("/me/photo", async (
+            DirectoryService.DirectoryServiceClient directory,
+            CancellationToken cancellationToken) =>
+        {
+            var lien = await directory.GetCustomerPhotoLinkAsync(
+                new GetCustomerPhotoLinkRequest(),
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(new
+            {
+                url = lien.Url,
+                expiresAt = lien.ExpiresAt.ToDateTimeOffset(),
+            });
+        });
+
+        // LA SUPPRESSION DU COMPTE, DEMANDEE PAR SON TITULAIRE (point 28).
+        //
+        // TROIS ROUTES, PARCE QUE C'EST UNE FENETRE ET NON UN INSTANT. Le
+        // client demande ; ses sessions tombent aussitot et le compte entre en
+        // sursis ; trente jours plus tard un travail planifie efface pour de
+        // bon. Se reconnecter pendant la fenetre permet d'annuler — c'est la
+        // raison pour laquelle un compte en sursis peut encore se connecter,
+        // contrairement a un compte suspendu.
+        //
+        // AUCUN CORPS, AUCUN IDENTIFIANT : on ne supprime que son propre
+        // compte, et Identity le relit dans le jeton qu'il a lui-meme valide.
+        //
+        // « DELETE » POUR DEMANDER, ET NON « POST /me/deletion ». Le verbe dit
+        // ce que le client croit faire. Ce qui se passe derriere — un sursis
+        // plutot qu'un effacement immediat — est ecrit dans la reponse, qui
+        // porte la date d'echeance, et dans l'ecran qui l'appelle.
+        group.MapDelete("/me/account", async (
+            IdentityService.IdentityServiceClient identity,
+            CancellationToken cancellationToken) =>
+        {
+            var demande = await identity.RequestAccountDeletionAsync(
+                new RequestAccountDeletionRequest(),
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(Lisible(demande));
+        });
+
+        group.MapPost("/me/account/keep", async (
+            IdentityService.IdentityServiceClient identity,
+            CancellationToken cancellationToken) =>
+        {
+            var demande = await identity.CancelAccountDeletionAsync(
+                new CancelAccountDeletionRequest(),
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(Lisible(demande));
+        });
+
+        group.MapGet("/me/account/deletion", async (
+            IdentityService.IdentityServiceClient identity,
+            CancellationToken cancellationToken) =>
+        {
+            var demande = await identity.GetAccountDeletionAsync(
+                new GetAccountDeletionRequest(),
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(Lisible(demande));
         });
 
         // UN OBJET, PAS UN TABLEAU NU, ET C'EST DELIBERE.
@@ -222,6 +353,23 @@ public static class ProfileEndpoints
             ContactName = Ou(dto.ContactName, http, HbaClaims.Name),
             Notes = dto.Notes ?? string.Empty,
         },
+    };
+
+    /// <summary>
+    /// La demande de suppression, en JSON lisible par l'application.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LES DEUX DATES SONT NULLES QUAND RIEN N'EST DEMANDE, et non pas egales
+    /// a l'epoque Unix. Un Timestamp protobuf non renseigne vaut le 1er janvier
+    /// 1970 : le rendre tel quel afficherait « suppression prevue le 01/01/1970 »
+    /// sur le telephone d'un client qui n'a rien demande.
+    /// </remarks>
+    private static object Lisible(AccountDeletion demande) => new
+    {
+        requested = demande.Requested,
+        requestedAt = demande.RequestedAt?.ToDateTimeOffset(),
+        scheduledFor = demande.ScheduledFor?.ToDateTimeOffset(),
     };
 
     private static string Ou(string? fourni, HttpContext http, string claim)

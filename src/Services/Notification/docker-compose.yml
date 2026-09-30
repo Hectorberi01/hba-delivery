@@ -39,6 +39,57 @@ services:
       Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
       Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
       Jwt__RequireHttpsMetadata: "false"
+
+      # LE COURRIEL DU RECU DE COURSE (point 29). RESEND PAR DEFAUT.
+      #
+      # LE DOMAINE DE L'EXPEDITEUR DOIT ETRE VERIFIE CHEZ RESEND — DKIM et SPF
+      # poses dans le DNS de hbatechettrade.com, puis valides dans leur tableau
+      # de bord — AVANT QU'UN SEUL MESSAGE NE PARTE. Sans cela, chaque envoi
+      # recoit un 403, et le journal du service le dit en toutes lettres.
+      #
+      # AVANT VERIFICATION, Resend n'autorise que onboarding@resend.dev, et
+      # uniquement vers l'adresse du titulaire du compte : un essai qui marche
+      # dans ces conditions ne prouve rien sur la production.
+      #
+      # CLE VIDE = CANAL DECLARE, MAIS RIEN NE PART. Ce n'est pas une panne :
+      # le service le dit au demarrage et consigne chaque recu « ignore », ce
+      # qui se distingue d'un echec d'envoi dans le journal.
+      Email__Provider: ${EMAIL_PROVIDER:-resend}
+      Resend__ApiKey: ${RESEND_API_KEY:-}
+      Resend__From: ${RESEND_FROM:-}
+      # LE MODELE DU RECU INVITE LE CLIENT A REPONDRE : si l'expediteur est une
+      # boite que personne ne releve, mettez ici l'adresse du support.
+      Resend__ReplyTo: ${RESEND_REPLY_TO:-}
+
+      # ISSUE DE SECOURS, active seulement si EMAIL_PROVIDER vaut « smtp ».
+      # Marche avec n'importe quel relais, y compris celui de Resend
+      # (smtp.resend.com, utilisateur « resend », mot de passe = la cle d'API).
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__Port: ${SMTP_PORT:-587}
+      Smtp__User: ${SMTP_USER:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__From: ${SMTP_FROM:-}
+      Smtp__FromName: ${SMTP_FROM_NAME:-HBA Delivery}
+      Smtp__ReplyTo: ${SMTP_REPLY_TO:-}
+
+      # L'ANNUAIRE, POUR RESOUDRE L'ADRESSE D'UN COMPTE. L'appel part d'un
+      # consommateur Kafka, donc sans jeton d'utilisateur : le secret de service
+      # ci-dessous est ce qui lui en donne un.
+      #
+      # LE SECRET PORTE LE NOM DU SERVICE (ADR 0018), comme celui de Delivery
+      # et de Dispatch, et il doit valoir EXACTEMENT la meme chose dans le .env
+      # d'Identity. Un ecart se voit au premier appel, dans les journaux d'ici.
+      #
+      # « :- » ET NON « :? », CONTRAIREMENT A DELIVERY. Sans son secret,
+      # Delivery ne peut plus affecter de livreur : mieux vaut qu'il refuse de
+      # demarrer. Notification, lui, continue d'envoyer les codes de connexion
+      # et les codes de remise sans jeton de service — seul le recu de course
+      # en depend. Le faire refuser de demarrer couterait des connexions pour
+      # sauver un recu.
+      Services__Directory: ${DIRECTORY_GRPC:-http://directory:8081}
+      ServiceToken__IdentityAddress: ${IDENTITY_GRPC:-http://identity:8081}
+      ServiceToken__ClientId: notification
+      ServiceToken__ClientSecret: ${SERVICE_SECRET_NOTIFICATION:-}
       # À TRANCHER : aucun opérateur SMS n'est choisi. Tant que cette valeur
       # reste « none », les envois sont consignés comme ignorés — visible dans
       # notification.sent_notifications, et silencieux pour l'utilisateur.

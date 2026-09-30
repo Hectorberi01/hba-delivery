@@ -56,10 +56,12 @@ class Dossier {
     required this.motif,
     required this.pieces,
     required this.manquantes,
+    required this.exigees,
     required this.vehiculeType,
     required this.plaque,
     required this.photoProfil,
     required this.peutSoumettre,
+    required this.vehiculeDeclare,
     required this.soumisLe,
   });
 
@@ -67,20 +69,32 @@ class Dossier {
   final String motif;
   final List<PieceDeposee> pieces;
   final List<Piece> manquantes;
+
+  /// Les pieces exigees POUR CE VEHICULE, deposees ou non.
+  ///
+  /// ELLE VIENT DU SERVICE, ET CE N'EST PAS UN CAPRICE. L'ecran affichait les
+  /// cinq natures en dur ; depuis que le velo existe (30 septembre 2026), un
+  /// cycliste y voyait « permis » et « carte grise », deux lignes qu'il n'aurait
+  /// jamais pu satisfaire. La regle est metier : la recopier ici en aurait fait
+  /// une seconde version, qui aurait diverge.
+  final List<Piece> exigees;
+
   final String vehiculeType;
   final String plaque;
   final String photoProfil;
   final bool peutSoumettre;
+
+  /// Le vehicule est-il declare ? RENDU PAR LE SERVICE depuis le 30 septembre
+  /// 2026. L'application le devinait par « la plaque n'est pas vide » — un velo
+  /// n'en a pas, et serait reste « non declare » pour toujours.
+  final bool vehiculeDeclare;
+
   final DateTime? soumisLe;
 
   bool get enAttente => statut == 'PendingVerification';
   bool get valide => statut == 'Verified';
   bool get rejete => statut == 'Rejected';
   bool get suspendu => statut == 'Suspended';
-
-  /// Le vehicule est-il declare ? La plaque fait foi : le type nait a
-  /// « Motorcycle » sans que personne ne l'ait dit.
-  bool get vehiculeDeclare => plaque.isNotEmpty;
 
   static DateTime? _date(Object? brut) =>
       brut is String && brut.isNotEmpty ? DateTime.tryParse(brut)?.toLocal() : null;
@@ -108,10 +122,16 @@ class Dossier {
           for (final m in manquantes)
             if (Piece.parCode(m as String? ?? '') case final piece?) piece,
       ],
+      exigees: [
+        if (json['requiredDocuments'] case final List brut)
+          for (final e in brut)
+            if (Piece.parCode(e as String? ?? '') case final piece?) piece,
+      ],
       vehiculeType: vehicule is Map ? vehicule['type'] as String? ?? '' : '',
       plaque: vehicule is Map ? vehicule['plate'] as String? ?? '' : '',
       photoProfil: json['profilePhotoUrl'] as String? ?? '',
       peutSoumettre: json['canSubmit'] as bool? ?? false,
+      vehiculeDeclare: json['vehicleDeclared'] as bool? ?? false,
       soumisLe: _date(json['submittedAt']),
     );
   }
@@ -161,7 +181,12 @@ class DossierRepository {
 
     await _api.upload(
       '/documents?type=${piece.code}',
-      formulaire: FormData.fromMap({
+      // UNE FORMDATA NEUVE A CHAQUE TENTATIVE. Elle etait construite ici, une
+      // fois : le rejeu qui suit un rafraichissement de jeton la renvoyait
+      // finalisee et echouait en « erreur inattendue ». C'est le cas le plus
+      // courant du dossier — on prend ses photos tranquillement, et le jeton
+      // expire avant qu'on appuie.
+      formulaire: () async => FormData.fromMap({
         'fichier': await MultipartFile.fromFile(
           reduit.path,
           filename: 'piece.jpg',
@@ -184,7 +209,7 @@ class DossierRepository {
 
     await _api.upload(
       '/profile-photo',
-      formulaire: FormData.fromMap({
+      formulaire: () async => FormData.fromMap({
         'fichier': await MultipartFile.fromFile(reduit.path, filename: 'profil.jpg'),
       }),
       idempotencyKey: ApiClient.newIdempotencyKey(),

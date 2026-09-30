@@ -5,11 +5,23 @@ version: 0.1.0
 
 environment:
   sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.27.0"
 
 dependencies:
+  # DECLARE, ALORS QU'IL L'ETAIT DEJA EN FAIT. Ce paquet depend de
+  # flutter_secure_storage, qui est un greffon Flutter : Flutter etait donc une
+  # dependance reelle, non ecrite, empruntee a l'application qui consomme le
+  # paquet. La declarer est ce qui permet a « flutter test » de tourner ici.
+  flutter:
+    sdk: flutter
   dio: ^5.7.0
   flutter_secure_storage: ^9.2.2
   uuid: ^4.5.1
 
 dev_dependencies:
+  # hba_core n'avait AUCUN test, et c'est le paquet qui porte la session, le
+  # rafraichissement et la file : le defaut B6 de l'audit du 30/09/2026 vivait
+  # ici, dans du code que rien n'exercait.
+  flutter_test:
+    sdk: flutter
   lints: ^5.0.0

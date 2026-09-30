@@ -6,6 +6,7 @@ using Hba.BuildingBlocks.Messaging.Extensions;
 using Hba.BuildingBlocks.Messaging.Inbox;
 using Hba.BuildingBlocks.Messaging.Outbox;
 using Hba.BuildingBlocks.Persistence;
+using Hba.Contracts.Billing.V1;
 using Hba.Contracts.Driver.V1;
 using Hba.Contracts.Payment.V1;
 using Hba.Contracts.Pricing.V1;
@@ -89,6 +90,7 @@ public static class DeliveryInfrastructureExtensions
         var pricing = new Uri(configuration["Services:Pricing"] ?? "http://pricing:8081");
         var payment = new Uri(configuration["Services:Payment"] ?? "http://payment:8081");
         var driver = new Uri(configuration["Services:Driver"] ?? "http://driver:8081");
+        var billing = new Uri(configuration["Services:Billing"] ?? "http://billing:8081");
 
         services.AddHbaGrpcClient<PricingService.PricingServiceClient>(pricing, TimeSpan.FromSeconds(3));
 
@@ -100,12 +102,38 @@ public static class DeliveryInfrastructureExtensions
         services.AddHbaGrpcClient<PaymentService.PaymentServiceClient>(payment, TimeSpan.FromSeconds(20));
         services.AddHbaGrpcClient<DriverService.DriverServiceClient>(driver, TimeSpan.FromSeconds(3));
 
+        // BILLING NE SORT PAS DU RESEAU : il lit une ligne, pose un verrou et
+        // ecrit. Trois secondes suffisent largement, et une echeance courte est
+        // ici une PROTECTION : le verrou de ligne est tenu pendant tout l'appel,
+        // et un appelant qui attendrait vingt secondes ferait patienter toutes
+        // les courses du meme donneur d'ordre derriere lui.
+        services.AddHbaGrpcClient<BillingService.BillingServiceClient>(billing, TimeSpan.FromSeconds(3));
+
         services.AddScoped<IPricingClient, PricingGrpcClient>();
         services.AddScoped<IPaymentClient, PaymentGrpcClient>();
+        services.AddScoped<IBillingClient, BillingGrpcClient>();
         services.AddScoped<IDriverDirectory, DriverGrpcDirectory>();
 
         // L'AFFECTATION DU LIVREUR NAIT D'UN EVENEMENT, PAS D'UNE REQUETE :
         // il faut une identite propre pour appeler Driver. Voir ADR 0018.
         services.AddHbaServiceToken(configuration);
+
+        // LE DEPOT DES PREUVES EST LE SEUL CLIENT HTTP DE CE SERVICE, et il l'est
+        // par l'ADR 0021 : gRPC porte mal les binaires. Media expose une route
+        // HTTP parce que c'est son metier.
+        //
+        // LE PORT 8080 CETTE FOIS, PAS 8081 : c'est la surface HTTP de Media, pas
+        // sa surface gRPC — l'inverse exact des clients ci-dessus, et la raison
+        // pour laquelle cette adresse porte son propre nom de configuration.
+        //
+        // DEUX MINUTES, comme le relais de la passerelle : une photo compressee
+        // pese 100 a 300 Ko, mais elle traverse d'abord un reseau mobile de
+        // Cotonou avant d'arriver ici, et c'est ce premier saut qui decide.
+        services.AddHttpClient<IDepotDePreuve, DepotDePreuveHttp>(client =>
+        {
+            client.BaseAddress = new Uri(
+                configuration["Services:MediaHttp"] ?? "http://media:8080");
+            client.Timeout = TimeSpan.FromMinutes(2);
+        });
     }
 }

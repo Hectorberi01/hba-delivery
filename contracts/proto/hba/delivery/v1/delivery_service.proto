@@ -40,6 +40,15 @@ service DeliveryService {
   // C'est la seule voie vers DELIVERED.
   rpc ConfirmDelivery(ConfirmDeliveryRequest) returns (Delivery);
 
+  // Le livreur constate que la course ne peut pas aboutir : destinataire
+  // absent, adresse fausse, code bloqué. La course part en FAILED et il est
+  // libéré.
+  //
+  // JAMAIS « DELIVERED ». Marquer une course comme remise reste hors de sa
+  // portée sans l'OTP du destinataire, et c'est la seule chose qui distingue
+  // « le colis a été remis » de « quelqu'un a cliqué ».
+  rpc DeclareIncident(DeclareIncidentRequest) returns (Delivery);
+
   // Admin / ops : clôture forcée en FAILED ou CANCELLED, avec motif obligatoire.
   // Un admin ne peut jamais produire DELIVERED.
   rpc AdminCloseDelivery(AdminCloseDeliveryRequest) returns (Delivery);
@@ -137,6 +146,12 @@ message Delivery {
   // L'OTP de remise n'est JAMAIS exposé au livreur. Le service ne le renseigne
   // que pour le client donneur d'ordre. Il reste vide pour tout autre appelant.
   string delivery_otp = 24;
+
+  // Remboursement CONSTATÉ, jamais déclenché par nous : FedaPay n'expose aucune
+  // API de remboursement (vérifié le 30 septembre 2026). Renseigné pour le
+  // donneur d'ordre et le back-office seulement.
+  google.protobuf.Timestamp refunded_at = 25;
+  bool refund_partial = 26;
 }
 
 message CreateDeliveryRequest {
@@ -244,6 +259,16 @@ message ConfirmDeliveryRequest {
   google.protobuf.Timestamp occurred_at = 3;
   string idempotency_key = 4;
   string proof_object_key = 5;
+}
+
+message DeclareIncidentRequest {
+  string delivery_id = 1;
+  // TEXTE LIBRE, ET C'EST VOLONTAIRE : aucune liste d'incidents n'est tranchée.
+  // La graver ici avant qu'elle soit décidée, c'est la figer dans le contrat et
+  // dans la base. L'application propose des formulations, rien de plus.
+  string reason = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+  string idempotency_key = 4;
 }
 
 message AdminCloseDeliveryRequest {

@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package hba.billing.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/envelope.proto";
+import "hba/common/v1/money.proto";
+
+option csharp_namespace = "Hba.Contracts.Billing.V1";
+
+// Topic : hba.billing.events.v1 — clé de partition : owner_type:owner_id.
+//
+// LA CLÉ EST LE TITULAIRE, ET NON LE COMPTE. C'est le même couple que partout
+// ailleurs dans ce service, et il se lit sans rien interroger : un consommateur
+// qui ne connaît que « merchant:m-42 » retrouve ses messages dans l'ordre. La
+// clé technique du compte l'obligerait à la demander d'abord.
+//
+// UN SEUL ÉVÉNEMENT SORT, ET C'EST VOULU. Les débits et les crédits restent
+// dans le service : personne n'en a besoin, et publier un flux comptable que
+// rien ne lit donnerait l'illusion d'une intégration en place. Le jour où un
+// grand livre ou un rapprochement les demandera, ils s'ajouteront ici.
+message BillingEvent {
+  hba.common.v1.EventEnvelope envelope = 1;
+
+  oneof payload {
+    LowBalanceReached low_balance_reached = 10;
+  }
+}
+
+// Le solde vient de passer SOUS le seuil d'alerte, à l'instant précis où il l'a
+// franchi.
+//
+// UNE FOIS PAR FRANCHISSEMENT, PAS À CHAQUE COURSE. Le domaine compare le solde
+// avant et après le mouvement : un compte déjà sous son seuil ne réémet rien.
+// Sans cette règle, un commerçant à sec recevrait un message par course, ce qui
+// est la façon la plus sûre de faire ignorer le premier.
+//
+// CE N'EST PAS UN REFUS. Le compte porte encore des courses ; l'alerte existe
+// justement pour que le titulaire recharge AVANT d'en voir une refusée.
+message LowBalanceReached {
+  string account_id = 1;
+  // « merchant » ou « partner », et son identifiant.
+  string owner_type = 2;
+  string owner_id = 3;
+  hba.common.v1.Money balance = 4;
+  hba.common.v1.Money threshold = 5;
+  google.protobuf.Timestamp occurred_at = 6;
+}

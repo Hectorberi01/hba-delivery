@@ -35,10 +35,13 @@ public sealed class RoleConsistencyTests
     [InlineData("ops")]
     [InlineData("support")]
     [InlineData("finance")]
+    [InlineData("service")]
     public void Les_noms_du_référentiel_acteurs_sont_repris_tels_quels(string role)
     {
-        // Le référentiel impose ces neuf chaînes, dans le code, les claims JWT
-        // et la documentation. Aucune variante n'est tolérée.
+        // Le référentiel impose ces chaînes, dans le code, les claims JWT et la
+        // documentation. Aucune variante n'est tolérée. « service » a rejoint la
+        // liste le 30 septembre 2026 : ce n'est pas une personne, c'est un
+        // morceau du déploiement, et il n'ouvre que des lectures nommées.
         HbaRoles.All.Should().Contain(role);
         IdentityRoles.All.Should().Contain(role);
     }

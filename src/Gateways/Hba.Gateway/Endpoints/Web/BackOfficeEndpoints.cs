@@ -220,6 +220,22 @@ public static class BackOfficeEndpoints
             return Results.Ok(result);
         });
 
+        // LEVER LA SUSPENSION, CE QUI N'EXISTAIT NULLE PART. Le domaine promettait
+        // « seul ops la leve » et aucune porte ne le permettait : un livreur
+        // suspendu par erreur etait exclu a vie.
+        drivers.MapPost("/{driverId}/reinstate", async (
+            string driverId,
+            SuspendDto body,
+            DriverService.DriverServiceClient driverService,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await driverService.ReinstateDriverAsync(
+                new ReinstateDriverRequest { DriverId = driverId, Reason = body.Reason },
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(result);
+        });
+
         return app;
     }
 
@@ -245,6 +261,8 @@ public static class BackOfficeEndpoints
         VehicleType.Motorcycle => "VEHICLE_TYPE_MOTORCYCLE",
         VehicleType.Car => "VEHICLE_TYPE_CAR",
         VehicleType.Van => "VEHICLE_TYPE_VAN",
+        VehicleType.Bicycle => "VEHICLE_TYPE_BICYCLE",
+        VehicleType.Tricycle => "VEHICLE_TYPE_TRICYCLE",
         _ => "VEHICLE_TYPE_UNSPECIFIED",
     };
 }

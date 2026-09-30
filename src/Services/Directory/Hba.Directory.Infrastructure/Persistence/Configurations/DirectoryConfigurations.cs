@@ -22,6 +22,13 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(c => c.Phone).HasColumnName("phone").HasMaxLength(20).IsRequired();
         builder.Property(c => c.Email).HasColumnName("email").HasMaxLength(200);
 
+        // PAS D'INDEX, ET PAS DE CLE ETRANGERE. La colonne ne sert jamais de
+        // critere de recherche — on part toujours du client pour aller vers sa
+        // photo, jamais l'inverse — et la table des medias vit dans une AUTRE
+        // base : une contrainte referentielle y est impossible, ce qui est le
+        // prix assume du decoupage (point 27).
+        builder.Property(c => c.PhotoMediaId).HasColumnName("photo_media_id");
+
         builder.HasIndex(c => c.Phone).IsUnique();
 
         // Les adresses favorites n'existent pas hors d'un client : type possédé,
@@ -31,6 +38,33 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             address.ToTable("customer_favorite_addresses");
             address.WithOwner().HasForeignKey("CustomerId");
             address.HasKey(a => a.Id);
+
+            // CETTE LIGNE EST CE QUI FAIT INSERER UNE ADRESSE FAVORITE, et elle n'est pas
+            // decorative.
+            //
+            // PAR CONVENTION, EF REND UNE CLE Guid « ValueGeneratedOnAdd ».
+            // Quand il decouvre un enfant dans une collection possedee dont le
+            // proprietaire est DEJA EN BASE, il tranche « neuf ou existant ? »
+            // en croisant deux choses : la cle est-elle renseignee, et est-elle
+            // censee venir du magasin ? Les deux oui ensemble lui font conclure
+            // que la ligne existe : UPDATE de toutes les colonnes sur une ligne
+            // jamais ecrite, zero ligne affectee, DbUpdateConcurrencyException,
+            // et un 500 a l'ecran.
+            //
+            // LA MEME PANNE A ETE CORRIGEE DEUX FOIS AILLEURS LE 27 SEPTEMBRE
+            // 2026 — offer.Id dans Dispatch, documents.Id dans Driver — et
+            // Directory a ete oublie. Elle ne se declenche que lorsque le
+            // proprietaire est deja persiste, ce qui est exactement pourquoi
+            // personne ne l'a vue : la toute premiere adresse d'un client
+            // fraichement cree passait, le reste non.
+            //
+            // ValueGeneratedNever CASSE LE CROISEMENT : la cle est posee par le
+            // domaine, mais le magasin n'y est pour rien, donc l'enfant est
+            // neuf. On garde cette forme plutot que le generateur EF de Driver
+            // parce que l'identifiant sert a l'appelant : « PUT » et
+            // « DELETE /addresses/{id} » le reprennent tel quel.
+            address.Property(a => a.Id).ValueGeneratedNever();
+
 
             address.Property(a => a.Label).HasColumnName("label").HasMaxLength(60).IsRequired();
             address.Property(a => a.IsDefault).HasColumnName("is_default");
@@ -87,6 +121,15 @@ internal sealed class MerchantConfiguration : IEntityTypeConfiguration<Merchant>
             point.ToTable("merchant_pickup_points");
             point.WithOwner().HasForeignKey("MerchantId");
             point.HasKey(p => p.Id);
+
+            // MEME CORRECTIF, MEME RAISON, ET IL N'ETAIT PAS ENCORE TOMBE.
+            // Ajouter un point de collecte a un commercant DEJA EN BASE
+            // echouait a l'identique ; seul le premier point, pose pendant la
+            // creation du commercant — ou tout le graphe est « Added » —
+            // fonctionnait. Voir le commentaire des adresses favorites,
+            // au-dessus.
+            point.Property(p => p.Id).ValueGeneratedNever();
+
 
             point.Property(p => p.Name).HasColumnName("name").HasMaxLength(120).IsRequired();
             point.Property(p => p.IsActive).HasColumnName("is_active");

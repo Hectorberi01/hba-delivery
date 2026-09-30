@@ -48,6 +48,8 @@ internal sealed class CustomerRepository(DirectoryDbContext context) : ICustomer
 
     public void Add(Customer customer) => context.Customers.Add(customer);
 
+    public void Remove(Customer customer) => context.Customers.Remove(customer);
+
     private IQueryable<Customer> Filter(string? query)
     {
         var customers = context.Customers.AsQueryable();

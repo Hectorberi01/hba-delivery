@@ -16,6 +16,7 @@ message NotificationCommand {
     SendSms send_sms = 10;
     SendWhatsApp send_whatsapp = 11;
     SendPush send_push = 12;
+    SendEmail send_email = 13;
   }
 }
 
@@ -32,6 +33,34 @@ message SendWhatsApp {
 }
 
 message SendPush {
+  string subject_id = 1;
+  string template_id = 2;
+  map<string, string> variables = 3;
+}
+
+// L'ADRESSE N'EST PAS DANS LA COMMANDE, ET C'EST LE POINT DELICAT.
+//
+// SendSms et SendWhatsApp portent un numero parce que celui qui les publie le
+// connait : Identity envoie un code a un telephone qu'il detient. Pour un recu
+// de course, l'adresse vit dans Directory, et le service qui sait qu'une course
+// est terminee est Delivery, qui ne l'a pas.
+//
+// TROIS ISSUES, UNE SEULE TENABLE. Faire appeler Directory par Delivery au
+// moment de clore la course mettrait un appel reseau dans la transaction qui
+// termine une livraison : Directory injoignable, et le livreur ne peut plus
+// clore sa mission. Faire publier la commande par Directory ferait de
+// l'annuaire un producteur de notifications, ce qu'il n'est pas. Reste la
+// troisieme : Notification resout l'adresse lui-meme, au moment d'envoyer.
+// C'est deja sa raison d'etre — « Notification decide du canal et du modele » —
+// et un echec de resolution ne coute alors qu'un renvoi, pas une course bloquee.
+//
+// C'EST AUSSI LA FORME DE SendPush, qui porte un subject_id pour la meme
+// raison : un jeton d'appareil ne se connait pas depuis le service metier.
+//
+// UN CLIENT SANS COURRIEL N'EST PAS UNE ERREUR. Le courriel est facultatif
+// dans ce produit ; l'envoi est alors consigne « ignore », avec son motif.
+message SendEmail {
+  // Le compte destinataire. Notification demande son adresse a Directory.
   string subject_id = 1;
   string template_id = 2;
   map<string, string> variables = 3;

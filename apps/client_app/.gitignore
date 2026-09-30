@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# LES DEFINITIONS DE COMPILATION, QUI PORTENT L'ADRESSE DE VOTRE MACHINE.
+# dart_defines.example.json, lui, EST versionne : c'est le modele a copier.
+dart_defines.json

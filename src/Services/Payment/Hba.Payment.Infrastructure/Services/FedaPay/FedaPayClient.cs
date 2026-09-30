@@ -34,6 +34,32 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
     /// <summary>Noms sous lesquels l'adresse de paiement peut arriver.</summary>
     private static readonly string[] UrlFields = ["payment_url", "url"];
 
+    /// <summary>
+    /// Indicatifs de la zone ou l'agregateur encaisse, et leur code ISO.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// CETTE TABLE EXISTE PARCE QU'UN NUMERO NE DIT PAS SON PAYS TOUT SEUL, et
+    /// que le code precedent le decidait pour lui : il collait
+    /// « CustomerCountry » — « bj » — sur le numero du jeton, quel qu'il soit.
+    /// Un client inscrit avec un numero francais partait donc chez FedaPay
+    /// comme « +33… au Benin ». La transaction se creait, la page s'ouvrait, et
+    /// le debit echouait sans rien dire : le fournisseur sollicite le numero du
+    /// client quand la demande n'en porte pas d'autre, et aucun operateur
+    /// beninois ne debite un +33.
+    /// </remarks>
+    private static readonly (string Indicatif, string Iso)[] Indicatifs =
+    [
+        ("+229", "bj"),
+        ("+225", "ci"),
+        ("+226", "bf"),
+        ("+221", "sn"),
+        ("+228", "tg"),
+        ("+223", "ml"),
+        ("+227", "ne"),
+        ("+245", "gw"),
+    ];
+
     private readonly FedaPayOptions _options = options.Value;
 
     public string Name => _options.IsLive ? "fedapay (live)" : "fedapay (sandbox)";
@@ -75,16 +101,53 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
             request["callback_url"] = callback;
         }
 
-        if (!string.IsNullOrWhiteSpace(payerPhone))
+        // UN CLIENT DE PLUS CHEZ LE FOURNISSEUR A CHAQUE COURSE, et c'est le
+        // prix de ce qui suit. Verifie le 29 septembre 2026 : deux creations
+        // portant le MEME numero produisent deux « customer_id » differents —
+        // le fournisseur ne rapproche pas sur le telephone, il rapproche sur
+        // l'ADRESSE DE COURRIEL, que nous n'envoyons pas. Sa console se
+        // remplira donc de « Unknown Unknown » sans courriel, un par course.
+        //
+        // CE N'EST PAS UN OUBLI QU'ON CORRIGE EN UNE LIGNE. Delivery ne detient
+        // que l'identifiant du client ; son nom et son courriel vivent dans
+        // Directory, et ce depot refuse deliberement d'appeler Directory dans
+        // le chemin de paiement — Directory injoignable, et plus personne ne
+        // peut commander. Le rapprochement comptable passe donc par
+        // « custom_metadata », qui porte la course et l'intention.
+        //
+        // LE NUMERO N'EST TRANSMIS QUE S'IL EST DU PAYS OU L'ON ENCAISSE.
+        //
+        // Il ne sert qu'a preremplir la page et a servir de cible de repli : le
+        // payeur choisit de toute facon son operateur et son numero sur l'ecran
+        // du fournisseur. En transmettre un qui ne peut pas etre debite est
+        // donc sans benefice et avec un cout — celui d'une transaction qui
+        // echoue sans motif lisible.
+        //
+        // ON N'ENVOIE PAS DE « customer » SANS NUMERO. La documentation le
+        // donne pour facultatif, et un objet client vide n'apporte rien : le
+        // rapprochement comptable passe par custom_metadata, pas par lui.
+        var paysDuPayeur = PaysDuNumero(payerPhone);
+
+        if (paysDuPayeur is not null
+            && string.Equals(paysDuPayeur, _options.CustomerCountry, StringComparison.OrdinalIgnoreCase))
         {
             request["customer"] = new Dictionary<string, object?>
             {
                 ["phone_number"] = new Dictionary<string, string>
                 {
                     ["number"] = payerPhone,
-                    ["country"] = _options.CustomerCountry,
+                    ["country"] = paysDuPayeur,
                 },
             };
+        }
+        else if (!string.IsNullOrWhiteSpace(payerPhone))
+        {
+            // LE NUMERO N'APPARAIT PAS DANS CETTE LIGNE. C'est une donnee
+            // personnelle, et le pays deduit suffit a comprendre.
+            logger.LogInformation(
+                "Numero du payeur non transmis : pays deduit {Pays}, encaissement en {Encaissement}.",
+                paysDuPayeur ?? "inconnu",
+                _options.CustomerCountry);
         }
 
         var transaction = await PostAsync("transactions", request, cancellationToken).ConfigureAwait(false);
@@ -95,6 +158,15 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
         // la latence d'ouverture d'un paiement, et donc le risque de depasser
         // l'echeance que Delivery nous accorde. Il ne reste qu'en repli, au
         // cas ou une reponse ne porterait pas l'adresse.
+        //
+        // VERIFIE LE 29 SEPTEMBRE 2026, ET IL AVAIT ETE MIS EN DOUTE DEUX FOIS.
+        // La documentation du fournisseur ne decrit l'adresse que sur le point
+        // /token, et une lecture A POSTERIORI d'une transaction rend
+        // « payment_url: null » — deux raisons de croire ce commentaire faux.
+        // Trois creations reelles ont tranche : la reponse de creation porte
+        // « payment_url » ET « payment_token ». Le repli n'a jamais servi.
+        // Voir scripts/fedapay-essai.sh, qui repose la question en trente
+        // secondes.
         var checkoutUrl = ReadUrl(transaction);
 
         if (checkoutUrl is null)
@@ -275,6 +347,27 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
                 && !string.IsNullOrWhiteSpace(valeur.GetString()))
             {
                 return valeur.GetString();
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Pays d'un numero E.164, ou null si son indicatif n'est pas de la zone.
+    /// </summary>
+    private static string? PaysDuNumero(string? numero)
+    {
+        if (string.IsNullOrWhiteSpace(numero))
+        {
+            return null;
+        }
+
+        foreach (var (indicatif, iso) in Indicatifs)
+        {
+            if (numero.StartsWith(indicatif, StringComparison.Ordinal))
+            {
+                return iso;
             }
         }
 

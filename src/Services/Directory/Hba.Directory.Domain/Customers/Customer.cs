@@ -51,6 +51,24 @@ public sealed class Customer : AggregateRoot
     public DateTimeOffset CreatedAt { get; private set; }
 
     /// <summary>
+    /// Identifiant du média qui porte la photo de profil, ou null.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// UN IDENTIFIANT, PAS UNE CLE DE STOCKAGE, ET PAS UNE URL. Le service
+    /// Driver garde une clé (« drivers/…/profilephoto/….jpg ») : elle dit où
+    /// est le fichier, donc elle oblige Driver à connaître le rangement du
+    /// stockage, et elle devient fausse le jour où ce rangement change. Une URL
+    /// serait pire encore — elle est signée, donc périmée en quelques minutes,
+    /// et une colonne qui contient une valeur périmée est une colonne qui ment.
+    ///
+    /// CE QUE DIRECTORY SAIT, C'EST QUE CE CLIENT A UNE PHOTO ET LAQUELLE.
+    /// Où elle est rangée, sous quel nom et pour combien de temps, c'est
+    /// l'affaire de Media (point 27).
+    /// </remarks>
+    public Guid? PhotoMediaId { get; private set; }
+
+    /// <summary>
     /// Créé à la réception de l'événement AccountRegistered d'Identity. C'est le
     /// seul chemin : aucun profil ne naît d'une demande de livraison.
     /// </summary>
@@ -77,6 +95,63 @@ public sealed class Customer : AggregateRoot
         customer.Raise(new CustomerProfileCreated(accountId, customer.Phone, actor, createdAt));
 
         return customer;
+    }
+
+    /// <summary>
+    /// Attache une photo, et rend celle qu'elle remplace.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LE RETOUR N'EST PAS DECORATIF : c'est le seul moment où l'ancienne photo
+    /// est encore nommable. Une fois la colonne écrasée, le média précédent
+    /// existe toujours dans le stockage et plus rien dans Directory ne sait
+    /// qu'il est à jeter. L'appelant s'en sert pour demander sa suppression à
+    /// Media — et s'il ne le fait pas, l'inventaire de Media permet au moins de
+    /// le retrouver, ce que l'ancien rangement par clés ne permettait pas.
+    ///
+    /// ON N'EN GARDE QU'UNE : personne n'a deux visages. C'est la même règle
+    /// que MediaKinds.EstUnique côté Media, écrite ici parce que c'est ici
+    /// qu'elle se décide.
+    /// </remarks>
+    /// <returns>L'identifiant de la photo remplacée, ou null s'il n'y en avait pas.</returns>
+    public Guid? SetPhoto(Guid mediaId, Actor actor, DateTimeOffset now)
+    {
+        if (mediaId == Guid.Empty)
+        {
+            throw new DomainException(
+                "PHOTO_MEDIA_REQUIRED",
+                "Une photo sans identifiant de média serait introuvable.");
+        }
+
+        var precedente = PhotoMediaId;
+
+        // LE MEME MEDIA REDEPOSE N'EST PAS UN REMPLACEMENT. Rendre l'ancien
+        // identifiant ferait supprimer le fichier que la colonne vient
+        // d'accepter : le client aurait une photo enregistrée et rien derrière.
+        if (precedente == mediaId)
+        {
+            return null;
+        }
+
+        PhotoMediaId = mediaId;
+        Raise(new CustomerPhotoChanged(Id, mediaId, actor, now));
+
+        return precedente;
+    }
+
+    /// <summary>Retire la photo, et rend celle qu'il faut effacer.</summary>
+    public Guid? RemovePhoto(Actor actor, DateTimeOffset now)
+    {
+        var precedente = PhotoMediaId;
+        if (precedente is null)
+        {
+            return null;
+        }
+
+        PhotoMediaId = null;
+        Raise(new CustomerPhotoChanged(Id, null, actor, now));
+
+        return precedente;
     }
 
     public void UpdateProfile(string? displayName, string? email, Actor actor, DateTimeOffset now)

@@ -43,7 +43,7 @@ void main() {
       expect(DeliveryStatus.delivered.canCancel, isFalse);
     });
 
-    test('le prix vient du detail tarifaire, int64 en chaine', () {
+    test('le prix vient du détail tarifaire, int64 en chaîne', () {
       final delivery = Delivery.fromJson({
         'id': 'd-1',
         'status': 'DELIVERY_STATUS_PAID',

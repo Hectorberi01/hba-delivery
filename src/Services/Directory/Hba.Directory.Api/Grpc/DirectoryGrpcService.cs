@@ -114,6 +114,63 @@ public sealed class DirectoryGrpcService(IDispatcher dispatcher) : DirectoryServ
         return DirectoryProtoMapper.ToProto(view);
     }
 
+    // --------------------------------------------- Photo de profil ---
+
+    /// <summary>
+    /// Attache au profil une photo déjà déposée dans Media.
+    ///
+    /// LE SERVICE REVERIFIE CE QUE LA PASSERELLE A FAIT. C'est la passerelle
+    /// qui relaie le fichier vers Media puis appelle cette méthode avec
+    /// l'identifiant obtenu — mais rien ici ne la croit sur parole : le
+    /// handler demande à Media ce qu'est ce média, et refuse tout ce qui n'est
+    /// pas une photo de profil appartenant à l'appelant.
+    /// </summary>
+    public override async Task<ProtoCustomer> SetCustomerPhoto(
+        SetCustomerPhotoRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new SetCustomerPhotoCommand(ParseId(request.MediaId, "média")),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return DirectoryProtoMapper.ToProto(view);
+    }
+
+    public override async Task<ProtoCustomer> RemoveCustomerPhoto(
+        RemoveCustomerPhotoRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new RemoveCustomerPhotoCommand(),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return DirectoryProtoMapper.ToProto(view);
+    }
+
+    public override async Task<GetCustomerPhotoLinkResponse> GetCustomerPhotoLink(
+        GetCustomerPhotoLinkRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var lien = await dispatcher.QueryAsync(
+            new GetCustomerPhotoLinkQuery(Nullify(request.CustomerId)),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return new GetCustomerPhotoLinkResponse
+        {
+            Url = lien.Url.ToString(),
+            ExpiresAt = Timestamp.FromDateTimeOffset(lien.ExpiresAt),
+        };
+    }
+
     // ------------------------------------------------------ Commerçant ---
 
     public override async Task<ProtoMerchant> GetMerchant(GetMerchantRequest request, ServerCallContext context)

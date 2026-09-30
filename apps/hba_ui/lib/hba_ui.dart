@@ -3,6 +3,10 @@ library;
 
 export 'src/carte_style.dart';
 
+// LES EPINGLES DE CARTE. Elles vivaient dans driver_app, ou la carte du client
+// ne pouvait pas les atteindre : elle en etait restee aux ballons de Google.
+export 'src/epingles.dart';
+
 // LE CADRE D'UN DOCUMENT JURIDIQUE EST COMMUN, LES TEXTES NE LE SONT PAS.
 // La forme — chapeau, sections, version, bandeau « brouillon » — vaut pour le
 // livreur comme pour le client ; ce qui est ecrit dedans ne se partage pas.

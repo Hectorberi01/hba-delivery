@@ -31,6 +31,29 @@ service DirectoryService {
   rpc UpdateFavoriteAddress(UpdateFavoriteAddressRequest) returns (Customer);
   rpc RemoveFavoriteAddress(RemoveFavoriteAddressRequest) returns (Customer);
 
+  // LA PHOTO DE PROFIL : ATTACHER, DETACHER, ET DEMANDER A LA VOIR.
+  //
+  // LES OCTETS NE PASSENT PAS PAR ICI. Le fichier est déposé dans Media, en
+  // HTTP ; ce que Directory reçoit, c'est l'identifiant du média déposé. Le
+  // service vérifie que l'appelant a le droit d'écrire sur CE profil avant de
+  // l'enregistrer — la passerelle qui affirmerait « c'est bien lui » ne serait
+  // crue par personne (référentiel des acteurs).
+  rpc SetCustomerPhoto(SetCustomerPhotoRequest) returns (Customer);
+  rpc RemoveCustomerPhoto(RemoveCustomerPhotoRequest) returns (Customer);
+
+  // L'URL SIGNEE POUR AFFICHER LA PHOTO.
+  //
+  // UN APPEL A PART, ET NON UN CHAMP DE « Customer ». Une URL signée expire en
+  // quelques minutes : la mettre dans la fiche obligerait à appeler Media à
+  // chaque lecture de profil, y compris pour les clients qui n'ont pas de
+  // photo, et donnerait une valeur périmée à quiconque garde la réponse.
+  // L'application demande le lien quand elle a une photo à afficher, et
+  // seulement alors.
+  //
+  // C'EST ICI QUE L'AUTORISATION SE VERIFIE (point 27) : Directory sait qui
+  // peut voir la fiche d'un client, Media ne le saurait pas.
+  rpc GetCustomerPhotoLink(GetCustomerPhotoLinkRequest) returns (GetCustomerPhotoLinkResponse);
+
   // --- Annuaire client, back-office ---
   //
   // RÉSERVÉ À admin, ops ET support — PAS À FINANCE, et ce n'est pas un
@@ -92,6 +115,9 @@ message Customer {
   string email = 4;
   repeated FavoriteAddress favorite_addresses = 5;
   google.protobuf.Timestamp created_at = 6;
+  // Identifiant du média qui porte la photo, vide s'il n'y en a pas. Ce n'est
+  // ni une URL ni une clé de stockage : voir GetCustomerPhotoLink.
+  string photo_media_id = 7;
 }
 
 // Plage d'ouverture d'un jour. Un jour sans plage est un jour fermé.
@@ -193,6 +219,28 @@ message GetCustomerRequest {
 
 // Vide, et destiné à le rester : l'identité vient du jeton, pas du corps.
 message EnsureCustomerRequest {
+}
+
+message SetCustomerPhotoRequest {
+  // Le média déposé dans Media, dont la nature DOIT être PROFILE_PHOTO et le
+  // propriétaire, ce client. Directory le vérifie auprès de Media : sans cela,
+  // un client pourrait faire afficher comme portrait la carte d'identité d'un
+  // autre, dont il aurait deviné l'identifiant.
+  string media_id = 1;
+}
+
+// Vide : on ne retire que sa propre photo, et il n'y en a qu'une.
+message RemoveCustomerPhotoRequest {
+}
+
+message GetCustomerPhotoLinkRequest {
+  // Vide = le client authentifié lui-même. Renseigné, réservé au back-office.
+  string customer_id = 1;
+}
+
+message GetCustomerPhotoLinkResponse {
+  string url = 1;
+  google.protobuf.Timestamp expires_at = 2;
 }
 
 message UpdateCustomerRequest {

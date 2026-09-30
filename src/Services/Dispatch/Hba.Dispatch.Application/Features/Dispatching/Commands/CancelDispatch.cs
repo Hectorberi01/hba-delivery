@@ -1,4 +1,5 @@
 using Hba.BuildingBlocks.Application.Abstractions;
+using Hba.BuildingBlocks.Domain;
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.Dispatch.Application.Common.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -39,7 +40,15 @@ public sealed class CancelDispatchHandler(
         // Cancel est sans effet sur une recherche deja close ou deja
         // attribuee : une course annulee APRES affectation se regle entre
         // Delivery et le livreur, pas ici.
-        dispatch.Cancel(clock.UtcNow);
+        //
+        // L'ACTEUR EST LE PLANIFICATEUR, ET NON CELUI QUI A ANNULE LA COURSE.
+        // Cette commande descend d'un evenement Kafka : la personne qui a
+        // annule est a l'autre bout, dans Delivery, et son identite n'est pas
+        // reportee sur le fil. Ecrire « Customer » ici serait une invention ;
+        // « Scheduler » dit la verite — c'est le systeme qui a ferme la
+        // recherche en apprenant la nouvelle. La raison, elle, est journalisee
+        // juste en dessous.
+        dispatch.Cancel(Actor.Scheduler, clock.UtcNow);
 
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

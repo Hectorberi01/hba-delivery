@@ -161,6 +161,7 @@ public sealed class DirectoryIntegrationEventPublisher : IDirectoryIntegrationEv
         ActorKind.Dispatch => ActorType.Dispatch,
         ActorKind.PaymentProvider => ActorType.PaymentProvider,
         ActorKind.Scheduler => ActorType.Scheduler,
+        ActorKind.Service => ActorType.Service,
         _ => ActorType.Unspecified,
     };
 }

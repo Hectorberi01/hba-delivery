@@ -36,10 +36,18 @@ public sealed class FedaPayOptions
     public string? CallbackUrl { get; set; }
 
     /// <summary>
-    /// Pays du numero transmis au fournisseur, en ISO 3166-1 alpha-2 minuscule.
-    /// « bj » pour le Benin. Le numero, lui, part au format E.164 tel que le
-    /// compte le porte.
+    /// Pays ou ce compte encaisse, en ISO 3166-1 alpha-2 minuscule. « bj » pour
+    /// le Benin.
     /// </summary>
+    ///
+    /// <remarks>
+    /// CE N'EST PLUS « LE PAYS QU'ON COLLE AU NUMERO », ET LA NUANCE VAUT UNE
+    /// PANNE. Ce reglage etiquetait autrefois le numero du payeur quel qu'il
+    /// soit : un client inscrit avec un +33 partait chez le fournisseur comme
+    /// beninois, et son paiement echouait au debit sans motif lisible. Il sert
+    /// desormais de FILTRE — le numero n'est transmis que si son indicatif
+    /// correspond a ce pays — et non d'affirmation.
+    /// </remarks>
     public string CustomerCountry { get; set; } = "bj";
 
     /// <summary>

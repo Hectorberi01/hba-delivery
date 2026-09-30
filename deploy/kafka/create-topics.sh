@@ -18,6 +18,7 @@ hba.dispatch.events.v1
 hba.driver.events.v1
 hba.payment.events.v1
 hba.pricing.events.v1
+hba.billing.events.v1
 hba.notification.commands.v1
 hba.platform.order.events.v1
 "

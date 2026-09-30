@@ -30,10 +30,21 @@ public enum OperationalStatus
     OnMission = 4,
 }
 
+/// <summary>
+/// Reprend hba.common.v1.VehicleType, numéros compris.
+/// </summary>
+///
+/// <remarks>
+/// LE VELO EST LE SEUL SANS MOTEUR, et c'est la seule distinction que ce
+/// service en tire : <see cref="DriverAggregate.PiecesRequisesPour"/> ne lui
+/// demande ni permis ni carte grise. Tranché le 30 septembre 2026.
+/// </remarks>
 public enum VehicleType
 {
     Unspecified = 0,
     Motorcycle = 1,
     Car = 2,
     Van = 3,
+    Bicycle = 4,
+    Tricycle = 5,
 }

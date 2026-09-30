@@ -1,0 +1,17 @@
+{
+  "_lisez_moi": "Copiez ce fichier en dart_defines.json et adaptez HBA_API_BASE a votre machine. Lancez ensuite : flutter run --dart-define-from-file=dart_defines.json",
+
+  "_api": "L'adresse de la passerelle VUE DEPUIS LE TELEPHONE. « localhost » ne designe pas votre Mac quand l'application tourne sur un telephone physique : il faut l'adresse du Mac sur le reseau local, que « ipconfig getifaddr en0 » donne.",
+  "HBA_API_BASE": "http://192.168.1.24:5100/api/client/v1",
+
+  "_support": "Contacts affiches au client dans son profil et dans l'aide. Vides, la carte Assistance affiche la raison de son absence plutot qu'un bouton qui n'ouvre rien. MEMES VALEURS QUE L'APPLICATION LIVREUR, a dessein : c'est la meme ligne et la meme boite. Le jour ou les deux publics seront separes, ce sont ces deux lignes-ci qui changeront, pas le code.",
+  "HBA_SUPPORT_TEL": "+2290197755341",
+  "HBA_SUPPORT_EMAIL": "hector.adjakpa@hbatechettrade.com",
+
+  "_documents": "Adresses des versions PUBLIEES des conditions et de la confidentialite. Facultatives : les textes s'affichent dans l'application, hors ligne. Renseignees, un bouton « Voir la version publiee » apparait en bas de chaque document.",
+  "HBA_CGU": "",
+  "HBA_CONFIDENTIALITE": "",
+
+  "_carte": "Cle Google Maps. Sur iOS elle vient de ios/Flutter/Secrets.xcconfig, sur Android de android/local.properties : cette entree ne sert qu'au web et au bureau.",
+  "MAPS_API_KEY": ""
+}

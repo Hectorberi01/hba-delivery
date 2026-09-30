@@ -15,6 +15,7 @@ import '../../core/signal.dart';
 import '../auth/session_controller.dart';
 import '../profil/profil_repository.dart';
 import '../missions/mission_providers.dart';
+import '../missions/mission_repository.dart';
 import '../missions/mission_screen.dart';
 import '../missions/models.dart';
 import '../missions/offer_sheet.dart';
@@ -92,6 +93,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Timer? _veille;
   bool _sheetOpen = false;
 
+  /// Le livreur s'est mis hors ligne, mais le SERVEUR ne le sait pas encore.
+  ///
+  /// SANS CE DRAPEAU, LES DEUX CORRECTIONS DU 30 SEPTEMBRE 2026 SE
+  /// CONTREDISENT. Le passage hors ligne qui echoue coupe tout localement
+  /// (S3) ; la resynchronisation au retour, elle, lit l'etat du serveur et
+  /// remet en ligne ce qu'il tient pour disponible (S5). Sans memoire de
+  /// l'intention, la seconde defait la premiere : le livreur se met hors
+  /// ligne, revient dans l'application, et se retrouve en ligne sans avoir
+  /// rien demande.
+  bool _horsLigneAConfirmer = false;
+
   /// Derniere position connue, pour la carte. Elle n'est pas relue pour
   /// l'affichage : le battement en produit deja une toutes les vingt
   /// secondes, et un second lecteur doublerait la consommation du GPS.
@@ -111,6 +123,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // AU DEMARRAGE AUSSI : une action mise en file hier soir doit partir des
     // la premiere ouverture, sans attendre que le livreur se remette en ligne.
     Future.microtask(_viderLaFile);
+
+    // C'EST LE SERVEUR QUI SAIT SI LE LIVREUR EST EN LIGNE, PAS CET ECRAN.
+    Future.microtask(_reprendreLEtatDuServeur);
 
     // TANT QUE LE DOSSIER N'EST PAS VALIDE, ON LE GUETTE. La veille se coupe
     // toute seule au premier battement qui le trouve valide.
@@ -175,7 +190,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await _refreshMission();
     unawaited(_viderLaFile());
 
-    if (!_online) return;
+    // L'ETAT OPERATIONNEL SE RELIT ICI, ET C'EST LA CORRECTION S5. Il ne se
+    // lisait qu'au demarrage de l'ecran ; or « _refreshMission » vient
+    // d'invalider le profil et de l'attendre, donc la fiche lue ci-dessous est
+    // fraiche et ne coute aucun appel de plus.
+    await _reprendreLEtatDuServeur();
+
+    if (!mounted || !_online) return;
 
     // LE SILENCE SE MESURE SUR LA DERNIERE POSITION ACCEPTEE, pas sur la duree
     // du sommeil : une mise en veille de trois minutes pendant laquelle deux
@@ -268,6 +289,127 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await ref.read(sessionProvider.notifier).refresh();
   }
 
+  /// Reprend l'etat operationnel que le SERVEUR tient pour vrai.
+  ///
+  /// « _online » ETAIT UN BOOLEEN PUREMENT LOCAL, ET IL MENTAIT A CHAQUE
+  /// REDEMARRAGE. Il n'etait ecrit que par la bascule : au lancement de
+  /// l'application il valait false, l'accueil affichait « hors ligne », et il
+  /// coupait le battement de position comme le sondage d'offres — pendant que
+  /// le serveur, lui, tenait toujours le livreur DISPONIBLE. Aucune mise hors
+  /// ligne automatique n'existe cote service (point 21).
+  ///
+  /// DEUX CONSEQUENCES, ET LA SECONDE COUTE UNE COURSE AU CLIENT. L'onglet
+  /// Profil affichait « DISPONIBLE » a cote d'une bascule eteinte — il lit le
+  /// meme /me, lui. Et pendant les cent vingt secondes ou sa derniere position
+  /// reste fraiche, le livreur pouvait recevoir une offre qu'il ne verrait
+  /// pas : avec un seul livreur sollicite par vague, c'est trente secondes
+  /// pleines perdues pour le client.
+  ///
+  /// ON NE REMET PAS LE LIVREUR EN LIGNE, ON CONSTATE QU'IL L'EST. Aucun appel
+  /// reseau mutant ici : le serveur n'a pas change d'avis, c'est l'ecran qui
+  /// rattrape son retard. Le battement reprend donc, et la position repart.
+  /// LA SYNCHRONISATION VA DANS LES DEUX SENS DEPUIS LE 30 SEPTEMBRE 2026, et
+  /// elle a lieu aussi au retour dans l'application (correction S5).
+  ///
+  /// Elle ne savait que RATTRAPER UN RETARD : serveur en ligne, ecran hors
+  /// ligne. L'inverse n'etait jamais regarde, et il arrive — un livreur
+  /// suspendu par le support, une mise hors ligne forcee, une bascule depuis un
+  /// autre telephone. L'ecran continuait alors d'afficher du vert, de battre et
+  /// de sonder, pour un compte que le serveur ne proposait plus.
+  ///
+  /// ELLE NE S'EXECUTAIT QU'UNE FOIS, au demarrage. Or l'arriere-plan est l'etat
+  /// normal de cette application : le livreur ouvre sa navigation, revient. Tout
+  /// ce qui change pendant ce temps-la n'etait jamais constate.
+  Future<void> _reprendreLEtatDuServeur() async {
+    try {
+      // UNE MISE HORS LIGNE EN ATTENTE PASSE AVANT TOUT, sans quoi on
+      // remettrait en ligne quelqu'un qui a demande le contraire (voir
+      // [_horsLigneAConfirmer]).
+      if (_horsLigneAConfirmer) {
+        await _confirmerHorsLigne();
+        return;
+      }
+
+      final profil = await ref.read(profilProvider.future);
+
+      if (!mounted) return;
+
+      final enLigne = profil.operationnel == EtatOperationnel.disponible ||
+          profil.operationnel == EtatOperationnel.offreEnCours ||
+          profil.operationnel == EtatOperationnel.enMission;
+
+      // LE SENS DESCENDANT : le serveur ne le tient plus pour disponible.
+      //
+      // SEUL « horsLigne » DECLENCHE, JAMAIS « inconnu ». Un statut que
+      // l'application ne sait pas lire est un defaut d'analyse, pas une mise
+      // hors ligne : s'en servir pour couper le travail du livreur ferait payer
+      // une faute de version a celui qui roule.
+      if (_online && profil.operationnel == EtatOperationnel.horsLigne) {
+        _poller?.cancel();
+        _heartbeat?.cancel();
+        _positionAcceptee = null;
+
+        try {
+          await ServiceEnLigne.arreter();
+        } on Object {
+          // Une notification de trop ne justifie pas d'abandonner la reprise.
+        }
+
+        if (!mounted) return;
+
+        setState(() {
+          _online = false;
+          _notice = 'Vous avez été mis hors ligne. Reprenez avec '
+              'l\'interrupteur si vous êtes disponible.';
+        });
+
+        return;
+      }
+
+      if (!enLigne || _online) return;
+
+      setState(() => _online = true);
+
+      _startPolling();
+      _startHeartbeat();
+
+      // UN BATTEMENT TOUT DE SUITE, SANS ATTENDRE LA MINUTERIE. Sans lui,
+      // l'ecran afficherait « hors de portee » pendant vingt secondes alors que
+      // le serveur tient le livreur pour disponible : le contraire du defaut
+      // qu'on corrige.
+      await _pushPosition();
+
+      // LA NOTIFICATION SUIT L'ETAT. Le livreur est en ligne pour le serveur ;
+      // ne pas redemarrer le service de premier plan le laisserait en ligne
+      // sans que rien ne le lui dise, et sans position des que l'ecran passe en
+      // arriere-plan.
+      await ServiceEnLigne.autorisationNotification();
+      await ServiceEnLigne.demarrer();
+    } on Object {
+      // Silencieux, comme la relecture de course : l'accueil ne crie pas parce
+      // que le reseau a hoquete au demarrage. La bascule reste utilisable.
+    }
+  }
+
+  /// Redit au serveur ce qu'il n'a pas pu entendre : ce livreur est hors ligne.
+  ///
+  /// LE GESTE A DEJA EU LIEU POUR LE LIVREUR, il ne reste qu'a le rendre vrai
+  /// pour le reste du systeme. Tant que ce n'est pas fait, sa fiche affiche
+  /// « Disponible » dans l'onglet Profil et le prochain demarrage le remettrait
+  /// en ligne. On reessaie donc a chaque retour dans l'application, sans rien
+  /// dire : il n'y a aucune nouvelle a annoncer a quelqu'un qui se croit — a
+  /// juste titre — hors ligne.
+  Future<void> _confirmerHorsLigne() async {
+    if (!_horsLigneAConfirmer) return;
+
+    try {
+      await ref.read(missionRepositoryProvider).goOffline();
+      _horsLigneAConfirmer = false;
+    } on Object {
+      // Toujours pas de reseau : on retentera au prochain retour.
+    }
+  }
+
   Future<void> _loadMission() async {
     try {
       final mission = await ref.read(missionRepositoryProvider).currentMission();
@@ -308,6 +450,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         // separent la bascule du premier battement.
         _positionAcceptee = DateTime.now();
 
+        // ET IL ANNULE UNE MISE HORS LIGNE RESTEE EN ATTENTE. Sans cette
+        // ligne, le drapeau survivait au retour en ligne : la premiere
+        // resynchronisation venue aurait envoye le « goOffline » differe, et
+        // le serveur aurait mis hors ligne un livreur dont l'ecran affichait
+        // du vert et dont le battement tournait. Exactement la panne que ces
+        // corrections referment, par une porte qu'elles auraient ouverte.
+        _horsLigneAConfirmer = false;
+
         _startPolling();
         _startHeartbeat();
 
@@ -331,8 +481,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         // LE SERVICE S'ARRETE AVANT L'APPEL RESEAU. Si « goOffline » echoue —
         // c'est-a-dire precisement quand il n'y a plus de reseau —, le livreur
         // doit au moins ne plus voir une notification qui le dit en ligne.
-        await ServiceEnLigne.arreter();
-        await repository.goOffline();
+        //
+        // ET SON PROPRE ECHEC NE DOIT RIEN EMPORTER : c'est un appel au
+        // systeme, pas au reseau, et une notification recalcitrante ne peut pas
+        // avoir pour consequence de laisser l'interrupteur sur EN LIGNE.
+        try {
+          await ServiceEnLigne.arreter();
+        } on Object {
+          // Au pire il reste une notification de trop ; le battement, lui, est
+          // deja coupe.
+        }
+
+        // L'ECHEC DE CET APPEL N'EST PLUS UN ECHEC DE LA BASCULE, et c'est la
+        // correction S3.
+        //
+        // Il remontait au « catch » commun, qui n'atteignait jamais la ligne
+        // « _online = value » : l'interrupteur restait sur EN LIGNE alors que
+        // les minuteries etaient coupees, le service arrete et la position
+        // effacee. Le livreur voyait du vert et rien ne tournait ; le serveur,
+        // lui, le proposait encore le temps de la fenetre de fraicheur.
+        //
+        // COUPER LE BATTEMENT SUFFIT A NE PLUS RECEVOIR DE COURSES : Driver
+        // ecarte des recherches toute position perimee. Le livreur EST donc
+        // hors ligne dans les faits, a deux minutes pres. On honore son geste,
+        // on le lui dit dans ces termes, et on retient de prevenir le serveur.
+        try {
+          await repository.goOffline();
+          _horsLigneAConfirmer = false;
+        } on Object {
+          _horsLigneAConfirmer = true;
+
+          if (mounted) {
+            setState(() => _notice =
+                'Hors ligne sur ce téléphone. Le serveur n\'a pas pu être '
+                'prévenu : vous pouvez encore recevoir une course pendant '
+                '${_fenetreDeFraicheur.inMinutes} min.');
+          }
+        }
       }
 
       // MIETTE DE CHEMIN. Les dernieres etapes avant un plantage disent ce que
@@ -426,16 +611,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Future<void> _viderLaFile() async {
     final repository = ref.read(missionRepositoryProvider);
 
-    final parties = await repository.viderLaFile();
+    final bilan = await repository.viderLaFile();
     final reste = await repository.actionsEnAttente;
 
     if (!mounted) return;
 
-    // LA COURSE EST RELUE QUAND QUELQUE CHOSE EST PARTI. Les etapes avancees
+    // UN REFUS DU SERVEUR SE DIT AU LIVREUR, ET IL NE SE DISAIT A PERSONNE.
+    //
+    // La file abandonnait l'entree et la consignait dans le rapport de
+    // plantage. L'ecran, lui, avait promis que la remise « sera confirmee au
+    // retour de la connexion » : un code mal recopie laissait donc la course en
+    // « colis recupere », une tentative brulee sur les cinq, et aucun message.
+    //
+    // ON N'EN MONTRE QU'UN. Deux refus a la suite sont presque toujours la meme
+    // cause, et un bandeau ne se lit que s'il tient en une phrase.
+    if (bilan.aDesRefus) {
+      setState(() => _notice = bilan.refus.first);
+    }
+
+    // LA COURSE EST RELUE QUAND QUELQUE CHOSE A BOUGE. Les etapes avancees
     // en optimiste doivent etre remplacees par ce que le serveur en dit :
     // c'est lui la source de verite, l'avance locale n'etait qu'un
-    // depannage.
-    if (parties > 0) unawaited(_loadMission());
+    // depannage. UN REFUS COMPTE AUSSI — c'est meme le cas ou l'ecran est le
+    // plus faux, puisqu'il affiche une etape que le serveur n'a pas retenue.
+    if (bilan.parties > 0 || bilan.aDesRefus) unawaited(_loadMission());
 
     if (_enAttente != reste) setState(() => _enAttente = reste);
   }
@@ -495,6 +694,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       final offer = await ref.read(missionRepositoryProvider).currentOffer();
       if (offer == null || !mounted) return;
 
+      // LE VERROU SE RELIT APRES L'ATTENTE, PAS SEULEMENT AVANT.
+      //
+      // La garde du haut est franchie avant un aller-retour reseau : deux
+      // sondages partis en meme temps — la minuterie de cinq secondes et celui
+      // du retour au premier plan — la passaient tous les deux, puis ouvraient
+      // DEUX feuilles pour la meme offre. La premiere fermee remettait
+      // « _sheetOpen » a faux alors que l'autre etait encore a l'ecran.
+      if (_sheetOpen || _mission != null || _attendLaCourse) return;
+
       Plantages.trace('offre recue');
 
       // LE SIGNAL PART AVANT LA FEUILLE, ET NON APRES. Ouvrir d'abord fait
@@ -512,68 +720,113 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _sheetOpen = true;
     final repository = ref.read(missionRepositoryProvider);
 
-    await showModalBottomSheet<void>(
-      context: context,
-      // MEME RAISON QUE LA FEUILLE DE RECAPITULATIF : les onglets ont chacun
-      // leur Navigator, loge au-dessus de la barre du bas. Sans ceci la
-      // feuille se dessine sous la barre et son bas devient inatteignable.
-      useRootNavigator: true,
-      isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
-      // LA FEUILLE EST DE LA COULEUR DU FOND, pas blanche : les blocs
-      // qu'elle contient sont en relief, et un relief ne se lit que
-      // s'il sort de la meme matiere que le reste.
-      backgroundColor: HbaColors.background,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(HbaRadius.card)),
-      ),
-      builder: (sheetContext) => OfferSheet(
-        offer: offer,
-        position: _ici,
-        onAccept: () async {
-          Plantages.trace('offre acceptee');
-          final resultat = await repository.acceptOffer(offer.id);
-          if (!sheetContext.mounted) return;
-          Navigator.of(sheetContext).pop();
-          if (!mounted) return;
+    // DANS UN « TRY », POUR QUE LE VERROU SE RENDE QUOI QU'IL ARRIVE. Il etait
+    // remis a faux sur la ligne qui suit l'attente : une exception pendant
+    // l'affichage le laissait a vrai POUR TOUJOURS, et le sondage d'offres ne
+    // repartait plus de la session. Meme panne que l'offre expiree qui ne se
+    // fermait pas, par une autre porte.
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        // MEME RAISON QUE LA FEUILLE DE RECAPITULATIF : les onglets ont chacun
+        // leur Navigator, loge au-dessus de la barre du bas. Sans ceci la
+        // feuille se dessine sous la barre et son bas devient inatteignable.
+        useRootNavigator: true,
+        isScrollControlled: true,
+        isDismissible: false,
+        enableDrag: false,
+        // LA FEUILLE EST DE LA COULEUR DU FOND, pas blanche : les blocs
+        // qu'elle contient sont en relief, et un relief ne se lit que
+        // s'il sort de la meme matiere que le reste.
+        backgroundColor: HbaColors.background,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(HbaRadius.card)),
+        ),
+        builder: (sheetContext) => OfferSheet(
+          offer: offer,
+          position: _ici,
+          onAccept: () async {
+            Plantages.trace('offre acceptee');
 
-          if (resultat.perdue) {
-            // Un autre livreur a ete plus rapide. Fonctionnement normal d'une
-            // vague, annonce sans alarme.
-            setState(() => _notice = 'Course prise par un autre livreur.');
-            return;
-          }
+            // LA FEUILLE SE FIGEAIT QUAND LE RESEAU TOMBAIT, ET IL N'Y AVAIT PAS
+            // DE SORTIE.
+            //
+            // Cet appel partait sans aucun rattrapage : ni OfflineException, ni
+            // ApiException. Les deux gestes de la feuille sont des VoidCallback,
+            // donc le Future etait abandonne et l'exception partait dans la zone
+            // d'erreur de Flutter. Or la feuille est ouverte en
+            // « isDismissible: false, enableDrag: false » et ne porte aucun
+            // bouton de fermeture : le livreur glissait pour accepter, rien ne
+            // se passait, aucun message, et il ne lui restait que le bouton
+            // retour d'Android. Pendant ce temps le sondage etait suspendu.
+            //
+            // L'ACCEPTATION NE SE MET PAS EN FILE, ET C'EST DELIBERE — le depot
+            // le dit : une course acceptee dix minutes plus tard a ete prise par
+            // quelqu'un d'autre. On ferme donc, et on le dit.
+            Acceptation resultat;
 
-          setState(() {
-            _mission = resultat.mission;
+            try {
+              resultat = await repository.acceptOffer(offer.id);
+            } on Object catch (erreur) {
+              if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+              if (!mounted) return;
 
-            // LA COURSE EST GAGNEE MEME QUAND ELLE N'EST PAS ENCORE LISIBLE.
-            // On le dit tel quel plutot que de laisser un ecran vide, qui se
-            // lirait comme un echec.
-            _notice = resultat.mission == null
-                ? "Course acceptée. L'écran s'ouvre dès que le serveur l'a "
-                    'enregistree.'
-                : null;
-          });
+              setState(() => _notice = erreur is OfflineException
+                  ? "Pas de réseau : la course n'a pas pu être acceptée."
+                  : "La course n'a pas pu être acceptée. Réessayez.");
+              return;
+            }
 
-          // LE MESSAGE NE SUFFISAIT PAS, ET C'EST LE DEFAUT QU'ON CORRIGE.
-          // Jusqu'ici l'acceptation sans course lisible laissait le livreur
-          // sur la carte avec une phrase, et RIEN n'allait rechercher la
-          // course : elle n'apparaissait qu'au prochain retour dans
-          // l'application. Pire, le sondage continuait pendant ce temps et
-          // pouvait lui proposer une SECONDE offre alors qu'il en avait deja
-          // une sur les bras.
-          if (resultat.mission == null) unawaited(_attendreLaCourse());
-        },
-        onDecline: () async {
-          await repository.declineOffer(offer.id);
-          if (sheetContext.mounted) Navigator.of(sheetContext).pop();
-        },
-      ),
-    );
+            if (!sheetContext.mounted) return;
+            Navigator.of(sheetContext).pop();
+            if (!mounted) return;
 
-    _sheetOpen = false;
+            if (resultat.perdue) {
+              // Un autre livreur a ete plus rapide. Fonctionnement normal d'une
+              // vague, annonce sans alarme.
+              setState(() => _notice = 'Course prise par un autre livreur.');
+              return;
+            }
+
+            setState(() {
+              _mission = resultat.mission;
+
+              // LA COURSE EST GAGNEE MEME QUAND ELLE N'EST PAS ENCORE LISIBLE.
+              // On le dit tel quel plutot que de laisser un ecran vide, qui se
+              // lirait comme un echec.
+              _notice = resultat.mission == null
+                  ? "Course acceptée. L'écran s'ouvre dès que le serveur l'a "
+                      'enregistree.'
+                  : null;
+            });
+
+            // LE MESSAGE NE SUFFISAIT PAS, ET C'EST LE DEFAUT QU'ON CORRIGE.
+            // Jusqu'ici l'acceptation sans course lisible laissait le livreur
+            // sur la carte avec une phrase, et RIEN n'allait rechercher la
+            // course : elle n'apparaissait qu'au prochain retour dans
+            // l'application. Pire, le sondage continuait pendant ce temps et
+            // pouvait lui proposer une SECONDE offre alors qu'il en avait deja
+            // une sur les bras.
+            if (resultat.mission == null) unawaited(_attendreLaCourse());
+          },
+          onDecline: () async {
+            // MEME RAISON QU'AU-DESSUS, ET LE REFUS EST PIRE : un livreur qui
+            // refuse veut se debarrasser de la feuille. Elle se ferme donc dans
+            // tous les cas — le serveur finira par expirer l'offre tout seul au
+            // bout de trente secondes.
+            try {
+              await repository.declineOffer(offer.id);
+            } on Object {
+              // Sans consequence : l'offre expire d'elle-meme.
+            }
+
+            if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+          },
+        ),
+      );
+    } finally {
+      _sheetOpen = false;
+    }
   }
 
   /// Demande la position, et dit pourquoi quand elle n'arrive pas.

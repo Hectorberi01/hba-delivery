@@ -10,6 +10,7 @@ const ONGLETS = [
   { href: '/livreurs', libelle: 'Livreurs' },
   { href: '/clients', libelle: 'Clients' },
   { href: '/versements', libelle: 'Versements' },
+  { href: '/facturation', libelle: 'Facturation' },
   { href: '/parametres', libelle: 'Paramètres' },
 ];
 

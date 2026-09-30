@@ -26,7 +26,8 @@ Tu es un architecte logiciel et analyste métier expert en plateformes de livrai
 - **Actions** : demander un devis ; valider une livraison ; payer via FedaPay ; suivre les statuts ; appeler le livreur ; annuler selon la politique d'annulation ; consulter son historique ; noter (hors MVP).
 - **Règles** :
   - Il ne peut agir que sur ses propres livraisons.
-  - Il ne voit le livreur (nom, véhicule, téléphone) qu'à partir de `DRIVER_ASSIGNED` et jusqu'à la clôture.
+  - Il ne voit **l'identité** du livreur (nom, téléphone, plaque) qu'à partir de `DRIVER_ASSIGNED` et jusqu'à la clôture.
+  - **Exception depuis le 30/09/2026** : le **type de véhicule** des livreurs autour de lui lui est rendu AVANT toute affectation, pour que la carte montre une moto, un vélo, un tricycle ou une voiture. Ni nom, ni identifiant, ni plaque n'accompagnent cette position. Un type de véhicule reste semi-identifiant — quatre des cinq valeurs sont rares à Cotonou ; le point 24 pèse ce que cela ouvre.
   - Aucune recherche de livreur tant que le paiement n'est pas confirmé par webhook FedaPay.
   - **Le consentement WhatsApp est explicite et révocable.** Meta l'exige avant
     tout message de gabarit. Sans consentement, aucun message WhatsApp ne part
@@ -45,7 +46,14 @@ Tu es un architecte logiciel et analyste métier expert en plateformes de livrai
 
 ### 3. Livreur
 
-**Ce qu'il représente** : un coursier **indépendant** (moto en majorité, voiture ou van plus tard) qui exécute les courses. C'est l'acteur opérationnel central.
+**Ce qu'il représente** : un coursier **indépendant** (moto en majorité ; vélo, tricycle, voiture ou van également) qui exécute les courses. C'est l'acteur opérationnel central.
+
+> **Cinq types de véhicule depuis le 30 septembre 2026** : `MOTORCYCLE`, `CAR`,
+> `VAN`, `BICYCLE`, `TRICYCLE`. Le **vélo** est le seul sans moteur : son dossier
+> n'exige ni permis ni carte grise, et il ne porte pas d'immatriculation. Le
+> **tricycle** est un trois-roues motorisé, immatriculé — mêmes pièces que la
+> moto. Voir le point 16 de `points-a-trancher.md`, qui porte le raisonnement et
+> ce qui reste à faire avant d'ouvrir ces deux types.
 
 - **Application** : App livreur Flutter, via Driver BFF. Doit fonctionner avec une connexion instable : actions mises en file, horodatage client, Idempotency-Key.
 - **Authentification** : téléphone + OTP, JWT. Rôle `driver`, actif seulement après validation KYC.
@@ -113,6 +121,43 @@ Ils déclenchent des transitions et doivent apparaître comme auteur dans l'audi
 - **Dispatch (moteur)** : envoie les offres par vagues, expire les offres, déclare `NO_DRIVER_FOUND`.
 - **Planificateur** : expirations de devis, timeouts d'offre, rapprochement des paiements en attente.
 - **Plateformes HBA** : HBA Food publie `order.ready` ; HBA Express et HBA Food créent des livraisons via le contrat partenaire.
+- **Service interne** (`service`) — *ajouté le 30 septembre 2026* : un service du
+  système qui appelle un autre service pour son propre compte, sans qu'aucune
+  personne l'ait déclenché. Deux cas aujourd'hui, et deux seulement : Notification
+  demande à Directory l'adresse d'un client pour lui envoyer son reçu, et
+  Directory demande à Media d'effacer la photo d'un compte supprimé.
+
+#### Le rôle `service` — ce qu'il est, et ce qu'il n'est pas
+
+**Pourquoi il a fallu l'ajouter.** Les deux appels ci-dessus descendent d'un
+consommateur Kafka : il n'y a pas de requête HTTP, donc pas de jeton
+d'utilisateur à reporter. Les services appelés sont en `[Authorize]`. Le jeton de
+service existait déjà (ADR 0018) mais ne portait **aucun rôle**, ce qui était
+présenté comme sa garantie principale : les deux appels revenaient « non
+authentifié », l'échec était avalé en avertissement, et **aucun reçu ne partait,
+aucune photo n'était effacée**. Le journal de Notification accusait même le
+client — « le compte n'a pas de courriel » — pour une panne d'autorisation.
+
+**Ce n'est pas un passe-partout, et il ne doit jamais le devenir.**
+
+- Il n'est **pas** dans `BackOffice`.
+- Il n'ouvre **aucune écriture**. Tous les chemins d'écriture de Directory
+  résolvent le client « soi-même », et le sujet d'un jeton de service
+  (`service:<nom>`) n'est pas un identifiant de compte : ils échouent.
+- Chaque service appelé **accorde explicitement** ce qu'il autorise. Deux
+  lectures aujourd'hui : lire une fiche client par son identifiant
+  (`DirectoryAccess.ResolveCustomerId`), et effacer les médias d'un propriétaire
+  (`DeleteOwnerMediaHandler`, qui n'avait auparavant **aucune** vérification
+  d'appelant). Toute autre règle métier continue de le refuser, parce qu'elle
+  demande *qui* agit — et un service n'est personne.
+- Sa portée est bornée par **qui détient un secret** : les identifiants de
+  service viennent de la configuration de l'hôte, pas d'une table. On ne devient
+  pas un service en s'inscrivant.
+
+**Dans l'audit**, il apparaît comme `ActorKind.Service` / `ACTOR_TYPE_SERVICE`,
+distinct du planificateur : celui-ci agit à l'heure dite, celui-là parce qu'un
+autre service le lui a demandé. L'identifiant enregistré est son nom de client —
+`notification`, `directory`.
 
 ---
 
@@ -389,7 +434,7 @@ produirait deux jeux de règles, et c'est celui de l'écran qui aurait tort.
 
 ## Consignes de production
 
-1. Emploie exactement ces noms d'acteurs et de rôles (`customer`, `driver`, `merchant_owner`, `merchant_staff`, `partner`, `admin`, `ops`, `support`, `finance`) dans le code, les claims JWT et la documentation.
+1. Emploie exactement ces noms d'acteurs et de rôles (`customer`, `driver`, `merchant_owner`, `merchant_staff`, `partner`, `admin`, `ops`, `support`, `finance`, `service`) dans le code, les claims JWT et la documentation. `service` a rejoint la liste le 30 septembre 2026 : ce n'est pas une personne, et il n'ouvre que les lectures nommées au point 7.
 2. Ne confonds jamais **Client** et **Destinataire**, ni **Partenaire** (système) et **Commerçant** (entreprise).
 3. Toute autorisation se vérifie **côté service**, jamais seulement côté BFF ou application.
 4. Les points marqués **À TRANCHER** ne doivent pas être implémentés sans décision explicite : propose des options, ne choisis pas.

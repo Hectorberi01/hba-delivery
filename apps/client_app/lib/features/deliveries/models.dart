@@ -6,6 +6,16 @@
 /// ci-dessous acceptent les deux.
 library;
 
+/// Le temps laisse au client pour payer avant que la commande ne soit
+/// abandonnee.
+///
+/// CETTE VALEUR EST UNE COPIE, ET IL FAUT LE SAVOIR. La verite est cote
+/// serveur — « UnpaidDelivery:GraceMinutes » dans la configuration de Delivery —
+/// et rien ici ne la lit : le BFF ne la publie pas. Elle ne sert qu'a ECRIRE
+/// une phrase juste au client. Si le reglage serveur change, cette ligne doit
+/// changer avec lui ; c'est le seul endroit du telephone ou le nombre figure.
+const delaiDePaiementMinutes = 15;
+
 int _int64(Object? value) => switch (value) {
       int v => v,
       num v => v.toInt(),
@@ -49,21 +59,38 @@ enum DeliveryStatus {
 
   String get label => switch (this) {
         pendingPayment => 'En attente de paiement',
-        paymentFailed => 'Paiement echoue',
-        paid => 'Payee',
+        paymentFailed => 'Paiement échoué',
+        paid => 'Payée',
         searchingDriver => "Recherche d'un livreur",
-        noDriverFound => 'Aucun livreur trouve',
+        noDriverFound => 'Aucun livreur trouvé',
         driverAssigned => 'Livreur en route',
         driverAtPickup => 'Livreur sur place',
         pickedUp => 'Colis en route',
-        delivered => 'Livree',
-        cancelled => 'Annulee',
-        failed => 'Echouee',
+        delivered => 'Livrée',
+        cancelled => 'Annulée',
+        failed => 'Échouée',
         unknown => '--',
       };
 
   bool get isClosed => switch (this) {
         delivered || cancelled || failed || noDriverFound || paymentFailed => true,
+        _ => false,
+      };
+
+  /// Ce que l'accueil prend en charge lui-meme, plein cadre.
+  ///
+  /// AVANT LE LIVREUR, LE CLIENT N'A RIEN A LIRE ET RIEN A DECIDER : il attend.
+  /// C'est le seul moment ou l'accueil cesse de montrer la carte des livreurs
+  /// alentour — commander une seconde course pendant qu'on attend la premiere
+  /// n'est pas ce que le client vient faire. Des qu'un livreur est attribue, le
+  /// suivi reprend la main : il y a alors un nom, un vehicule, un code.
+  bool get suiviParAccueil => switch (this) {
+        pendingPayment ||
+        paymentFailed ||
+        paid ||
+        searchingDriver ||
+        noDriverFound =>
+          true,
         _ => false,
       };
 
@@ -108,11 +135,16 @@ class AssignedDriver {
   const AssignedDriver({
     required this.displayName,
     required this.phone,
+    required this.vehicleType,
     required this.vehiclePlate,
   });
 
   final String displayName;
   final String phone;
+  /// Le type de vehicule, tel que le contrat le nomme : « Motorcycle »,
+  /// « Bicycle »… Vide quand le service ne le rend pas.
+  final String vehicleType;
+
   final String vehiclePlate;
 
   static AssignedDriver? fromJson(Object? json) {
@@ -123,8 +155,33 @@ class AssignedDriver {
     return AssignedDriver(
       displayName: name,
       phone: _text(json['phone']),
+      vehicleType: _text(json['vehicleType']),
       vehiclePlate: _text(json['vehiclePlate']),
     );
+  }
+}
+
+/// Un point de la course, tel que le service le rend.
+class PointLivraison {
+  const PointLivraison({required this.latitude, required this.longitude});
+
+  final double latitude;
+  final double longitude;
+
+  /// ZERO N'EST PAS UNE COORDONNEE MANQUANTE, C'EST UNE COORDONNEE. La
+  /// passerelle rend « 0 » quand le point est absent du message ; le distinguer
+  /// ici evite d'afficher une carte au large du Ghana en croyant montrer une
+  /// collecte a Cotonou.
+  static PointLivraison? depuis(Object? brut) {
+    if (brut is! Map) return null;
+
+    final lat = (brut['latitude'] as num?)?.toDouble();
+    final lng = (brut['longitude'] as num?)?.toDouble();
+
+    if (lat == null || lng == null) return null;
+    if (lat == 0 && lng == 0) return null;
+
+    return PointLivraison(latitude: lat, longitude: lng);
   }
 }
 
@@ -137,10 +194,14 @@ class Delivery {
     required this.recipientPhone,
     required this.pickupLandmark,
     required this.dropoffLandmark,
+    required this.pickupPoint,
+    required this.dropoffPoint,
     required this.totalXof,
     required this.driver,
     required this.deliveryOtp,
     required this.createdAt,
+    this.refundedAt,
+    this.refundPartial = false,
   });
 
   final String id;
@@ -150,6 +211,18 @@ class Delivery {
   final String recipientPhone;
   final String pickupLandmark;
   final String dropoffLandmark;
+
+  /// LES DEUX POINTS ARRIVAIENT DEJA ET PERSONNE NE LES LISAIT. La passerelle
+  /// rend « pickup.latitude » et « pickup.longitude » depuis le debut ; le
+  /// modele ne gardait que le repere. L'ecran de suivi ne pouvait donc pas
+  /// montrer de carte, faute de savoir ou regarder.
+  ///
+  /// NULS QUAND LE SERVICE NE LES DONNE PAS, plutot que zero : le point (0, 0)
+  /// est dans le golfe de Guinee, a six cents kilometres de Cotonou. Une carte
+  /// centree la ressemble a une carte cassee, et c'est exactement ce qu'un
+  /// repli silencieux produirait.
+  final PointLivraison? pickupPoint;
+  final PointLivraison? dropoffPoint;
   final int totalXof;
   final AssignedDriver? driver;
 
@@ -159,6 +232,22 @@ class Delivery {
   final String deliveryOtp;
 
   final DateTime? createdAt;
+
+  /// Instant ou le remboursement a ete CONSTATE. Nul tant qu'il n'y en a pas.
+  ///
+  /// FEDAPAY N'A PAS D'API DE REMBOURSEMENT : c'est HBA qui rend l'argent depuis
+  /// le tableau de bord du fournisseur, et le service l'apprend par le webhook.
+  /// Ce champ est donc la seule chose qui permette a l'ecran de passer de « HBA
+  /// revient vers vous » a « le montant vous a ete rendu » — sans lui, on ne
+  /// pouvait que promettre.
+  final DateTime? refundedAt;
+
+  /// Vrai quand le remboursement constate est partiel. Le fournisseur ne dit pas
+  /// combien a ete rendu dans ce cas : l'ecran ne doit donc annoncer aucun
+  /// montant.
+  final bool refundPartial;
+
+  bool get estRemboursee => refundedAt != null;
 
   bool get showsOtp => deliveryOtp.isNotEmpty && !status.isClosed;
 
@@ -175,10 +264,14 @@ class Delivery {
       recipientPhone: _text(json['recipientPhone']),
       pickupLandmark: pickup is Map ? _text(pickup['landmark']) : '',
       dropoffLandmark: dropoff is Map ? _text(dropoff['landmark']) : '',
+      pickupPoint: PointLivraison.depuis(pickup),
+      dropoffPoint: PointLivraison.depuis(dropoff),
       totalXof: pricing is Map ? _int64((pricing['total'] as Map?)?['amount']) : 0,
       driver: AssignedDriver.fromJson(json['driver']),
       deliveryOtp: _text(json['deliveryOtp']),
       createdAt: _time(json['createdAt']),
+      refundedAt: _time(json['refundedAt']),
+      refundPartial: json['refundPartial'] == true,
     );
   }
 }

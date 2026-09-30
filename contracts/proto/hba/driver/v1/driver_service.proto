@@ -33,9 +33,26 @@ service DriverService {
   // Réservé au livreur concerné et au back-office.
   rpc GetApplication(GetDriverRequest) returns (DriverApplication);
 
+  // Crée le profil du porteur du jeton s'il n'existe pas.
+  //
+  // LE RATTRAPAGE DE L'ÉVÉNEMENT PERDU. Le profil naît normalement de
+  // AccountRegistered ; quand cet événement se perd, le livreur a un compte
+  // valide et un GET /me qui répond 404 à vie. Le client avait déjà sa porte de
+  // secours, le livreur non.
+  //
+  // AUCUN PARAMÈTRE : le nom et le téléphone viennent du jeton, jamais du
+  // corps. Idempotente.
+  rpc EnsureDriver(EnsureDriverRequest) returns (Driver);
+
   // Admin : décision KYC. Auditée.
   rpc ReviewKyc(ReviewKycRequest) returns (Driver);
   rpc SuspendDriver(SuspendDriverRequest) returns (Driver);
+
+  // Lève une suspension. SANS ELLE, SUSPENDRE ÉTAIT DÉFINITIF : plus aucune
+  // méthode du domaine n'acceptait un compte suspendu, et la seule réparation
+  // passait par la base. Le dossier retrouve l'état qu'il avait — validé s'il
+  // l'était, en attente d'examen sinon.
+  rpc ReinstateDriver(ReinstateDriverRequest) returns (Driver);
 
   // Back-office : l'annuaire. RESERVE AUX ROLES admin, ops, support et
   // finance, et la verification est dans le handler — un annuaire de livreurs
@@ -166,6 +183,14 @@ message NearbyDriver {
   string driver_id = 1;
   int32 distance_meters = 2;
   hba.common.v1.GeoPoint position = 3;
+
+  // Le véhicule, pour que la carte du client montre une moto, un vélo, un
+  // tricycle ou une voiture — et non quatre pastilles identiques.
+  //
+  // IL NE SORT PAS D'ICI TEL QUEL. Ce message sert AUSSI au dispatch, qui a
+  // besoin de l'identifiant ; c'est la passerelle cliente qui ne garde que la
+  // position et ce champ. Point 24, révisé le 30 septembre 2026.
+  hba.common.v1.VehicleType vehicle_type = 4;
 }
 
 message FindAvailableNearbyResponse {
@@ -181,6 +206,14 @@ message ReviewKycRequest {
 
 message SuspendDriverRequest {
   string driver_id = 1;
+  string reason = 2;
+}
+
+message EnsureDriverRequest {}
+
+message ReinstateDriverRequest {
+  string driver_id = 1;
+  // Motivée comme la suspension : l'audit doit dire pourquoi on revient dessus.
   string reason = 2;
 }
 
@@ -341,6 +374,26 @@ message DriverApplication {
 
   Vehicle vehicle = 7;
   string profile_photo_url = 8;
+
+  // Pièces exigées POUR CE VÉHICULE-LÀ, déposées ou non.
+  //
+  // ELLE EXISTE PARCE QU'ELLE A CESSÉ D'ÊTRE LA MÊME POUR TOUT LE MONDE. Un
+  // vélo n'exige ni permis ni carte grise (décidé le 30 septembre 2026), et
+  // l'application affichait jusque-là les cinq pièces en dur : un cycliste
+  // voyait deux lignes qu'il ne pourrait jamais satisfaire.
+  //
+  // LE SERVICE LA CALCULE, ET C'EST LE MÊME PRINCIPE QUE `can_submit` : la
+  // règle est métier, et chaque client qui la recalculerait finirait par en
+  // avoir sa propre version.
+  repeated DocumentType required_documents = 10;
+
+  // Le véhicule a-t-il été déclaré ?
+  //
+  // L'APPLICATION LE DEVINAIT PAR « la plaque n'est pas vide », faute de mieux :
+  // le type naît à MOTORCYCLE sans que personne ne l'ait dit, donc il ne
+  // distinguait pas un motard déclaré d'un livreur qui n'a rien saisi. Un vélo
+  // n'a pas de plaque — il serait resté « non déclaré » pour toujours.
+  bool vehicle_declared = 11;
 
   // Le dossier peut-il partir à l'examen ? Calculé par le service, parce que
   // la règle est métier : chaque client qui la recalculerait finirait par en

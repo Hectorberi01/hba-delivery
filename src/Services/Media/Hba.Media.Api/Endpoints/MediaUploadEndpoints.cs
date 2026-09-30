@@ -1,3 +1,4 @@
+using Hba.BuildingBlocks.Application.Abstractions;
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Http;
 using Hba.Media.Application.Assets;
@@ -70,6 +71,7 @@ public static class MediaUploadEndpoints
             [FromQuery] string kind,
             IFormFile fichier,
             IDispatcher dispatcher,
+            ICallerContext appelant,
             CancellationToken cancellationToken) =>
         {
             if (!Enum.TryParse<MediaOwnerType>(ownerType, ignoreCase: true, out var proprietaire)
@@ -88,6 +90,18 @@ public static class MediaUploadEndpoints
                     "UNKNOWN_MEDIA_KIND",
                     $"Nature de média inconnue : « {kind} ».",
                     Enum.GetNames<MediaKind>());
+            }
+
+            if (!PeutDeposer(appelant, proprietaire, ownerId, nature))
+            {
+                return Results.Json(
+                    new
+                    {
+                        code = "MEDIA_OWNER_FORBIDDEN",
+                        message = "On ne dépose que pour soi, et un service ne dépose "
+                            + "qu'une preuve sous une course.",
+                    },
+                    statusCode: StatusCodes.Status403Forbidden);
             }
 
             var refus = Verifier(fichier, ImagesSeulement.Contains(nature));
@@ -129,6 +143,34 @@ public static class MediaUploadEndpoints
 
         return app;
     }
+
+    /// <summary>
+    /// Qui a le droit de déposer pour qui.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LA REGLE A DEMENAGE DANS LA COUCHE APPLICATIVE le 30 septembre 2026, et
+    /// pas pour le rangement : elle vivait ici, au bord de l'écriture, alors que
+    /// les gestionnaires de LECTURE n'en avaient aucune (constat B3). Les deux
+    /// côtés posent la même question — « ce média est-il celui de l'appelant ? »
+    /// — et deux exemplaires de la même question finissent par répondre
+    /// différemment. Voir <see cref="MediaAccess"/>, qui porte le raisonnement.
+    ///
+    /// CE QUI ETAIT ECRIT ICI RESTE VRAI, ET MERITE DE SURVIVRE AU DEMENAGEMENT :
+    /// le point 27 dit que Media n'autorise pas la lecture ; il ne dit pas que
+    /// Media accepte n'importe quelle écriture. « Ce livreur peut-il voir la
+    /// photo de ce client » demande de savoir s'il est en mission sur sa course,
+    /// ce que Media ignore ; « cet appelant peut-il déposer un fichier sous son
+    /// propre identifiant » ne demande rien à personne. Sans ce contrôle, le
+    /// propriétaire serait un paramètre d'URL : un client authentifié déposerait
+    /// une pièce d'identité au nom d'un livreur, et le dossier de ce livreur
+    /// porterait une CNI qu'il n'a jamais envoyée. La passerelle renseigne bien
+    /// le bon identifiant — mais une passerelle qu'on croit sur parole n'est pas
+    /// une autorisation (référentiel des acteurs).
+    /// </remarks>
+    private static bool PeutDeposer(
+        ICallerContext appelant, MediaOwnerType proprietaire, string ownerId, MediaKind nature)
+        => MediaAccess.PeutDeposer(appelant, proprietaire, ownerId, nature);
 
     private static IResult? Verifier(IFormFile fichier, bool imagesSeulement)
     {

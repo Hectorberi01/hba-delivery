@@ -69,6 +69,28 @@ public sealed class PaymentIntegrationEventPublisher : IPaymentIntegrationEventP
             OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
         }),
 
+        // « PaymentRefunded » ETAIT DECLARE DANS LE CONTRAT ET N'AVAIT AUCUN
+        // PRODUCTEUR. Il en a un maintenant, et il ne nait pas d'une commande :
+        // FedaPay n'a pas d'API de remboursement, donc ce fait est CONSTATE a la
+        // relecture de la transaction.
+        //
+        // LE MONTANT N'EST RENSEIGNE QUE POUR UN REMBOURSEMENT TOTAL. Le statut
+        // du fournisseur dit « partiellement rembourse » sans dire combien :
+        // ecrire le total dans ce cas ferait croire a un remboursement complet,
+        // et inventer une somme serait pire. Le drapeau porte l'incertitude.
+        DomainEvents.PaymentIntentRefunded e => Wrap(intent, e, "hba.payment.v1.PaymentRefunded", m => m.Refunded = new PaymentRefunded
+        {
+            // PAS D'IDENTIFIANT DE REMBOURSEMENT : il n'y a pas d'objet
+            // « remboursement » de notre cote, et le fournisseur ne nous en
+            // donne pas par ce chemin. L'intention suffit a retrouver la course.
+            RefundId = string.Empty,
+            PaymentIntentId = e.PaymentIntentId.ToString(),
+            DeliveryId = e.DeliveryId.ToString(),
+            Amount = e.Partiel ? null : MapMoney(e.Amount.Amount),
+            Partial = e.Partiel,
+            OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
+        }),
+
         _ => null,
     };
 
@@ -113,6 +135,7 @@ public sealed class PaymentIntegrationEventPublisher : IPaymentIntegrationEventP
         ActorKind.Dispatch => ActorType.Dispatch,
         ActorKind.PaymentProvider => ActorType.PaymentProvider,
         ActorKind.Scheduler => ActorType.Scheduler,
+        ActorKind.Service => ActorType.Service,
         _ => ActorType.Unspecified,
     };
 }

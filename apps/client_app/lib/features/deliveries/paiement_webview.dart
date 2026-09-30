@@ -159,8 +159,8 @@ class _PaiementWebViewState extends State<PaiementWebView> {
       builder: (contexte) => AlertDialog(
         title: const Text('Quitter le paiement ?'),
         content: const Text(
-          'Si vous avez deja valide sur votre telephone, le paiement suit son '
-          'cours. La course se mettra a jour toute seule.',
+          'Si vous avez déjà validé sur votre téléphone, le paiement suit '
+          'son cours. La course se mettra à jour toute seule.',
         ),
         actions: [
           TextButton(

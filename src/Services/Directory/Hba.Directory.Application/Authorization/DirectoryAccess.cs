@@ -28,6 +28,25 @@ public static class DirectoryAccess
             return ParseSelf(caller);
         }
 
+        // UN SERVICE LIT UNE FICHE PAR SON IDENTIFIANT, ET RIEN DE PLUS.
+        //
+        // Notification en a besoin pour le recu de course : il connait
+        // l'identifiant du compte, pas son adresse, et l'appel part d'un
+        // consommateur Kafka — sans personne derriere. Sans cette ligne, la
+        // reponse etait « fiche introuvable », que l'appelant consignait en
+        // « le compte n'a pas de courriel ». Aucun recu ne partait.
+        //
+        // AUCUNE ECRITURE NE PASSE PAR LA, ET L'INVARIANT EST SIMPLE A TENIR :
+        // tous les chemins d'ecriture appellent cette methode avec
+        // « requestedId » NUL, donc par la branche « soi-meme » au-dessus — qui
+        // rend le sujet du jeton, « service:<nom> », lequel n'est pas un GUID et
+        // echoue. Un service ne peut donc pas modifier une fiche, meme la
+        // sienne, parce qu'il n'en a pas.
+        if (caller.IsInRole(HbaRoles.Service))
+        {
+            return Parse(requestedId);
+        }
+
         if (!caller.Roles.Overlaps(HbaRoles.BackOffice)
             && !string.Equals(requestedId, caller.SubjectId, StringComparison.Ordinal))
         {

@@ -7,6 +7,30 @@ import 'coffre.dart';
 import 'plantages.dart';
 
 /// Une action faite par le livreur, qui n'est pas encore partie.
+/// Ce qu'un vidage de file a produit.
+///
+/// UN SIMPLE NOMBRE NE SUFFISAIT PAS, ET C'EST TOUT LE DEFAUT. La file rendait
+/// « combien sont parties » ; les entrees REFUSEES par le serveur etaient
+/// abandonnees et consignees dans le rapport de plantage, c'est-a-dire nulle
+/// part pour le livreur. Or l'ecran lui avait promis « la remise est enregistree
+/// et partira toute seule ; elle sera confirmee au retour de la connexion ».
+///
+/// Un code de remise mal recopie dans un sous-sol donnait donc : course toujours
+/// en « colis recupere », une tentative brulee sur les cinq, et AUCUN message.
+class BilanDeFile {
+  const BilanDeFile({required this.parties, required this.refus});
+
+  static const vide = BilanDeFile(parties: 0, refus: []);
+
+  /// Nombre d'actions que le serveur a acceptees.
+  final int parties;
+
+  /// Les refus du serveur, en clair, pour etre montres au livreur.
+  final List<String> refus;
+
+  bool get aDesRefus => refus.isNotEmpty;
+}
+
 class ActionEnFile {
   const ActionEnFile({
     required this.chemin,
@@ -273,12 +297,13 @@ class FileDActions {
 
   /// Rejoue ce qui attend, dans l'ordre.
   ///
-  /// Rend le nombre d'actions parties. ELLE NE LEVE JAMAIS : elle est appelee
+  /// Rend un bilan : ce qui est parti, et ce qui a ete refuse et doit etre dit
+  /// au livreur. ELLE NE LEVE JAMAIS : elle est appelee
   /// depuis des endroits — retour au premier plan, fin d'un autre appel — ou
   /// une exception n'aurait personne pour l'attraper.
-  Future<int> vider(ApiClient api) async {
+  Future<BilanDeFile> vider(ApiClient api) async {
     final entrees = [...await _lire()];
-    if (entrees.isEmpty) return 0;
+    if (entrees.isEmpty) return BilanDeFile.vide;
 
     // CEINTURE ET BRETELLES. La deconnexion purge deja la file ; ce filtre
     // rattrape ce qu'elle n'a pas pu faire — application tuee au milieu de la
@@ -303,10 +328,11 @@ class FileDActions {
 
     if (entrees.isEmpty) {
       await _ecrire(entrees);
-      return 0;
+      return BilanDeFile.vide;
     }
 
     var parties = 0;
+    final refus = <String>[];
 
     while (entrees.isNotEmpty) {
       final entree = entrees.first;
@@ -326,6 +352,29 @@ class FileDActions {
         // echoueraient pareil, et chaque tentative coute une attente.
         break;
       } on ApiException catch (erreur, pile) {
+        // « LE SERVEUR A REPONDU » N'EST PAS « LE SERVEUR A JUGE », ET LES
+        // CONFONDRE PERDAIT UNE REMISE DEJA FAITE.
+        //
+        // Tout ApiException etait tenu pour un refus definitif. Or
+        // « _toApiException » y range aussi les 500, 502, 503, 504 et 429 :
+        // au retour du reseau, une passerelle en cours de redeploiement
+        // repondait 502, l'entree etait retiree de la file, et le livreur
+        // lisait « une erreur inattendue » pour un colis qu'il avait bel et
+        // bien remis. La course restait ouverte, le client avait son paquet.
+        //
+        // UNE PANNE SE TRAITE COMME UNE ABSENCE DE RESEAU : on s'arrete, on ne
+        // perd rien, on reessaiera. Le battement de position rappelle « vider »
+        // toutes les vingt secondes.
+        if (!erreur.estUnRefusDuServeur) {
+          Plantages.noter(
+            erreur,
+            pile,
+            contexte: 'rejeu ajourne, le service n\'a pas repondu : '
+                '${entree.chemin} (${erreur.statusCode})',
+          );
+          break;
+        }
+
         // LE SERVEUR A REPONDU, ET IL A REFUSE. Rejouer indefiniment
         // bloquerait toute la file derriere cette entree : on l'abandonne.
         //
@@ -341,6 +390,12 @@ class FileDActions {
           contexte: 'action rejouee refusee : ${entree.chemin} (${erreur.code})',
         );
 
+        // ET ON LE REMONTE A L'ECRAN. Le rapport de plantage sert a comprendre
+        // apres coup ; le livreur, lui, doit l'apprendre maintenant — c'est
+        // peut-etre une remise qui n'est pas enregistree, et il est encore
+        // devant le destinataire.
+        refus.add('${_etape(entree.chemin)} : ${erreur.message}');
+
         entrees.removeAt(0);
       } on Object catch (erreur, pile) {
         Plantages.noter(erreur, pile, contexte: 'rejeu de ${entree.chemin}');
@@ -351,6 +406,19 @@ class FileDActions {
     await _ecrire(entrees);
 
     if (parties > 0) Plantages.trace('$parties action(s) rejouee(s)');
-    return parties;
+    return BilanDeFile(parties: parties, refus: refus);
   }
+
+  /// Le dernier segment du chemin, en clair.
+  ///
+  /// « /missions/<id>/deliver » NE SE MONTRE PAS A UN LIVREUR. Le message doit
+  /// nommer l'etape, pas la route : c'est la seule chose qui lui dise ce qui
+  /// n'a pas ete enregistre.
+  static String _etape(String chemin) => switch (chemin.split('/').last) {
+        'arrived' => 'Arrivee au point de collecte',
+        'picked-up' => 'Colis recupere',
+        'deliver' => 'Remise du colis',
+        'incident' => 'Signalement',
+        final autre => autre,
+      };
 }

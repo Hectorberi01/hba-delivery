@@ -26,7 +26,7 @@ if ! (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then
   echo "  make down && docker compose -f deploy/compose.infra.yml down" >&2
   echo "  make up          # infra de developpement, publie 5432" >&2
   echo "  make migrate" >&2
-  echo "  make services-up # les douze services, sans retoucher l'infra" >&2
+  echo "  make services-up # tous les services, sans retoucher l'infra" >&2
   exit 1
 fi
 applied=0

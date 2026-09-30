@@ -2,6 +2,7 @@ using Hba.BuildingBlocks.Application.Abstractions;
 using Hba.BuildingBlocks.Domain;
 using Hba.BuildingBlocks.Security;
 using Hba.Delivery.Application.Ports;
+using Hba.Delivery.Domain.Deliveries;
 
 namespace Hba.Delivery.Application.Authorization;
 
@@ -34,7 +35,29 @@ public static class DeliveryAccess
 
         if (caller.IsInRole(HbaRoles.Customer))
         {
-            return filter with { CustomerId = caller.SubjectId, MerchantId = null, PartnerId = null, DriverId = null };
+            // UNE COURSE NON PAYEE N'EST PAS UNE COURSE, POUR CELUI QUI L'A
+            // COMMANDEE. Elle existe en base — il faut bien retenir les
+            // adresses et le destinataire entre la création et le webhook — mais
+            // la faire figurer dans « mes courses » revenait à promettre un
+            // livreur qui ne partira jamais : rien ne cherche de livreur avant
+            // PAID, et un paiement abandonné restait en tête de liste
+            // indéfiniment.
+            //
+            // LE BACK-OFFICE, LUI, CONTINUE DE LES VOIR, et c'est voulu : un
+            // paiement abandonné est un fait commercial, pas un détail
+            // technique à cacher.
+            //
+            // CECI NE CACHE QUE LA LISTE. Le suivi d'une course précise reste
+            // lisible par son propriétaire — c'est l'écran sur lequel il attend
+            // la confirmation de son paiement.
+            return filter with
+            {
+                CustomerId = caller.SubjectId,
+                MerchantId = null,
+                PartnerId = null,
+                DriverId = null,
+                ExcludedStatuses = [DeliveryStatus.PendingPayment],
+            };
         }
 
         if (caller.IsInRole(HbaRoles.MerchantOwner) || caller.IsInRole(HbaRoles.MerchantStaff))

@@ -70,10 +70,24 @@ public sealed class PricingGrpcService(IDispatcher dispatcher) : PricingService.
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
 
+        if (request.Pickup is null || request.Dropoff is null)
+        {
+            // SANS LES POINTS, ON NE CONSOMME PAS. Les accepter absents
+            // rouvrirait le trou du 29 septembre 2026 pour tout appelant qui
+            // omettrait les champs — un ancien binaire, par exemple.
+            throw new DomainException(
+                "MISSING_POINTS",
+                "La consommation d'un devis nomme le trajet de la livraison.");
+        }
+
         var view = await dispatcher.SendAsync(
             new ConsumeQuoteCommand(
                 ParseId(request.QuoteId, "quote_id"),
-                ParseId(request.DeliveryId, "delivery_id")),
+                ParseId(request.DeliveryId, "delivery_id"),
+                request.Pickup.Latitude,
+                request.Pickup.Longitude,
+                request.Dropoff.Latitude,
+                request.Dropoff.Longitude),
             context.CancellationToken).ConfigureAwait(false);
 
         return ToProto(view);
@@ -101,6 +115,13 @@ public sealed class PricingGrpcService(IDispatcher dispatcher) : PricingService.
     {
         ProtoVehicleType.Car => DomainVehicleType.Car,
         ProtoVehicleType.Van => DomainVehicleType.Van,
+
+        // CHACUN SON BRAS, SINON CHACUN SON PRIX — CELUI D'UN AUTRE. Le repli
+        // sur la moto est un choix de defaut pour l'INDETERMINE (voir
+        // ci-dessus) ; l'etendre au velo lui aurait facture la grille du
+        // zemidjan, sans que rien ne le signale.
+        ProtoVehicleType.Bicycle => DomainVehicleType.Bicycle,
+        ProtoVehicleType.Tricycle => DomainVehicleType.Tricycle,
         _ => DomainVehicleType.Motorcycle,
     };
 

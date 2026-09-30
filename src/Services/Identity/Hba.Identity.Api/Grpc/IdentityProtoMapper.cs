@@ -90,6 +90,7 @@ internal static class IdentityProtoMapper
     {
         DomainAccountStatus.Active => Contracts.Identity.V1.AccountStatus.Active,
         DomainAccountStatus.Suspended => Contracts.Identity.V1.AccountStatus.Suspended,
+        DomainAccountStatus.PendingDeletion => Contracts.Identity.V1.AccountStatus.PendingDeletion,
         _ => Contracts.Identity.V1.AccountStatus.Unspecified,
     };
 }

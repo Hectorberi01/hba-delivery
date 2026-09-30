@@ -63,7 +63,18 @@ public sealed record DriverPublicProfileView(
     }
 }
 
-public sealed record NearbyDriverView(Guid DriverId, int DistanceMeters, double Latitude, double Longitude);
+public sealed record NearbyDriverView(
+    Guid DriverId,
+    int DistanceMeters,
+    double Latitude,
+    double Longitude,
+
+    /// <summary>
+    /// Le vehicule, pour la carte du client. Point 24, revise le 30 septembre
+    /// 2026 : c'est le seul attribut du livreur qui sorte avant l'affectation,
+    /// et il sort SANS son identifiant.
+    /// </summary>
+    VehicleType VehicleType);
 
 /// <summary>
 /// Reponse a « puis-je proposer une course a CE livreur, depuis CE point ».

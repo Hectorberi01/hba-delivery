@@ -37,7 +37,7 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
     }
 
     if (_name.text.trim().isEmpty) {
-      setState(() => _error = 'Votre nom est necessaire pour les livraisons.');
+      setState(() => _error = 'Votre nom est nécessaire pour les livraisons.');
       return;
     }
 
@@ -55,7 +55,7 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
 
       ref.read(sessionProvider.notifier).signedIn(customer);
     } on OfflineException {
-      if (mounted) setState(() => _error = 'Pas de reseau. Reessayez.');
+      if (mounted) setState(() => _error = 'Pas de réseau. Réessayez.');
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {

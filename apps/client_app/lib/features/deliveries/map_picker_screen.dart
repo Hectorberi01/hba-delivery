@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hba_ui/hba_ui.dart';
 
+import 'lien_maps.dart';
 import 'point_field.dart';
 
 /// Choix d'un point sur la carte.
@@ -14,6 +18,14 @@ import 'point_field.dart';
 ///
 /// Aucun geocodage n'est fait : le repere ecrit est saisi a part, et c'est lui
 /// qui parle au livreur. La carte ne sert qu'a produire deux nombres.
+///
+/// DEUX FACONS D'ARRIVER AU MEME POINT, ET LA SECONDE N'EST PAS UN RACCOURCI.
+/// Cadrer la carte suppose de savoir ou l'on va. Celui qui commande pour
+/// quelqu'un d'autre, lui, a recu un lien Google Maps par message — a Cotonou
+/// c'est ce qui circule, bien plus qu'une rue et un numero. Le champ du haut
+/// lui evite de lire le lien ailleurs, retenir le quartier, et retrouver
+/// l'endroit au doigt : c'est la que les points se posent a cent metres de la
+/// bonne cour.
 class MapPickerScreen extends StatefulWidget {
   const MapPickerScreen({required this.title, this.initial, super.key});
 
@@ -42,6 +54,11 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   /// jamais demandee.
   bool _locationGranted = false;
 
+  final _lien = TextEditingController();
+
+  /// Vrai pendant qu'on suit la redirection d'un lien court.
+  bool _resolution = false;
+
   @override
   void initState() {
     super.initState();
@@ -50,8 +67,61 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   @override
   void dispose() {
+    _lien.dispose();
     _controller?.dispose();
     super.dispose();
+  }
+
+  /// Prend ce qu'il y a dans le presse-papier et tente de le lire.
+  ///
+  /// UN BOUTON PLUTOT QUE « APPUI LONG, COLLER ». Le geste natif existe, mais il
+  /// demande de savoir que ce champ accepte un lien ; le bouton le dit.
+  Future<void> _coller() async {
+    final donnees = await Clipboard.getData(Clipboard.kTextPlain);
+    final texte = donnees?.text?.trim() ?? '';
+
+    if (texte.isEmpty) {
+      _dire('Le presse-papier est vide.');
+      return;
+    }
+
+    _lien.text = texte;
+    await _appliquer(texte);
+  }
+
+  /// Deplace la carte sur le point contenu dans [texte], s'il y en a un.
+  Future<void> _appliquer(String texte) async {
+    if (texte.trim().isEmpty || _resolution) return;
+
+    setState(() => _resolution = true);
+    final point = await LienMaps.resoudre(texte);
+    if (!mounted) return;
+    setState(() => _resolution = false);
+
+    if (point == null) {
+      // LE MESSAGE NE DIT PAS « LIEN INVALIDE », et la nuance vaut la peine :
+      // un lien court non resolu et un texte sans coordonnees echouent pareil
+      // ici, mais pour des raisons opposees — l'un est bon et le reseau a
+      // manque, l'autre ne l'a jamais ete. On ne peut pas les distinguer, donc
+      // on ne tranche pas, et on rappelle la porte qui marche toujours.
+      _dire("Aucun point trouvé dans ce lien. Placez-le sur la carte.");
+      return;
+    }
+
+    final cible = LatLng(point.latitude, point.longitude);
+    setState(() => _target = cible);
+
+    // ZOOM 17 : UN CRAN PLUS PRES QUE L'OUVERTURE. Le lien designe une cour ou
+    // un portail, pas un quartier ; rester a 16 laisserait croire que le point
+    // est approximatif alors qu'il vient d'etre pose avec precision.
+    await _controller?.animateCamera(CameraUpdate.newLatLngZoom(cible, 17));
+  }
+
+  void _dire(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// Demande la permission, puis recentre — mais seulement si l'appelant n'a
@@ -107,6 +177,62 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
             mapToolbarEnabled: false,
           ),
 
+          // LE CHAMP DE LIEN EST EN HAUT, ET LE BOUTON DE CONFIRMATION EN BAS.
+          // Les deux gestes sont a des moments differents du meme ecran : on
+          // arrive, on colle ; on ajuste ; on confirme. Les mettre cote a cote
+          // ferait choisir entre eux.
+          Positioned(
+            top: HbaSpacing.sm,
+            left: HbaSpacing.gutter,
+            right: HbaSpacing.gutter,
+            child: HbaCard(
+              padding: const EdgeInsets.symmetric(
+                horizontal: HbaSpacing.sm,
+                vertical: 2,
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.link, color: HbaColors.inkFaint, size: 20),
+                  const SizedBox(width: HbaSpacing.sm),
+                  Expanded(
+                    child: TextField(
+                      controller: _lien,
+                      enabled: !_resolution,
+                      textInputAction: TextInputAction.go,
+                      onSubmitted: (v) => unawaited(_appliquer(v)),
+                      style: theme.textTheme.bodyMedium,
+                      decoration: const InputDecoration(
+                        hintText: 'Coller un lien Google Maps',
+                        border: InputBorder.none,
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+
+                  // L'INDICATEUR REMPLACE LE BOUTON, IL NE S'AJOUTE PAS A LUI :
+                  // suivre une redirection prend une seconde ou deux, et deux
+                  // appuis pendant ce temps lanceraient deux resolutions.
+                  if (_resolution)
+                    const Padding(
+                      padding: EdgeInsets.all(10),
+                      child: SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2.2),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      onPressed: () => unawaited(_coller()),
+                      icon: const Icon(Icons.content_paste_rounded, size: 20),
+                      color: HbaColors.primary,
+                      tooltip: 'Coller',
+                    ),
+                ],
+              ),
+            ),
+          ),
+
           // L'epingle est posee sur la carte, pas dedans : elle ne bouge jamais,
           // c'est la carte qui glisse dessous.
           const Padding(
@@ -126,7 +252,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                 HbaCard(
                   padding: const EdgeInsets.all(HbaSpacing.md),
                   child: Text(
-                    'Deplacez la carte pour placer le point, puis confirmez.',
+                    'Déplacez la carte pour placer le point, puis confirmez.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium,
                   ),

@@ -60,7 +60,15 @@ internal sealed class DeliveryBuilder
     {
         var delivery = Assigned();
         delivery.MarkArrivedAtPickup(Actor.Driver(DriverId), Now.AddMinutes(10));
-        delivery.MarkPickedUp(null, Actor.Driver(DriverId), Now.AddMinutes(12));
+        delivery.MarkPickedUp(Actor.Driver(DriverId), Now.AddMinutes(12));
+        return delivery;
+    }
+
+    /// <summary>Course remise : OTP saisi, statut Delivered a la minute 30.</summary>
+    public static Deliveries.Delivery Delivered()
+    {
+        var delivery = PickedUp();
+        delivery.ConfirmDelivery(delivery.Otp.Code, Actor.Driver(DriverId), Now.AddMinutes(30));
         return delivery;
     }
 

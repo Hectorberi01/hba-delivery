@@ -87,6 +87,12 @@ internal static class DeliveryProtoMapper
             proto.CompletedAt = Timestamp.FromDateTimeOffset(view.CompletedAt.Value);
         }
 
+        if (view.RefundedAt is not null)
+        {
+            proto.RefundedAt = Timestamp.FromDateTimeOffset(view.RefundedAt.Value);
+            proto.RefundPartial = view.RefundPartial;
+        }
+
         return proto;
     }
 
@@ -138,10 +144,18 @@ internal static class DeliveryProtoMapper
         _ => Source.ClientApp,
     };
 
+    /// <summary>
+    /// LE REPLI SUR « MOTO » NE COUVRE PLUS QUE L'INATTENDU. Chaque type connu a
+    /// desormais son bras : depuis l'arrivee du velo et du tricycle
+    /// (30 septembre 2026), un « _ » qui les avalait aurait montre une moto au
+    /// client venu voir a quoi ressemble son livreur.
+    /// </summary>
     private static Contracts.Common.V1.VehicleType ToProtoVehicle(DomainVehicle type) => type switch
     {
         DomainVehicle.Car => Contracts.Common.V1.VehicleType.Car,
         DomainVehicle.Van => Contracts.Common.V1.VehicleType.Van,
+        DomainVehicle.Bicycle => Contracts.Common.V1.VehicleType.Bicycle,
+        DomainVehicle.Tricycle => Contracts.Common.V1.VehicleType.Tricycle,
         _ => Contracts.Common.V1.VehicleType.Motorcycle,
     };
 

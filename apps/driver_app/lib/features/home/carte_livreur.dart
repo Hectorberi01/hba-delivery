@@ -191,11 +191,20 @@ class _CarteLivreurState extends State<CarteLivreur> {
           markerId: const MarkerId('moi'),
           position: widget.position!,
 
-          // UN DISQUE VERT QUAND IL TRAVAILLE, GRIS SINON — la meme couleur et
-          // le meme sens que le point de la bascule flottante. La carte redit
-          // d'un coup d'oeil ce que dit le bouton, et c'est la seule epingle
-          // ronde : sa forme la distingue des points de la course meme quand
-          // la lumiere a mange les teintes.
+          // SON VEHICULE, EN RELIEF, quand on en a l'image ; le disque
+          // colore sinon — camionnette, vehicule non declare. Voir
+          // JeuDEpingles.charger, qui choisit.
+          //
+          // L'ETAT SE LIT DANS LES DEUX CAS, mais pas au meme endroit : sur le
+          // disque c'est la couleur, sur le relief c'est l'image elle-meme,
+          // desaturee et effacee hors ligne. Retirer le disque a retire le
+          // support de la couleur ; il fallait bien que l'etat aille quelque
+          // part.
+          //
+          // ET IL EST DIT DEUX FOIS SUR CET ECRAN, ce qui n'est pas un
+          // doublon inutile : la bascule flottante, juste dessous, porte le
+          // meme point vert. Le livreur n'a pas a interpreter une nuance de
+          // gris pour savoir s'il travaille.
           //
           // LE BALLON DE GOOGLE RESTE LE SECOURS tant que le dessin n'est pas
           // pret, ou s'il a echoue.

@@ -188,6 +188,67 @@ public sealed class IdentityGrpcService(IDispatcher dispatcher) : IdentityServic
         return ToProto(view);
     }
 
+    // --- Suppression du compte, a la demande de son titulaire ---
+
+    public override async Task<AccountDeletion> RequestAccountDeletion(
+        RequestAccountDeletionRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new RequestAccountDeletionCommand(),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(view);
+    }
+
+    public override async Task<AccountDeletion> CancelAccountDeletion(
+        CancelAccountDeletionRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new CancelAccountDeletionCommand(),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(view);
+    }
+
+    public override async Task<AccountDeletion> GetAccountDeletion(
+        GetAccountDeletionRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.QueryAsync(
+            new GetAccountDeletionQuery(),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(view);
+    }
+
+    private static AccountDeletion ToProto(AccountDeletionView view)
+    {
+        var deletion = new AccountDeletion { Requested = view.Requested };
+
+        if (view.RequestedAt is { } demande)
+        {
+            deletion.RequestedAt = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(demande);
+        }
+
+        if (view.ScheduledFor is { } echeance)
+        {
+            deletion.ScheduledFor = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(echeance);
+        }
+
+        return deletion;
+    }
+
     // LA DATE N'EST POSEE QUE SI ELLE EXISTE : un Timestamp protobuf n'a pas de
     // valeur nulle, et « null » se dit en n'affectant pas le champ.
     private static ProtoWhatsAppConsent ToProto(WhatsAppConsentView view)

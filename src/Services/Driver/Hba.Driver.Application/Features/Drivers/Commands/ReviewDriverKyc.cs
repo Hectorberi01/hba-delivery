@@ -53,6 +53,37 @@ public sealed class ReviewDriverKycHandler(
     }
 }
 
+/// <summary>
+/// Ops leve une suspension. Le livreur reste hors ligne : il revient lui-meme.
+/// </summary>
+public sealed record ReinstateDriverCommand(Guid DriverId, string Reason) : ICommand<DriverView>;
+
+public sealed class ReinstateDriverHandler(
+    IDriverRepository drivers,
+    IUnitOfWork unitOfWork,
+    ICallerContext caller,
+    IClock clock) : ICommandHandler<ReinstateDriverCommand, DriverView>
+{
+    public async Task<DriverView> HandleAsync(ReinstateDriverCommand command, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        ReviewDriverKycHandler.EnsureAdmin(caller);
+
+        var driver = await drivers.GetByIdAsync(command.DriverId, cancellationToken).ConfigureAwait(false)
+            ?? throw new NotFoundException("Livreur", command.DriverId.ToString());
+
+        driver.Reinstate(command.Reason, caller.ToActor(), clock.UtcNow);
+
+        await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // RIEN A FAIRE SUR LA POSITION, CONTRAIREMENT A LA SUSPENSION. Elle a
+        // ete effacee en suspendant, et elle ne revient qu'avec le battement du
+        // livreur — c'est-a-dire quand il se remet en ligne lui-meme.
+        return DriverView.From(driver);
+    }
+}
+
 public sealed class SuspendDriverHandler(
     IDriverRepository drivers,
     IDriverLocationStore locations,

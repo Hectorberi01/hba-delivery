@@ -25,7 +25,17 @@ public sealed record CustomerView(
     string Phone,
     string? Email,
     IReadOnlyList<FavoriteAddressView> FavoriteAddresses,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    Guid? PhotoMediaId);
+
+/// <summary>Un lien signé, et le moment où il cessera de valoir.</summary>
+///
+/// <remarks>
+/// L'EXPIRATION VOYAGE AVEC L'URL. Sans elle, l'application garderait le lien
+/// jusqu'à ce qu'il rende une erreur, et le client verrait son portrait
+/// disparaître sans raison au bout de quelques minutes.
+/// </remarks>
+public sealed record PhotoLinkView(Uri Url, DateTimeOffset ExpiresAt);
 
 public sealed record OpeningHoursView(int IsoDay, int OpensAtMinutes, int ClosesAtMinutes);
 
@@ -60,7 +70,8 @@ public static class DirectoryViewMapper
             customer.Phone,
             customer.Email,
             [.. customer.FavoriteAddresses.Select(ToView)],
-            customer.CreatedAt);
+            customer.CreatedAt,
+            customer.PhotoMediaId);
     }
 
     public static FavoriteAddressView ToView(FavoriteAddress address)

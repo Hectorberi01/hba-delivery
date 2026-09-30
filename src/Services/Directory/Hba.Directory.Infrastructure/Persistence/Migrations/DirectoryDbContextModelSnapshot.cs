@@ -203,6 +203,10 @@ namespace Hba.Directory.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("phone");
 
+                    b.Property<Guid?>("PhotoMediaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("photo_media_id");
+
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -282,7 +286,6 @@ namespace Hba.Directory.Infrastructure.Persistence.Migrations
                     b.OwnsMany("Hba.Directory.Domain.Customers.FavoriteAddress", "FavoriteAddresses", b1 =>
                         {
                             b1.Property<Guid>("Id")
-                                .ValueGeneratedOnAdd()
                                 .HasColumnType("uuid");
 
                             b1.Property<DateTimeOffset>("CreatedAt")
@@ -383,7 +386,6 @@ namespace Hba.Directory.Infrastructure.Persistence.Migrations
                     b.OwnsMany("Hba.Directory.Domain.Merchants.PickupPoint", "PickupPoints", b1 =>
                         {
                             b1.Property<Guid>("Id")
-                                .ValueGeneratedOnAdd()
                                 .HasColumnType("uuid");
 
                             b1.Property<DateTimeOffset>("CreatedAt")

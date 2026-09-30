@@ -40,6 +40,23 @@ public static class DeliveryTransitions
         new(DeliveryStatus.DriverAtPickup, DeliveryStatus.PickedUp, ActorKind.Driver),
         new(DeliveryStatus.PickedUp, DeliveryStatus.Delivered, ActorKind.Driver),
 
+        // INCIDENT — LE LIVREUR CONSTATE QUE LA COURSE NE PEUT PAS ABOUTIR.
+        //
+        // Tranché le 29 septembre 2026. Sans ces trois lignes, un livreur dont
+        // le destinataire est absent, dont l'adresse est fausse, ou dont le code
+        // est bloqué après cinq essais, n'avait AUCUNE sortie : la seule
+        // transition qui lui était ouverte depuis PICKED_UP était « remise ».
+        // Il gardait le colis, restait en mission — donc ne pouvait ni se
+        // mettre hors ligne ni recevoir d'offre — jusqu'à ce qu'un ops clôture
+        // la course à sa place.
+        //
+        // IL DÉCLARE UN ÉCHEC, JAMAIS UNE REMISE. « Delivered » reste hors de sa
+        // portée sans OTP, et c'est la seule chose qui distingue « le colis a
+        // été remis » de « quelqu'un a cliqué ».
+        new(DeliveryStatus.DriverAssigned, DeliveryStatus.Failed, ActorKind.Driver),
+        new(DeliveryStatus.DriverAtPickup, DeliveryStatus.Failed, ActorKind.Driver),
+        new(DeliveryStatus.PickedUp, DeliveryStatus.Failed, ActorKind.Driver),
+
         // Annulation après paiement, avant collecte.
         new(DeliveryStatus.Paid, DeliveryStatus.Cancelled, ActorKind.Customer),
         new(DeliveryStatus.Paid, DeliveryStatus.Cancelled, ActorKind.Merchant),

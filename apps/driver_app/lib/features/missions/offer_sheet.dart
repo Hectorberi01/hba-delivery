@@ -35,7 +35,16 @@ class OfferSheet extends StatefulWidget {
 }
 
 class _OfferSheetState extends State<OfferSheet> {
+  /// Temps pendant lequel la feuille expiree reste visible avant de se fermer.
+  ///
+  /// ASSEZ LONG POUR ETRE LU, ASSEZ COURT POUR NE PAS COUTER UNE VAGUE. C'est
+  /// le compromis de la correction S4 : la feuille ne disparait pas sous les
+  /// yeux du livreur au moment ou il tend le doigt, et elle ne le retient pas
+  /// non plus hors du circuit.
+  static const _delaiDeFermeture = Duration(seconds: 4);
+
   Timer? _ticker;
+  Timer? _fermeture;
   late Duration _remaining;
   bool _busy = false;
 
@@ -50,11 +59,33 @@ class _OfferSheetState extends State<OfferSheet> {
       if (_remaining == Duration.zero) {
         _ticker?.cancel();
 
-        // L'OFFRE EXPIREE NE DOIT PLUS RIEN RECLAMER. La feuille, elle, reste
-        // ouverte — le livreur doit voir POURQUOI le bouton est mort plutot
-        // que de la voir disparaitre sous ses yeux. Mais continuer a sonner
-        // pour une course qu'il ne peut plus prendre serait une brimade.
+        // L'OFFRE EXPIREE NE DOIT PLUS RIEN RECLAMER. Le livreur doit voir
+        // POURQUOI le bouton est mort plutot que de voir la feuille disparaitre
+        // sous ses yeux. Mais continuer a sonner pour une course qu'il ne peut
+        // plus prendre serait une brimade.
         unawaited(Signal.silence());
+
+        // ELLE SE FERME ENSUITE, ET C'EST LA CORRECTION S4.
+        //
+        // Elle restait ouverte pour toujours. Or la feuille est montee en
+        // « isDismissible: false, enableDrag: false » et ne porte aucun bouton
+        // de fermeture : les deux seules sorties sont Accepter et Refuser, tous
+        // deux morts une fois l'offre expiree. Tant qu'elle tenait l'ecran,
+        // l'accueil gardait « _sheetOpen » a vrai et SUSPENDAIT LE SONDAGE —
+        // pendant que le battement de position continuait d'annoncer au serveur
+        // un livreur disponible. Un telephone pose deux minutes, et le livreur
+        // sortait du circuit sans rien voir, tout en restant proposable : trente
+        // secondes perdues pour chaque client d'une vague qu'il ne verrait pas.
+        //
+        // ON GARDE DONC L'INTENTION D'ORIGINE — montrer pourquoi — et on lui
+        // donne une fin.
+        _fermeture = Timer(_delaiDeFermeture, () {
+          // PAS PENDANT UNE ACTION EN COURS : si le livreur a glisse pour
+          // accepter a la seconde ou l'offre expirait, l'aller-retour reseau
+          // est encore en vol et c'est lui qui fermera la feuille.
+          if (!mounted || _busy) return;
+          Navigator.of(context).pop();
+        });
       }
     });
   }
@@ -62,6 +93,7 @@ class _OfferSheetState extends State<OfferSheet> {
   @override
   void dispose() {
     _ticker?.cancel();
+    _fermeture?.cancel();
 
     // FILET DE SECURITE. L'acceptation et le refus coupent deja le signal, et
     // l'expiration aussi ; il reste les fermetures qu'on n'a pas prevues.

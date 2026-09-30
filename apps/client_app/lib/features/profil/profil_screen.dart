@@ -7,7 +7,9 @@ import '../auth/session_controller.dart';
 import 'adresses.dart';
 import 'bloc_adresses.dart';
 import 'formulaire_profil.dart';
+import 'photo_profil.dart';
 import 'profil_providers.dart';
+import 'suppression_compte.dart';
 import 'support.dart';
 import 'tuile.dart';
 import 'whatsapp.dart';
@@ -36,6 +38,14 @@ class ProfilScreen extends ConsumerWidget {
             ref.invalidate(profilProvider);
             ref.invalidate(adressesProvider);
             ref.invalidate(whatsAppProvider);
+
+            // LE LIEN DE LA PHOTO AUSSI, ET IL NE SUIT PAS TOUT SEUL. Il ne se
+            // recalcule que si l'identifiant du media change ; or ce qui perime
+            // ici, c'est la SIGNATURE de l'adresse, pas la photo. Un tirage vers
+            // le bas est justement le geste de quelqu'un dont le portrait vient
+            // de disparaître.
+            ref.invalidate(photoProvider);
+            ref.invalidate(suppressionProvider);
           },
           child: ListView(
             padding: const EdgeInsets.fromLTRB(
@@ -45,6 +55,11 @@ class ProfilScreen extends ConsumerWidget {
               HbaSpacing.xxl,
             ),
             children: [
+              // EN HAUT, AVANT LE PROFIL LUI-MEME. Un compte en sursis n'est
+              // pas un detail de reglage : c'est la premiere chose a dire a
+              // quelqu'un dont le compte disparaitra dans trois semaines.
+              const BandeauSuppression(),
+
               async.when(
                 loading: () => const Padding(
                   padding: EdgeInsets.all(HbaSpacing.xl),
@@ -76,6 +91,13 @@ class ProfilScreen extends ConsumerWidget {
 
               const SizedBox(height: HbaSpacing.xl),
               _Deconnexion(),
+
+              // TOUT EN BAS, ET DISCRETE. Elle doit EXISTER — Apple exige
+              // qu'une suppression de compte s'amorce dans l'application — mais
+              // rien n'oblige a la mettre sur le chemin de quelqu'un qui
+              // cherchait ses adresses favorites.
+              const SizedBox(height: HbaSpacing.sm),
+              const EntreeSuppression(),
             ],
           ),
         ),
@@ -84,38 +106,17 @@ class ProfilScreen extends ConsumerWidget {
   }
 }
 
-/// La carte d'identite : avatar, nom, telephone, et le geste pour modifier.
+/// La carte d'identite : portrait, nom, telephone, et le geste pour modifier.
 ///
-/// L'AVATAR PORTE LES INITIALES, PAS UNE SILHOUETTE GRISE. Une silhouette est
-/// la meme pour tout le monde ; deux lettres disent a qui appartient le compte,
-/// ce qui compte sur un telephone qu'on prete.
-///
-/// LE BADGE APPAREIL-PHOTO DE LA MAQUETTE N'EST PAS ENCORE LA. Le depot d'une
-/// photo demande une colonne dans Directory, une route, un bucket et une regle
-/// de visibilite : il arrive avec ce travail-la, pas avant. Un badge qui
-/// n'ouvre rien serait pire que pas de badge.
+/// DEUX ZONES TOUCHABLES DANS UNE SEULE CARTE, et c'est voulu. La carte entiere
+/// ouvre le formulaire ; le rond, lui, ouvre le menu de la photo. Le rond est
+/// pose PAR-DESSUS et intercepte le toucher (HitTestBehavior.opaque) : sans
+/// cela, le client croirait appuyer sur son portrait et se retrouverait a
+/// modifier son nom.
 class _Identite extends ConsumerWidget {
   const _Identite({required this.profil});
 
   final Profil profil;
-
-  static String initiales(String nom) {
-    final mots = nom
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((m) => m.isNotEmpty)
-        .toList();
-
-    // SUBSTRING(0, 1) ET NON [0] : un nom peut commencer par un caractere
-    // accentue, et les deux donnent ici le meme resultat — mais substring dit
-    // ce qu'on veut, un prefixe, la ou l'index dit une unite de code.
-    String premiere(String mot) => mot.substring(0, 1).toUpperCase();
-
-    if (mots.isEmpty) return '?';
-    if (mots.length == 1) return premiere(mots.first);
-
-    return premiere(mots.first) + premiere(mots.last);
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -129,22 +130,7 @@ class _Identite extends ConsumerWidget {
       onTap: () => ouvrirFormulaireProfil(context, profil),
       child: Column(
         children: [
-          Container(
-            height: 92,
-            width: 92,
-            alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              color: HbaColors.primarySoft,
-              shape: BoxShape.circle,
-            ),
-            child: Text(
-              initiales(profil.nom),
-              style: theme.textTheme.headlineSmall?.copyWith(
-                color: HbaColors.primaryInk,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
+          PhotoProfil(nom: profil.nom, aUnePhoto: profil.aUnePhoto),
           const SizedBox(height: HbaSpacing.md),
           Text(
             profil.nom.trim().isEmpty ? 'Votre compte' : profil.nom,

@@ -46,9 +46,18 @@ internal sealed class DeliveryConfiguration : IEntityTypeConfiguration<DeliveryA
         builder.Property(d => d.PaymentIntentId).HasMaxLength(64);
         builder.Property(d => d.CurrentOfferId).HasMaxLength(64);
         builder.Property(d => d.PackageDescription).HasMaxLength(500);
-        builder.Property(d => d.PickupProofObjectKey).HasMaxLength(256);
-        builder.Property(d => d.DeliveryProofObjectKey).HasMaxLength(256);
+        // LES PREUVES SONT DES IDENTIFIANTS DE MEDIA, PLUS DES CLES DE STOCKAGE,
+        // depuis le 30 septembre 2026 : le point 27 veut que la cle ne sorte pas
+        // du service Media. Un Guid n'a ni longueur a declarer ni forme a
+        // contraindre — d'ou l'absence de configuration ici, qui n'est pas un
+        // oubli.
         builder.Property(d => d.ClosureReason).HasMaxLength(500);
+
+        // LE REMBOURSEMENT EST CONSTATE, PAS DECLENCHE : deux colonnes, pas de
+        // table. Voir Delivery.MarkRefunded — FedaPay n'a pas d'API de
+        // remboursement, c'est un geste humain qu'on apprend par le webhook.
+        builder.Property(d => d.RefundedAt);
+        builder.Property(d => d.RefundPartial);
 
         // Un partenaire ne peut pas créer deux fois la même commande externe.
         builder.HasIndex(d => new { d.PartnerId, d.ExternalOrderId })

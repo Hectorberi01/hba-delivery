@@ -17,6 +17,8 @@ const VEHICULES: Record<string, string> = {
   Motorcycle: 'Moto',
   Car: 'Voiture',
   Van: 'Camionnette',
+  Bicycle: 'Vélo',
+  Tricycle: 'Tricycle',
   Unspecified: 'Non déclaré',
 };
 

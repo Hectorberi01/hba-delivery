@@ -23,6 +23,11 @@ public enum ProviderOutcome
     Succeeded = 2,
 
     Failed = 3,
+
+    /// <summary>
+    /// Le fournisseur a rendu l'argent. CONSTATE, PAS DEMANDE PAR NOUS.
+    /// </summary>
+    Refunded = 4,
 }
 
 /// <summary>
@@ -82,6 +87,30 @@ public sealed class ApplyProviderOutcomeHandler(
                 intent.MarkFailed(payment.FailureReason ?? payment.Raw, actor, now);
                 break;
 
+            // UN REMBOURSEMENT TOMBAIT DANS LE « default », ET Y ETAIT
+            // JOURNALISE « TOUJOURS EN COURS CHEZ LE FOURNISSEUR ».
+            //
+            // C'etait faux, et c'etait le seul endroit ou le systeme aurait pu
+            // l'apprendre. FedaPay n'a pas d'API de remboursement — verifie le
+            // 30 septembre 2026 : tableau de bord uniquement, MTN Mobile Money
+            // seulement — donc un remboursement est un geste humain chez le
+            // fournisseur. La seule facon de le savoir est celle-ci : le webhook
+            // arrive, on relit la transaction comme toujours, et son statut a
+            // change.
+            //
+            // RESTE A VERIFIER SUR LE COMPTE MARCHAND si FedaPay notifie bien un
+            // remboursement fait au tableau de bord. S'il ne notifie pas, ce
+            // chemin ne sera jamais emprunte et il faudra une relecture
+            // periodique des intentions payees. Le code est juste dans les deux
+            // cas ; c'est sa mise en mouvement qui depend du fournisseur.
+            case PaymentStatus.Refunded:
+            case PaymentStatus.PartiallyRefunded:
+                intent.MarkRefunded(
+                    partiel: payment.Status == PaymentStatus.PartiallyRefunded,
+                    actor,
+                    now);
+                break;
+
             default:
                 // Rien a faire, et surtout rien a inventer : une transaction
                 // encore en cours reste en cours. Le fournisseur rappellera.
@@ -98,6 +127,11 @@ public sealed class ApplyProviderOutcomeHandler(
         // le meme verdict.
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        return payment.Status == PaymentStatus.Succeeded ? ProviderOutcome.Succeeded : ProviderOutcome.Failed;
+        return payment.Status switch
+        {
+            PaymentStatus.Succeeded => ProviderOutcome.Succeeded,
+            PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded => ProviderOutcome.Refunded,
+            _ => ProviderOutcome.Failed,
+        };
     }
 }

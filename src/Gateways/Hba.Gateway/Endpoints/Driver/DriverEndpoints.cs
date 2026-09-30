@@ -4,6 +4,8 @@ using Hba.Contracts.Delivery.V1;
 using Hba.Contracts.Dispatch.V1;
 using Hba.Contracts.Driver.V1;
 using Hba.Contracts.Payment.V1;
+using Hba.Gateway.Endpoints.Relais;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Hba.Gateway.Endpoints.Driver;
 
@@ -33,6 +35,37 @@ public static class DriverEndpoints
         // LE STATUT EST TRADUIT ICI, PAS RENVOYE BRUT. La passerelle
         // serialise les enums protobuf en entiers ; laisser passer un « 2 »
         // obligerait chaque client a connaitre la numerotation du contrat.
+        // CREER SON PROFIL, QUAND L'INSCRIPTION NE L'A PAS FAIT.
+        //
+        // Le profil livreur nait d'un evenement : Identity publie
+        // AccountRegistered, Driver le consomme. Cet evenement se perd — Kafka
+        // ne rejoue pas pour un groupe de consommateurs qui n'existait pas
+        // encore —, et le livreur se retrouve alors avec un compte valide, un
+        // jeton portant driver_id, et un GET /me qui repond 404 a vie. Le
+        // client avait deja cette porte de secours ; le livreur non.
+        //
+        // AUCUN CORPS : le service relit le jeton qu'il a lui-meme valide et en
+        // tire le nom et le telephone. Idempotente.
+        group.MapPost("/me", async (
+            DriverService.DriverServiceClient drivers,
+            CancellationToken cancellationToken) =>
+        {
+            var driver = await drivers.EnsureDriverAsync(
+                new EnsureDriverRequest(),
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(new
+            {
+                id = driver.Id,
+                displayName = driver.DisplayName,
+                phone = driver.Phone,
+                verificationStatus = driver.VerificationStatus.ToString(),
+                operationalStatus = driver.OperationalStatus.ToString(),
+                kycApproved = driver.VerificationStatus == VerificationStatus.Verified,
+                statusReason = driver.StatusReason,
+            });
+        });
+
         group.MapGet("/me", async (
             HttpContext http,
             DriverService.DriverServiceClient drivers,
@@ -296,6 +329,33 @@ public static class DriverEndpoints
             return Results.Ok(result);
         });
 
+        // LA PHOTO D'UNE ETAPE, ET ELLE NE PASSE PAS PAR LA MEME PORTE.
+        //
+        // Les quatre actions ci-dessus sont du gRPC : un identifiant, un
+        // horodatage, une cle d'idempotence. Celle-ci porte des OCTETS, et gRPC
+        // les porte mal (ADR 0021) — d'ou un relais HTTP, comme pour les pieces
+        // du dossier livreur et la photo de profil du client.
+        //
+        // ELLE VA VERS DELIVERY, PAS VERS MEDIA, et c'est la decision du
+        // 30 septembre 2026 : « ce livreur est-il affecte a cette course » est
+        // une question que seul Delivery sait trancher. La passerelle ne detient
+        // aucun jeton de service et n'en detiendra pas : elle reporte celui du
+        // livreur, et rien d'autre.
+        //
+        // ELLE NE PORTE NI HORODATAGE NI CLE D'IDEMPOTENCE, contrairement a ses
+        // voisines. Une photo n'entre jamais dans la file hors ligne — cette
+        // file range du JSON dans le coffre chiffre et ne sait pas transporter
+        // un fichier —, donc un depot se fait toujours en direct.
+        group.MapPost("/missions/{id}/proof", async (
+            string id,
+            [FromQuery] string etape,
+            HttpRequest requete,
+            HttpContext http,
+            IPreuveRelay preuves,
+            CancellationToken cancellationToken) =>
+            await preuves.DeposerAsync(requete, http, id, etape, cancellationToken))
+        .DisableAntiforgery();
+
         // Le code vient du destinataire. Le livreur le saisit : il ne l'a jamais reçu.
         group.MapPost("/missions/{id}/deliver", async (
             string id,
@@ -312,6 +372,32 @@ public static class DriverEndpoints
                     OccurredAt = ToTimestamp(body.OccurredAt),
                     IdempotencyKey = IdempotencyKeyOf(http),
                     ProofObjectKey = body.ProofObjectKey ?? string.Empty,
+                },
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(result);
+        });
+
+        // L'INCIDENT : LA SEULE SORTIE QUAND LA REMISE EST IMPOSSIBLE.
+        //
+        // Destinataire absent, adresse fausse, code bloque apres cinq essais :
+        // le livreur n'avait aucune porte. Il gardait le colis, restait en
+        // mission, et ne recevait plus d'offre jusqu'a ce qu'un ops cloture a sa
+        // place. La course part en FAILED ; « remise » reste hors de sa portee.
+        group.MapPost("/missions/{id}/incident", async (
+            string id,
+            IncidentDto body,
+            HttpContext http,
+            DeliveryService.DeliveryServiceClient deliveries,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await deliveries.DeclareIncidentAsync(
+                new DeclareIncidentRequest
+                {
+                    DeliveryId = id,
+                    Reason = body.Reason,
+                    OccurredAt = ToTimestamp(body.OccurredAt),
+                    IdempotencyKey = IdempotencyKeyOf(http),
                 },
                 cancellationToken: cancellationToken);
 
@@ -387,5 +473,8 @@ public sealed record TimestampedDto(DateTimeOffset? OccurredAt);
 public sealed record ProofDto(DateTimeOffset? OccurredAt, string? ProofObjectKey);
 
 public sealed record ConfirmDto(string Otp, DateTimeOffset? OccurredAt, string? ProofObjectKey);
+
+/// <summary>Motif libre : aucune liste d'incidents n'est tranchee.</summary>
+public sealed record IncidentDto(string Reason, DateTimeOffset? OccurredAt);
 
 public sealed record PayoutDto(long AmountXof);

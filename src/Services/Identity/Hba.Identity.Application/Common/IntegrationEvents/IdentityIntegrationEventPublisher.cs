@@ -112,8 +112,25 @@ public sealed class IdentityIntegrationEventPublisher : IIdentityIntegrationEven
             StatusChanged = BuildStatusChanged(e),
         },
 
+        DomainEvents.AccountErased e => new IdentityEvent
+        {
+            Envelope = Envelope(e.EventId, "hba.identity.v1.AccountErased", account, e),
+            Erased = new AccountErased
+            {
+                AccountId = e.AccountId.ToString(),
+                RequestedAt = Timestamp.FromDateTimeOffset(e.RequestedAt),
+                ErasedAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
+            },
+        },
+
+        // LA DEMANDE ET SON ANNULATION NE SORTENT PAS, ET C'EST DELIBERE. Tant
+        // que le delai court, rien n'est efface et le titulaire peut revenir
+        // dessus : prevenir les autres services les ferait agir sur une
+        // decision qui n'est pas prise, ou les laisserait dans un etat
+        // intermediaire qu'aucune annulation ne rattraperait proprement.
+        //
         // Un changement de mot de passe et un rattachement de profil livreur ne
-        // concernent aucun autre service aujourd'hui : rien ne sort.
+        // concernent aucun autre service aujourd'hui : rien ne sort non plus.
         _ => null,
     };
 
@@ -201,6 +218,8 @@ public sealed class IdentityIntegrationEventPublisher : IIdentityIntegrationEven
     {
         Domain.Accounts.AccountStatus.Active => Contracts.Identity.V1.AccountStatus.Active,
         Domain.Accounts.AccountStatus.Suspended => Contracts.Identity.V1.AccountStatus.Suspended,
+        Domain.Accounts.AccountStatus.PendingDeletion =>
+            Contracts.Identity.V1.AccountStatus.PendingDeletion,
         _ => Contracts.Identity.V1.AccountStatus.Unspecified,
     };
 
@@ -214,6 +233,7 @@ public sealed class IdentityIntegrationEventPublisher : IIdentityIntegrationEven
         ActorKind.Dispatch => ActorType.Dispatch,
         ActorKind.PaymentProvider => ActorType.PaymentProvider,
         ActorKind.Scheduler => ActorType.Scheduler,
+        ActorKind.Service => ActorType.Service,
         _ => ActorType.Unspecified,
     };
 }

@@ -2,6 +2,7 @@ using Hba.BuildingBlocks.Application.Extensions;
 using Hba.BuildingBlocks.Grpc.Extensions;
 using Hba.BuildingBlocks.Observability;
 using Hba.BuildingBlocks.Security;
+using Hba.Contracts.Billing.V1;
 using Hba.Contracts.Delivery.V1;
 using Hba.Contracts.Directory.V1;
 using Hba.Contracts.Dispatch.V1;
@@ -14,6 +15,7 @@ using Hba.Gateway.Endpoints.Client;
 using Hba.Gateway.Endpoints.Driver;
 using Hba.Gateway.Endpoints.Partner;
 using Hba.Gateway.Endpoints.Public;
+using Hba.Gateway.Endpoints.Relais;
 using Hba.Gateway.Endpoints.Web;
 using Hba.Gateway.Webhooks;
 using Microsoft.AspNetCore.Builder;
@@ -70,6 +72,15 @@ builder.Services.AddHbaGrpcClient<PricingService.PricingServiceClient>(
 builder.Services.AddHbaGrpcClient<PaymentService.PaymentServiceClient>(
     new Uri(builder.Configuration["Services:Payment"] ?? "http://payment:8081"));
 
+// BILLING N'AVAIT AUCUN CLIENT ICI, ET C'EST CE QUI BOUCHAIT TOUT LE B2B.
+//
+// « OpenAccount » et « Credit » n'existaient que sur le gRPC interne, que le
+// proxy ne route pas : aucun chemin ne permettait d'ouvrir un compte de
+// facturation ni d'y porter une recharge. La premiere course de tout partenaire
+// echouait donc en « compte introuvable » — apres avoir consomme son devis.
+builder.Services.AddHbaGrpcClient<BillingService.BillingServiceClient>(
+    new Uri(builder.Configuration["Services:Billing"] ?? "http://billing:8081"));
+
 // LA PASSERELLE RESOUT ELLE-MEME LA FENETRE des indicateurs, puis l'impose
 // aux quatre services (ADR 0019 et 0020). Chacun sait calculer la sienne par
 // defaut, et les quatre tomberaient d'accord tant que leur configuration est
@@ -92,6 +103,36 @@ builder.Services.AddHttpClient<IDriverUploadRelay, DriverUploadRelay>(client =>
 {
     client.BaseAddress = new Uri(
         builder.Configuration["Services:DriverHttp"] ?? "http://driver:8080");
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
+
+// RELAIS DE LA PHOTO DE PROFIL DU CLIENT VERS MEDIA (point 27). Meme forme
+// que celui des pieces du dossier livreur juste au-dessus, et pour la meme
+// raison : gRPC porte mal les binaires. La difference est que Media est un
+// service dont c'est le METIER — ce n'est plus une exception a l'ADR 0015.
+//
+// LE PORT 8080, PAS 8081 : c'est la surface HTTP du service, pas sa surface
+// gRPC. Se tromper donne un « HTTP_1_1_REQUIRED » qui ne designe pas sa cause.
+builder.Services.AddHttpClient<IMediaUploadRelay, MediaUploadRelay>(client =>
+{
+    client.BaseAddress = new Uri(
+        builder.Configuration["Services:MediaHttp"] ?? "http://media:8080");
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
+
+// LE TROISIEME RELAIS D'OCTETS, ET LE SEUL QUI NE VISE PAS UN SERVICE DE
+// STOCKAGE. La photo d'une etape part vers DELIVERY : lui seul sait si ce
+// livreur est affecte a cette course, et c'est lui qui deposera ensuite chez
+// Media avec un jeton de service. La passerelle n'en detient aucun, et c'est
+// delibere — lui en donner un ferait d'elle un appelant de confiance pour tous
+// les medias de la plateforme.
+//
+// LE PORT 8080, PAS 8081 : la surface HTTP de Delivery, pas sa surface gRPC. Ce
+// service n'ouvre qu'une seule route HTTP, et c'est celle-ci.
+builder.Services.AddHttpClient<IPreuveRelay, PreuveRelay>(client =>
+{
+    client.BaseAddress = new Uri(
+        builder.Configuration["Services:DeliveryHttp"] ?? "http://delivery:8080");
     client.Timeout = TimeSpan.FromMinutes(2);
 });
 
@@ -161,6 +202,7 @@ app.MapBackOfficeEndpoints();
 app.MapKpiEndpoints();
 app.MapAdminDirectoryEndpoints();
 app.MapAdminPayoutEndpoints();
+app.MapAdminBillingEndpoints();
 
 // ----------------------------------------------------------- Partenaires ---
 app.MapPartnerTokenEndpoint();

@@ -5,7 +5,7 @@ using Hba.Contracts.Driver.V1;
 namespace Hba.Gateway.Endpoints.Client;
 
 /// <summary>
-/// Les livreurs autour du client, en COORDONNÉES SEULES.
+/// Les livreurs autour du client : POSITION ET VÉHICULE, RIEN D'AUTRE.
 ///
 /// POURQUOI CETTE ROUTE EXISTE (point 24, tranché le 28 septembre 2026). La
 /// matrice de visibilité du référentiel était MUETTE sur les positions des
@@ -18,7 +18,14 @@ namespace Hba.Gateway.Endpoints.Client;
 /// CE QUE CETTE DÉCISION N'A PAS LEVÉ, ET C'EST TOUT L'OBJET DE CE FICHIER. La
 /// ligne « Téléphone du livreur : pendant la mission » de la matrice tient
 /// toujours : aucune identité de livreur avant DRIVER_ASSIGNED. La réponse ne
-/// porte donc ni identifiant, ni nom, ni plaque, ni type de véhicule.
+/// porte donc ni identifiant, ni nom, ni plaque, ni téléphone.
+///
+/// LE TYPE DE VÉHICULE, LUI, EST SORTI LE 30 SEPTEMBRE 2026, par une révision
+/// du point 24 puis du référentiel des acteurs et de la matrice de visibilité —
+/// dans cet ordre, avant le code. Il passe parce qu'il désigne une CATÉGORIE et
+/// non un homme : des centaines de livreurs partagent « moto ». C'est la carte
+/// du client qui le réclamait, une pastille de moto valant mieux que quatre
+/// points identiques quand il s'agit de choisir d'attendre ou de commander.
 ///
 /// UN IDENTIFIANT STABLE SUFFIRAIT À ANNULER LA RÈGLE, même sans nom : il
 /// permettrait de reconnaître le même livreur d'un jour sur l'autre, de suivre
@@ -73,11 +80,25 @@ public static class ClientNearbyEndpoints
                 },
                 cancellationToken: cancellationToken);
 
-            // LA PROJECTION EST LA RÈGLE, PAS UNE COMMODITÉ D'AFFICHAGE. On ne
-            // rend QUE la latitude et la longitude. Ajouter un champ ici, même
-            // anodin en apparence — une distance, un rang, un identifiant
-            // opaque — rouvre la question tranchée au point 24, et doit passer
-            // par le référentiel avant le code.
+            // LA PROJECTION EST LA RÈGLE, PAS UNE COMMODITÉ D'AFFICHAGE.
+            //
+            // Ajouter un champ ici, même anodin en apparence — une distance, un
+            // rang, un identifiant opaque — rouvre la question tranchée au
+            // point 24, et doit passer par le référentiel AVANT le code. C'est
+            // ce qui a été fait le 30 septembre 2026 pour le type de véhicule :
+            // le point 24 a été révisé, puis le référentiel des acteurs et la
+            // matrice de visibilité, et seulement ensuite cette ligne.
+            //
+            // CE QUI N'EST TOUJOURS PAS RENDU, ET QUI BORNE TOUT LE RESTE :
+            // l'identifiant. Il permettrait de reconnaître le même livreur d'un
+            // jour sur l'autre, donc de suivre ses horaires et ses trajets.
+            // Deux livreurs à moto restent indistinguables ici, et rien ne relie
+            // une position du jour à celle de la veille. Ni le nom, ni la
+            // plaque, ni le téléphone ne passent non plus.
+            //
+            // LE TYPE DE VÉHICULE EST SEMI-IDENTIFIANT, et c'est le prix assumé :
+            // quatre de ses cinq valeurs sont rares à Cotonou, donc un tricycle
+            // au milieu des motos se repère. Le point 24 pèse ce que cela ouvre.
             return Results.Ok(new
             {
                 positions = reponse.Drivers
@@ -86,6 +107,7 @@ public static class ClientNearbyEndpoints
                     {
                         latitude = driver.Position.Latitude,
                         longitude = driver.Position.Longitude,
+                        vehicleType = driver.VehicleType.ToString(),
                     }),
             });
         });

@@ -62,7 +62,7 @@ void main() {
     testWidgets('sous la minute, le compteur est en secondes', (tester) async {
       await poserA(tester, const Duration(seconds: 45));
 
-      expect(find.text('Commandee il y a 45 s'), findsOneWidget);
+      expect(find.text('Commandée il y a 45 s'), findsOneWidget);
       await demonter(tester);
     });
 
@@ -72,7 +72,7 @@ void main() {
 
       // SUR DEUX CHIFFRES : « 2 min 05 », jamais « 2 min 5 ». Un compteur dont
       // la largeur change a chaque seconde fait sautiller la ligne entiere.
-      expect(find.text('Commandee il y a 2 min 05'), findsOneWidget);
+      expect(find.text('Commandée il y a 2 min 05'), findsOneWidget);
       await demonter(tester);
     });
 
@@ -82,7 +82,7 @@ void main() {
 
       // PASSE DIX MINUTES, LA SECONDE NE VEUT PLUS RIEN DIRE. Un client qui
       // attend depuis douze minutes ne lit pas « 34 » ; il lit « c'est long ».
-      expect(find.text('Commandee il y a 12 min'), findsOneWidget);
+      expect(find.text('Commandée il y a 12 min'), findsOneWidget);
       await demonter(tester);
     });
 
@@ -96,15 +96,15 @@ void main() {
         depuis: commande,
         horloge: () => commande.add(ecart),
       );
-      expect(find.text('Commandee il y a 10 s'), findsOneWidget);
+      expect(find.text('Commandée il y a 10 s'), findsOneWidget);
 
       ecart = const Duration(seconds: 11);
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('Commandee il y a 11 s'), findsOneWidget);
+      expect(find.text('Commandée il y a 11 s'), findsOneWidget);
 
       ecart = const Duration(minutes: 1);
       await tester.pump(const Duration(seconds: 49));
-      expect(find.text('Commandee il y a 1 min 00'), findsOneWidget);
+      expect(find.text('Commandée il y a 1 min 00'), findsOneWidget);
 
       await demonter(tester);
     });
@@ -120,7 +120,7 @@ void main() {
         horloge: () => commande.subtract(const Duration(seconds: 3)),
       );
 
-      expect(find.text('Commandee il y a 0 s'), findsOneWidget);
+      expect(find.text('Commandée il y a 0 s'), findsOneWidget);
       await demonter(tester);
     });
 
@@ -128,7 +128,7 @@ void main() {
         (tester) async {
       await poser(tester, depuis: null, horloge: () => commande);
 
-      expect(find.textContaining('Commandee il y a'), findsNothing);
+      expect(find.textContaining('Commandée il y a'), findsNothing);
       expect(find.textContaining('un par un'), findsOneWidget);
 
       // Aucune minuterie ne doit avoir ete armee : sans date, il n'y a rien a
@@ -141,7 +141,7 @@ void main() {
 
       expect(find.text("Recherche d'un livreur"), findsOneWidget);
       expect(
-        find.textContaining('du plus proche au plus eloigne'),
+        find.textContaining('du plus proche au plus éloigné'),
         findsOneWidget,
       );
       await demonter(tester);

@@ -17,6 +17,29 @@ val mapsApiKey: String = Properties().apply {
     }
 }.getProperty("MAPS_API_KEY") ?: ""
 
+// SIGNATURE DE PUBLICATION. Le bloc « release » etait reste celui du gabarit
+// Flutter : « TODO: Add your own signing config », et une signature avec les
+// cles de DEBOGAGE. Ces cles sont publiques et identiques sur toutes les
+// machines de developpement — n'importe qui pouvait donc produire un paquet que
+// le telephone accepterait comme une mise a jour legitime de HBA Client, et le
+// Play Store, lui, refuse l'envoi. L'application livreur etait deja faite ;
+// celle-ci ne l'etait pas (constat B7 du 30/09/2026).
+//
+// Les identifiants du magasin de cles vivent dans android/key.properties, que
+// android/.gitignore ecarte deja au meme titre que *.jks et *.keystore —
+// verifie. Un magasin de cles divulgue laisse publier a votre place ; un
+// magasin de cles PERDU est pire, il condamne definitivement la ligne de mise a
+// jour.
+//
+// ABSENT, ON RETOMBE SUR LE DEBOGAGE ET ON LE DIT FORT. C'est ce qui permet a
+// quiconque de lancer « flutter run --release » sans detenir le magasin ;
+// l'avertissement est la pour qu'on ne decouvre pas la chose le jour du
+// televersement.
+val proprietesCle = Properties().apply {
+    val fichier = rootProject.file("key.properties")
+    if (fichier.exists()) fichier.inputStream().use { load(it) }
+}
+val cleDePublication = proprietesCle.getProperty("storeFile") != null
 
 android {
     namespace = "com.example.hba_client"
@@ -44,11 +67,29 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (cleDePublication) {
+            create("publication") {
+                keyAlias = proprietesCle.getProperty("keyAlias")
+                keyPassword = proprietesCle.getProperty("keyPassword")
+                storeFile = file(proprietesCle.getProperty("storeFile"))
+                storePassword = proprietesCle.getProperty("storePassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (cleDePublication) {
+                signingConfigs.getByName("publication")
+            } else {
+                logger.warn(
+                    "HBA : android/key.properties est absent. La version release sera " +
+                        "signee avec les cles de DEBOGAGE et le Play Store la refusera. " +
+                        "Voir apps/client_app/README.md, section Publier."
+                )
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

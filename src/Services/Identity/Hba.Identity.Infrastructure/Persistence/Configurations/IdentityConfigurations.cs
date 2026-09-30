@@ -60,6 +60,22 @@ internal sealed class AccountConfiguration : IEntityTypeConfiguration<Account>
 
         builder.Ignore(a => a.CanReceiveWhatsApp);
 
+        // Suppression demandee par le titulaire. LES DEUX COLONNES VONT
+        // ENSEMBLE et le depot exige leur accord pour effacer quoi que ce
+        // soit : une date sans le statut, ou l'inverse, ne fait rien plutot
+        // que de faire la moitie.
+        builder.Property(a => a.DeletionRequestedAt).HasColumnName("deletion_requested_at");
+        builder.Property(a => a.DeletionScheduledFor).HasColumnName("deletion_scheduled_for");
+
+        builder.Ignore(a => a.IsPendingDeletion);
+
+        // L'INDEX PORTE SON FILTRE. Le balayage d'effacement passe toutes les
+        // heures et ne cherche qu'une poignee de lignes parmi tous les comptes ;
+        // sans filtre, l'index pesait le poids de la table entiere pour servir
+        // une requete qui ne rend presque jamais rien.
+        builder.HasIndex(a => a.DeletionScheduledFor)
+            .HasFilter("deletion_scheduled_for IS NOT NULL");
+
         // Un numéro et une adresse identifient un compte : l'unicité est garantie
         // par la base, pas seulement par une vérification dans le code.
         builder.HasIndex(a => a.Phone).IsUnique().HasFilter("phone IS NOT NULL");

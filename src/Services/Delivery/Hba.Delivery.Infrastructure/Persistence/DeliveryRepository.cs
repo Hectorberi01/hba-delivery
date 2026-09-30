@@ -51,6 +51,14 @@ internal sealed class DeliveryRepository(DeliveryDbContext context) : IDeliveryR
             query = query.Where(d => statuses.Contains(d.Status));
         }
 
+        // APRES le filtre demandé, et jamais avant : ce que la couche
+        // Application retire ici ne se rattrape par aucun paramètre.
+        if (filter.ExcludedStatuses is { Count: > 0 })
+        {
+            var exclus = filter.ExcludedStatuses.ToList();
+            query = query.Where(d => !exclus.Contains(d.Status));
+        }
+
         if (filter.CreatedAfter is not null)
         {
             query = query.Where(d => d.CreatedAt >= filter.CreatedAfter);
@@ -65,6 +73,28 @@ internal sealed class DeliveryRepository(DeliveryDbContext context) : IDeliveryR
             .OrderByDescending(d => d.CreatedAt)
             .Skip(filter.Offset)
             .Take(filter.PageSize)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<DeliveryAggregate>> ListUnpaidBeforeAsync(
+        DateTimeOffset limite,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        // « PaymentIntentId != null » EST LA GARDE QUI PROTEGE LE B2B : une
+        // commande de partenaire naît dans le même statut et n'a pas
+        // d'intention. Voir le commentaire du port.
+        //
+        // LES PLUS ANCIENNES D'ABORD : après une panne, c'est le retard le plus
+        // vieux qu'il faut solder en premier, et c'est aussi ce qui rend le
+        // balayage progressif au lieu de tourner en rond sur les mêmes lignes.
+        return await context.Deliveries
+            .Where(d => d.Status == DeliveryStatus.PendingPayment
+                && d.PaymentIntentId != null
+                && d.CreatedAt <= limite)
+            .OrderBy(d => d.CreatedAt)
+            .Take(Math.Clamp(batchSize, 1, 500))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }

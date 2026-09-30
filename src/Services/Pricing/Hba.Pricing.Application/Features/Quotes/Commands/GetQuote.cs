@@ -55,9 +55,18 @@ public sealed class GetQuoteHandler(
 
         var tariff = await tariffs.FindInForceAsync(zoneCode, command.VehicleType, now, cancellationToken)
                 .ConfigureAwait(false)
+            // LE REFUS NOMME LE VEHICULE, ET PAS SEULEMENT LA ZONE.
+            //
+            // Une grille est indexee par ZONE ET PAR VEHICULE : dire « aucune
+            // grille pour la zone X » envoie chercher un probleme de zone quand
+            // c'est le vehicule qui manque. Le cas n'etait pas theorique — le
+            // 30 septembre 2026, le velo et le tricycle sont entres au contrat
+            // AVANT que leurs grilles existent, et ce message est la premiere
+            // chose que l'exploitation lira ce jour-la.
             ?? throw new DomainException(
                 "NO_TARIFF",
-                $"Aucune grille tarifaire en vigueur pour la zone {zoneCode}.");
+                $"Aucune grille tarifaire en vigueur pour la zone {zoneCode} "
+                + $"et le vehicule {command.VehicleType}.");
 
         var route = await routes.MeasureAsync(pickup, dropoff, cancellationToken).ConfigureAwait(false);
 

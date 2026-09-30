@@ -5,7 +5,16 @@ version: 0.1.0+1
 
 environment:
   sdk: ">=3.6.0 <4.0.0"
-  flutter: ">=3.27.0"
+
+  # 3.35 ET NON 3.27, DEPUIS LE 30 SEPTEMBRE 2026 : l'ecran d'incident utilise
+  # RadioGroup, arrive dans cette version. Le plancher dit ce dont cette
+  # application a BESOIN ; le laisser a 3.27 aurait promis un SDK sur lequel
+  # elle ne compile pas.
+  #
+  # LES AUTRES PAQUETS GARDENT 3.27 : aucun n'utilise ce widget, et un
+  # plancher qu'on remonte par symetrie est un plancher que plus personne ne
+  # sait justifier.
+  flutter: ">=3.35.0"
 
 dependencies:
   flutter:
@@ -90,3 +99,4 @@ flutter:
     # est tool/generer_son.py — un fichier binaire dont personne ne sait d'ou
     # il vient est un fichier qu'on n'ose plus modifier.
     - assets/sons/
+

@@ -38,12 +38,23 @@ public sealed class IssueServiceTokenHandler(
             SubjectId = $"service:{command.ClientId}",
             DisplayName = command.ClientId!,
 
-            // AUCUN ROLE, ET C'EST LA GARANTIE PRINCIPALE. Le référentiel
-            // acteurs ne connaît pas de rôle « service » : un service n'est
-            // pas un acteur. Sans rôle, ce jeton passe l'authentification et
-            // échoue sur toute règle métier qui demande qui est l'appelant —
-            // il ne peut donc pas prendre une course ni lire un dossier.
-            Roles = [],
+            // UN SEUL ROLE, « service », ET C'EST UN AJOUT DU 30 SEPTEMBRE 2026.
+            //
+            // CE JETON N'EN PORTAIT AUCUN, et c'était présenté comme la
+            // garantie principale. C'était surtout une impasse : les services
+            // appelés sont en [Authorize], donc tout appel de fond revenait
+            // « non authentifié ». Deux chemins en mouraient en silence — le
+            // reçu de course (Notification qui demande l'adresse à Directory) et
+            // l'effacement de la photo à la suppression d'un compte (Directory
+            // qui appelle Media) — et l'échec était avalé en avertissement.
+            //
+            // LE ROLE NE DONNE PRESQUE RIEN, ET C'EST LE POINT. Il n'est pas
+            // dans BackOffice, il n'ouvre aucune écriture, et chaque service
+            // appelé décide explicitement des lectures qu'il accorde. Toute
+            // règle métier qui demande QUI agit continue de le refuser : un
+            // service n'est personne, il ne prend pas de course et ne lit pas de
+            // dossier.
+            Roles = [Domain.Roles.Service],
         };
 
         var token = tokens.IssueAccessToken(principal, Guid.CreateVersion7(), clock.UtcNow);

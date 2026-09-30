@@ -34,6 +34,7 @@ public static class KafkaTopics
     public const string DriverEvents = "hba.driver.events.v1";
     public const string PaymentEvents = "hba.payment.events.v1";
     public const string PricingEvents = "hba.pricing.events.v1";
+    public const string BillingEvents = "hba.billing.events.v1";
     public const string NotificationCommands = "hba.notification.commands.v1";
 
     /// <summary>Publié par HBA Food quand une commande est prête à être collectée.</summary>

@@ -16,9 +16,38 @@ public static class HbaRoles
     public const string Support = "support";
     public const string Finance = "finance";
 
+    /// <summary>
+    /// UN SERVICE, PAS UNE PERSONNE. Ajouté au référentiel le 30 septembre 2026.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// POURQUOI IL A FALLU L'AJOUTER. Deux appels du système partent d'un
+    /// consommateur Kafka, donc sans personne derrière : Notification demande à
+    /// Directory l'adresse d'un client pour lui envoyer son reçu, et Directory
+    /// demande à Media d'effacer la photo d'un compte supprimé. Les deux
+    /// services appelés sont en [Authorize] ; le jeton de service, lui, ne
+    /// portait AUCUN rôle — ce qui était présenté comme la garantie principale.
+    /// Résultat : les deux appels revenaient « non authentifié », l'erreur était
+    /// avalée en avertissement, et le reçu était consigné « le compte n'a pas de
+    /// courriel » — un motif faux. Aucun reçu ne partait, aucune photo n'était
+    /// effacée.
+    ///
+    /// CE RÔLE N'EST PAS UN PASSE-PARTOUT, ET IL NE DOIT JAMAIS LE DEVENIR. Il
+    /// n'est PAS dans BackOffice, il n'ouvre aucune écriture, et chaque service
+    /// appelé décide explicitement des lectures qu'il lui accorde — aujourd'hui
+    /// deux : lire une fiche client par son identifiant, et effacer les médias
+    /// d'un propriétaire. Toute autre règle métier continue de le refuser, parce
+    /// qu'elle demande QUI est l'appelant, et un service n'est personne.
+    ///
+    /// SA PORTÉE EST BORNÉE PAR QUI DÉTIENT UN SECRET. Les identifiants de
+    /// service viennent de la configuration de l'hôte, pas d'une table : on ne
+    /// devient pas un service en s'inscrivant.
+    /// </remarks>
+    public const string Service = "service";
+
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
-        Customer, Driver, MerchantOwner, MerchantStaff, Partner, Admin, Ops, Support, Finance,
+        Customer, Driver, MerchantOwner, MerchantStaff, Partner, Admin, Ops, Support, Finance, Service,
     };
 
     /// <summary>Rôles du back-office interne.</summary>

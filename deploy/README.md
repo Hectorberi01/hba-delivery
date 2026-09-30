@@ -111,6 +111,7 @@ cd - && docker compose -f deploy/docker-compose.yml --profile routing up -d osrm
 
 ```bash
 cp deploy/.env.example deploy/.env   # puis remplir les secrets
+./scripts/garage-secrets.sh --si-absent   # les trois secrets de Garage
 docker compose -f deploy/docker-compose.prod.yml up -d --build
 ```
 

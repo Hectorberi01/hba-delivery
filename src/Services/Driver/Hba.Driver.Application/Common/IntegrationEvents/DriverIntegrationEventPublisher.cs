@@ -136,6 +136,7 @@ public sealed class DriverIntegrationEventPublisher : IDriverIntegrationEventPub
         ActorKind.Dispatch => ActorType.Dispatch,
         ActorKind.PaymentProvider => ActorType.PaymentProvider,
         ActorKind.Scheduler => ActorType.Scheduler,
+        ActorKind.Service => ActorType.Service,
         _ => ActorType.Unspecified,
     };
 }

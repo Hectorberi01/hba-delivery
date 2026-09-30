@@ -25,6 +25,11 @@ internal static class DirectoryProtoMapper
             Phone = view.Phone,
             Email = view.Email ?? string.Empty,
             CreatedAt = Timestamp.FromDateTimeOffset(view.CreatedAt),
+
+            // VIDE, ET NON UN GUID DE ZEROS. « 00000000-0000-… » se parse, donc
+            // l'application le prendrait pour une photo et demanderait un lien
+            // qui n'existe pas. La chaine vide, elle, ne se confond avec rien.
+            PhotoMediaId = view.PhotoMediaId?.ToString() ?? string.Empty,
         };
 
         customer.FavoriteAddresses.AddRange(view.FavoriteAddresses.Select(ToProto));

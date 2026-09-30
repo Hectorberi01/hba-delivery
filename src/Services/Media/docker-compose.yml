@@ -46,12 +46,29 @@ services:
       ObjectStore__PublicEndpoint: ${OBJECTSTORE_PUBLIC_ENDPOINT:-}
       ObjectStore__PublicUseSsl: ${OBJECTSTORE_PUBLIC_SSL:-false}
 
-    healthcheck:
-      # Le point « / » rend le nom du service : il repond des que Kestrel ecoute.
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
+    # PAS DE HEALTHCHECK, ET C'EST UNE CORRECTION.
+    #
+    # IL Y EN AVAIT UN, ET IL A MENTI PENDANT DEUX JOURS. Il sondait « / » avec
+    # wget ; or l'etage d'execution est mcr.microsoft.com/dotnet/aspnet:9.0,
+    # c'est-a-dire debian bookworm-slim, qui n'embarque NI wget NI curl. La
+    # commande echouait donc a chaque intervalle, sans jamais toucher le
+    # service : OrbStack affichait un point orange sur un conteneur qui
+    # ecoutait parfaitement sur 8080 et 8081.
+    #
+    # LES SONDES QUI MARCHENT DANS CE DEPOT ONT TOUTES LE MEME POINT COMMUN :
+    # elles appellent un binaire QUE L'IMAGE FOURNIT — pg_isready dans postgres,
+    # kafka-topics.sh dans kafka, /garage dans garage. Une sonde .NET n'a pas
+    # cet equivalent : il faudrait installer curl dans l'image d'execution.
+    #
+    # ON L'ENLEVE PLUTOT QUE DE L'INSTALLER, pour deux raisons. Media etait le
+    # SEUL des neuf services a en avoir un, donc le signal n'etait pas
+    # comparable ; et rien ne le consomme — les composes de ce depot n'ont
+    # aucun depends_on, chaque service se deployant seul. Un voyant rouge qui ne
+    # declenche rien et se trompe coute plus qu'un voyant absent.
+    #
+    # POUR EN REMETTRE UN VRAI, un jour : ajouter curl a l'etage d'execution de
+    # TOUS les services, et sonder « / », qui rend deja le nom du service des
+    # que Kestrel ecoute. C'est un travail a part, pas une ligne ici.
 
 networks:
   hba-internal:

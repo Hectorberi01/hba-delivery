@@ -12,6 +12,15 @@ dependencies:
     sdk: flutter
   google_fonts: ^6.2.1
 
+  # POUR LES EPINGLES DE CARTE, et pour elles seules. « BitmapDescriptor »
+  # vient de ce paquet : dessiner une epingle sans lui obligerait a rendre des
+  # octets bruts que chaque application remballerait de son cote.
+  #
+  # ELLE EST IMPOSEE A TOUT CE QUI CONSOMME hba_ui, y compris aux ecrans sans
+  # carte. C'est le prix assume de n'avoir qu'un seul dessin d'epingle pour les
+  # deux applications ; le duplicat, lui, aurait diverge.
+  google_maps_flutter: ^2.9.0
+
   # Pour l'adresse en ligne d'un document juridique. Les deux magasins exigent
   # une URL de politique de confidentialite dans la fiche du produit, et cette
   # URL-la n'est pas un ecran.
@@ -23,3 +32,14 @@ dev_dependencies:
   flutter_lints: ^4.0.0
 
 flutter:
+  assets:
+    # LES VEHICULES DES EPINGLES DE CARTE, ici et plus dans l'application
+    # livreur : depuis le 30 septembre 2026, la carte du client les montre
+    # aussi. Un asset de paquet s'adresse « packages/hba_ui/... » depuis
+    # n'importe quelle application qui en depend.
+    #
+    # UNE SEULE TAILLE, 160 px : l'epingle est rasterisee a la main (voir
+    # src/epingles.dart), donc c'est le code qui met a l'echelle, pas le
+    # resolveur d'assets de Flutter. 160 couvre la densite x3 d'une epingle de
+    # 52 px sans jamais agrandir.
+    - assets/vehicules/

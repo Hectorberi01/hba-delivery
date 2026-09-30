@@ -201,4 +201,50 @@ public sealed class PaymentIntent : AggregateRoot
 
         Raise(new PaymentIntentFailed(Id, DeliveryId, reason, actor, occurredAt));
     }
+
+    /// <summary>
+    /// L'argent a ete rendu. ON LE CONSTATE, ON NE LE DECLENCHE PAS.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// IL N'Y A PAS DE COMMANDE DE REMBOURSEMENT, ET CE N'EST PAS UN OUBLI.
+    /// FedaPay n'expose aucune API de remboursement — verifie le 30 septembre
+    /// 2026 : tableau de bord uniquement, et MTN Mobile Money seulement. Un
+    /// remboursement est donc un geste humain chez le fournisseur ; cette
+    /// methode est ce qui permet au systeme de l'APPRENDRE, par la relecture de
+    /// la transaction que le webhook declenche de toute facon.
+    ///
+    /// SEULE UNE INTENTION PAYEE SE REMBOURSE. Rembourser ce qui n'a jamais ete
+    /// encaisse n'a pas de sens, et le statut du fournisseur ne devrait jamais
+    /// le dire — mais si cela arrivait, on ne veut pas ecrire un etat que la
+    /// suite du systeme lirait comme « le client a ete rembourse ».
+    ///
+    /// REJOUABLE : le webhook est rejoue jusqu'a neuf fois, et un deuxieme
+    /// passage ne doit ni echouer ni republier le fait.
+    /// </remarks>
+    public void MarkRefunded(bool partiel, Actor actor, DateTimeOffset occurredAt)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        var cible = partiel ? PaymentStatus.PartiallyRefunded : PaymentStatus.Refunded;
+
+        if (Status == cible)
+        {
+            return;
+        }
+
+        if (Status != PaymentStatus.Succeeded
+            && Status is not (PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded))
+        {
+            throw new InvalidStateTransitionException(
+                nameof(PaymentIntent),
+                Status.ToString(),
+                cible.ToString(),
+                actor.Kind);
+        }
+
+        Status = cible;
+
+        Raise(new PaymentIntentRefunded(Id, DeliveryId, Amount, partiel, actor, occurredAt));
+    }
 }

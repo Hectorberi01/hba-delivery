@@ -28,6 +28,21 @@ internal sealed class MediaRepository(MediaDbContext context) : IMediaRepository
             .ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<MediaAsset>> ListerAvantAsync(
+        MediaKind kind,
+        DateTimeOffset limite,
+        int lot,
+        CancellationToken cancellationToken)
+        // LES PLUS ANCIENS D'ABORD. Un balayage qui prendrait les plus recents
+        // laisserait les plus vieux au fond indefiniment si le lot est plus
+        // petit que le retard accumule.
+        => await context.Assets
+            .Where(a => a.Kind == kind && a.CreatedAt < limite)
+            .OrderBy(a => a.CreatedAt)
+            .Take(lot)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     public void Add(MediaAsset asset) => context.Assets.Add(asset);
 
     public void Remove(MediaAsset asset) => context.Assets.Remove(asset);

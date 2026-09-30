@@ -17,12 +17,14 @@ public sealed class TemplateBinding
         string id,
         IReadOnlyList<NotificationChannel> channels,
         MessageTemplate? sms = null,
-        WhatsAppTemplate? whatsApp = null)
+        WhatsAppTemplate? whatsApp = null,
+        EmailTemplate? email = null)
     {
         Id = id;
         Channels = channels;
         Sms = sms;
         WhatsApp = whatsApp;
+        Email = email;
     }
 
     public string Id { get; }
@@ -37,10 +39,13 @@ public sealed class TemplateBinding
 
     public WhatsAppTemplate? WhatsApp { get; }
 
+    public EmailTemplate? Email { get; }
+
     public bool Supports(NotificationChannel channel) => channel switch
     {
         NotificationChannel.Sms => Sms is not null,
         NotificationChannel.WhatsApp => WhatsApp is not null,
+        NotificationChannel.Email => Email is not null,
         _ => false,
     };
 
@@ -53,4 +58,9 @@ public sealed class TemplateBinding
         WhatsApp ?? throw new DomainException(
             "CHANNEL_UNSUPPORTED",
             $"Le message {Id} n'a pas de modèle WhatsApp.");
+
+    public EmailTemplate RequireEmail() =>
+        Email ?? throw new DomainException(
+            "CHANNEL_UNSUPPORTED",
+            $"Le message {Id} n'a pas de modèle de courriel.");
 }

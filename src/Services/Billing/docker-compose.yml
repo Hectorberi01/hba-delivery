@@ -1,0 +1,41 @@
+# Déploiement du service billing. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base qu'il ne possède pas. Les réseaux sont EXTERNES et
+# tout ce qui change d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Services/Billing && docker compose up -d
+
+name: hba-billing
+
+services:
+  billing:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-billing:${HBA_TAG:-latest}
+
+    build:
+      context: ../../..
+      dockerfile: src/Services/Billing/Hba.Billing.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      # LA FORME :? FAIT REFUSER LE DEMARRAGE par Compose, avant tout
+      # conteneur. Sans elle, une variable absente devient la chaine vide et la
+      # base partirait ouverte a hba/hba.
+      ConnectionStrings__BillingDb: ${BILLINGDB_CONNECTION:?BILLINGDB_CONNECTION absent - renseignez-le dans le .env du service}
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      Database__AutoMigrate: ${BILLING_AUTOMIGRATE:-false}
+
+networks:
+  hba-internal:
+    external: true

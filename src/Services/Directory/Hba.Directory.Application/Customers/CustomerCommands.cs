@@ -27,6 +27,28 @@ public sealed record UpdateFavoriteAddressCommand(
 public sealed record RemoveFavoriteAddressCommand(Guid AddressId) : ICommand<CustomerView>;
 
 /// <summary>
+/// Attache au profil une photo déjà déposée dans Media.
+///
+/// ELLE NE PORTE PAS D'IDENTIFIANT DE CLIENT, ET C'EST VOLONTAIRE : on ne pose
+/// que sa propre photo. Le back-office qui aurait à en retirer une passe par
+/// une autre porte le jour où elle existera — lui en donner une ici ferait
+/// d'une commande de profil une commande d'administration.
+/// </summary>
+public sealed record SetCustomerPhotoCommand(Guid MediaId) : ICommand<CustomerView>;
+
+public sealed record RemoveCustomerPhotoCommand : ICommand<CustomerView>;
+
+/// <summary>
+/// Le lien signé pour afficher la photo d'un client.
+///
+/// UNE REQUETE, PAS UN CHAMP DE LA FICHE. Une URL signée expire en quelques
+/// minutes : la placer dans CustomerView obligerait à appeler Media à chaque
+/// lecture de profil — y compris pour les clients qui n'ont pas de photo — et
+/// ferait d'une réponse mise en cache une réponse fausse.
+/// </summary>
+public sealed record GetCustomerPhotoLinkQuery(string? CustomerId) : IQuery<PhotoLinkView>;
+
+/// <summary>
 /// Déclenchée par l'événement AccountRegistered d'Identity. C'est le chemin
 /// NORMAL de création d'un profil client — le seul qui parte d'une inscription.
 /// </summary>

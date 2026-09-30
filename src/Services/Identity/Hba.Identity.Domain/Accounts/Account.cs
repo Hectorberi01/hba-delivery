@@ -65,6 +65,24 @@ public sealed class Account : AggregateRoot
 
     public DateTimeOffset? LastLoginAt { get; private set; }
 
+    /// <summary>Quand le titulaire a demandé la suppression, ou null.</summary>
+    public DateTimeOffset? DeletionRequestedAt { get; private set; }
+
+    /// <summary>
+    /// Le jour où l'effacement aura lieu si rien ne l'annule, ou null.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LA DATE EST STOCKEE, ELLE N'EST PAS RECALCULEE. « DeletionRequestedAt
+    /// plus trente jours » donnerait une echeance qui BOUGE le jour ou le delai
+    /// change en configuration : un client a qui l'on a promis le 28 octobre
+    /// verrait sa date se decaler toute seule. Ce qui a ete annonce est ce qui
+    /// s'applique.
+    /// </remarks>
+    public DateTimeOffset? DeletionScheduledFor { get; private set; }
+
+    public bool IsPendingDeletion => Status == AccountStatus.PendingDeletion;
+
     /// <summary>
     /// Échecs consécutifs de mot de passe. L'OTP a son propre compteur, porté
     /// par le défi lui-même.
@@ -266,6 +284,31 @@ public sealed class Account : AggregateRoot
                 "Le rôle partner appartient à un client OAuth, pas à un compte de personne.");
         }
 
+        // LE RÔLE SERVICE NON PLUS, ET SON OUBLI ÉTAIT UN EFFET DE BORD DE SA
+        // PROPRE CRÉATION, LE 30 SEPTEMBRE 2026.
+        //
+        // Il a été ajouté à Roles.All ce jour-là — il faut bien qu'un rôle émis
+        // par IssueServiceToken soit connu — et retiré de BackOffice. Mais
+        // Normalize accepte tout ce qui est dans All, et cette porte est restée
+        // ouverte : un administrateur pouvait se l'attribuer, ou l'attribuer à
+        // quelqu'un.
+        //
+        // CE N'EST PAS UN RÔLE DE PLUS, C'EST UN CONTOURNEMENT DE TOUS LES
+        // AUTRES. « service » est ce que présente le système quand il agit pour
+        // son propre compte : BillingAccess.EnsureCanReverse l'accepte là où il
+        // refuse le titulaire, DeleteOwnerMedia lui confie l'effacement de
+        // pièces d'identité, et CallerContext.ToActor en fait un Actor.Service.
+        // Posé sur un compte de personne, il donne à cette personne les droits
+        // que le référentiel réserve aux services.
+        //
+        // Il ne s'obtient que par IssueServiceToken, contre un secret de
+        // service, et ne se pose jamais sur un compte.
+        if (requested.Contains(Domain.Roles.Service))
+        {
+            throw new ForbiddenException(
+                "Le rôle service appartient au système, pas à un compte de personne.");
+        }
+
         if (requested.Contains(Domain.Roles.MerchantOwner) || requested.Contains(Domain.Roles.MerchantStaff))
         {
             if (MerchantId is null)
@@ -318,6 +361,100 @@ public sealed class Account : AggregateRoot
         LockedUntil = null;
 
         Raise(new AccountStatusChanged(Id, AccountStatus.Suspended, AccountStatus.Active, reason, actor, now));
+    }
+
+    /// <summary>
+    /// Le titulaire demande la suppression de son compte.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// UN COMPTE SUSPENDU NE PEUT PAS SE SUPPRIMER. La suspension est en cours
+    /// d'instruction — impayé, signalement, fraude — et laisser disparaître le
+    /// dossier au milieu reviendrait à donner l'effacement comme issue à qui
+    /// cherche à s'y soustraire. Le refus le dit, et renvoie au support.
+    ///
+    /// DEUX DEMANDES DE SUITE NE REPOUSSENT PAS L'ECHEANCE. La seconde rend la
+    /// première telle quelle : sinon un client qui appuie deux fois croirait
+    /// avoir confirmé alors qu'il aurait repoussé son propre effacement.
+    /// </remarks>
+    public void RequestDeletion(DateTimeOffset scheduledFor, Actor actor, DateTimeOffset now)
+    {
+        if (Status == AccountStatus.Suspended)
+        {
+            throw new ForbiddenException(
+                "Ce compte est suspendu : sa suppression passe par le support.");
+        }
+
+        if (Status == AccountStatus.PendingDeletion)
+        {
+            return;
+        }
+
+        if (scheduledFor <= now)
+        {
+            throw new DomainException(
+                IdentityErrorCodes.DeletionDateInPast,
+                "Un effacement déjà échu ne laisserait aucune place à l'annulation.");
+        }
+
+        Status = AccountStatus.PendingDeletion;
+        StatusReason = "Suppression demandée par le titulaire.";
+        DeletionRequestedAt = now;
+        DeletionScheduledFor = scheduledFor;
+
+        Raise(new AccountDeletionRequested(Id, scheduledFor, actor, now));
+    }
+
+    /// <summary>Le titulaire revient sur sa demande.</summary>
+    public void CancelDeletion(Actor actor, DateTimeOffset now)
+    {
+        if (Status != AccountStatus.PendingDeletion)
+        {
+            return;
+        }
+
+        Status = AccountStatus.Active;
+        StatusReason = "Suppression annulée par le titulaire.";
+        DeletionRequestedAt = null;
+        DeletionScheduledFor = null;
+
+        Raise(new AccountDeletionCancelled(Id, actor, now));
+    }
+
+    /// <summary>
+    /// Marque le compte comme effacé, juste avant que sa ligne ne disparaisse.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ELLE NE SUPPRIME RIEN : elle lève l'événement que les AUTRES services
+    /// attendent — Directory pour le profil et les adresses, Media pour la
+    /// photo. La suppression de la ligne, elle, se fait dans la même
+    /// transaction par le dépôt, et c'est l'Outbox qui garantit que l'une ne
+    /// parte pas sans l'autre.
+    ///
+    /// ELLE EXIGE QUE L'ECHEANCE SOIT ECHUE. Sans ce garde-fou, une erreur
+    /// d'ordonnancement effacerait un compte dont le titulaire a encore vingt
+    /// jours pour changer d'avis, et rien ne le signalerait — la ligne n'existe
+    /// plus pour en témoigner.
+    /// </remarks>
+    public void MarkErased(Actor actor, DateTimeOffset now)
+    {
+        if (Status != AccountStatus.PendingDeletion || DeletionScheduledFor is null)
+        {
+            throw new DomainException(
+                IdentityErrorCodes.DeletionNotRequested,
+                "Ce compte n'a pas demandé sa suppression.");
+        }
+
+        if (DeletionScheduledFor > now)
+        {
+            throw new DomainException(
+                IdentityErrorCodes.DeletionNotDue,
+                $"L'effacement est prévu le {DeletionScheduledFor:yyyy-MM-dd} : il reste au titulaire "
+                + "le temps de changer d'avis.");
+        }
+
+        Raise(new AccountErased(Id, DeletionRequestedAt ?? now, actor, now));
     }
 
     public void SetPassword(PasswordHash password, Actor actor, DateTimeOffset now)

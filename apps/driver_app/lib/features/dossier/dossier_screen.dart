@@ -186,7 +186,15 @@ class _DossierScreenState extends ConsumerState<DossierScreen> {
                     const SizedBox(height: HbaSpacing.sm),
                   ],
                 ],
-                for (final piece in Piece.values) ...[
+                // LES PIECES EXIGEES POUR CE VEHICULE, rendues par le
+                // service — plus les cinq natures en dur. Un cycliste y voyait
+                // « permis » et « carte grise », deux lignes qu'il n'aurait
+                // jamais pu satisfaire.
+                //
+                // LA LISTE COMPLETE RESTE LE REPLI : un service plus ancien qui
+                // ne renverrait pas ce champ afficherait tout, comme avant.
+                // Trop de lignes se corrige ; aucune ligne bloque le dossier.
+                for (final piece in (d.exigees.isEmpty ? Piece.values : d.exigees)) ...[
                   _LignePiece(
                     piece: piece,
                     deposee: d.pieces.where((p) => p.type == piece).firstOrNull,
@@ -301,7 +309,18 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
     'MOTORCYCLE': 'Moto',
     'CAR': 'Voiture',
     'VAN': 'Camionnette',
+    'BICYCLE': 'Vélo',
+    'TRICYCLE': 'Tricycle',
   };
+
+  /// Les vehicules sans plaque ni papiers.
+  ///
+  /// UN SEUL POUR L'INSTANT, ET LA LISTE EXISTE QUAND MEME : ecrire
+  /// « _type == BICYCLE » a trois endroits de cet ecran garantirait qu'un
+  /// quatrieme oublie le jour ou un second type sans moteur arrive.
+  static const _sansPlaque = {'BICYCLE'};
+
+  bool get _plaqueAttendue => !_sansPlaque.contains(_type);
 
   late String _type = _types.containsKey(_depuisDossier())
       ? _depuisDossier()
@@ -313,6 +332,8 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
   String _depuisDossier() => switch (widget.dossier.vehiculeType) {
         'Car' => 'CAR',
         'Van' => 'VAN',
+        'Bicycle' => 'BICYCLE',
+        'Tricycle' => 'TRICYCLE',
         _ => 'MOTORCYCLE',
       };
 
@@ -331,7 +352,11 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
     try {
       await ref.read(dossierRepositoryProvider).declarerVehicule(
             type: _type,
-            plaque: _plaque.text.trim(),
+
+            // ON N'ENVOIE PAS CE QU'ON NE DEMANDE PLUS. Le champ garde ce qui y
+            // etait saisi avant un changement de type ; l'envoyer inscrirait
+            // une immatriculation de moto sur un velo.
+            plaque: _plaqueAttendue ? _plaque.text.trim() : '',
           );
       ref.invalidate(dossierProvider);
     } on ApiException catch (erreur) {
@@ -367,10 +392,24 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
               for (final entree in _types.entries)
                 DropdownMenuItem(value: entree.key, child: Text(entree.value)),
             ],
+            // LE setState PORTE PLUS QUE LE TYPE : il decide aussi si le
+            // champ d'immatriculation existe et si le bouton s'active.
             onChanged: fige ? null : (v) => setState(() => _type = v ?? _type),
             decoration: const InputDecoration(labelText: 'Type'),
           ),
           const SizedBox(height: HbaSpacing.md),
+
+          // LE VELO N'A PAS DE PLAQUE, ET LE CHAMP DISPARAIT PLUTOT QUE DE SE
+          // GRISER. Un champ grise se lit « vous y viendrez plus tard » ; ici
+          // il n'y a rien a saisir, jamais. Le laisser visible ferait chercher
+          // au livreur une immatriculation qui n'existe pas.
+          if (!_plaqueAttendue)
+            Text(
+              "Un vélo n'a ni plaque ni carte grise : votre dossier ne les "
+              'demande pas.',
+              style: theme.textTheme.bodySmall,
+            )
+          else
           TextField(
             controller: _plaque,
             enabled: !fige,
@@ -418,7 +457,12 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
               label: 'Enregistrer le véhicule',
               tone: HbaButtonTone.neutral,
               busy: _envoi,
-              onPressed: _plaque.text.trim().isEmpty ? null : _enregistrer,
+
+              // SANS CETTE CONDITION, LE VELO NE S'ENREGISTRAIT JAMAIS : le
+              // bouton attendait une plaque que l'ecran ne demande plus.
+              onPressed: _plaqueAttendue && _plaque.text.trim().isEmpty
+                  ? null
+                  : _enregistrer,
             ),
         ],
       ),

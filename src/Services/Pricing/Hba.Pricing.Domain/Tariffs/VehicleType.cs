@@ -9,4 +9,10 @@ public enum VehicleType
     Motorcycle = 1,
     Car = 2,
     Van = 3,
+
+    // CHAQUE VALEUR AJOUTEE ICI EST UNE GRILLE TARIFAIRE A CREER, et sans elle
+    // aucun devis ne sort pour ce vehicule. Les montants ne sont pas dans le
+    // referentiel : ils viennent de la configuration, administres par ops.
+    Bicycle = 4,
+    Tricycle = 5,
 }

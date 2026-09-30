@@ -82,6 +82,19 @@ public sealed class VerifyOtpHandler(
             }
         }
 
+        // SE RECONNECTER ANNULE LA DEMANDE DE SUPPRESSION.
+        //
+        // C'est ce que les deux écrans promettent — celui de l'application et
+        // celui du profil — et ce n'était implémenté nulle part : il fallait
+        // retrouver le profil et appuyer sur « Garder mon compte », ce que rien
+        // ne disait. Un titulaire qui revenait dans les trente jours voyait donc
+        // son compte effacé quand même.
+        //
+        // APRÈS LA VÉRIFICATION DU CODE, ET NON AVANT : c'est la preuve que
+        // c'est bien le titulaire du numéro qui revient. La méthode du domaine
+        // ne fait rien si le compte n'est pas en sursis.
+        account.CancelDeletion(ActeurTitulaire(account), now);
+
         account.RecordLogin(now);
 
         var pair = sessions.Issue(account, command.DeviceId ?? challenge.DeviceId, Guid.CreateVersion7(), now);
@@ -90,4 +103,21 @@ public sealed class VerifyOtpHandler(
 
         return pair;
     }
+
+    /// <summary>
+    /// Le titulaire, comme acteur d'audit.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// IL N'Y A PAS DE CONTEXTE D'APPEL ICI, ET C'EST NORMAL : on est en train
+    /// de l'authentifier. L'acteur se déduit donc du compte lui-même. Seuls
+    /// « customer » et « driver » passent par ce chemin — SelfServiceByOtp —
+    /// donc deux cas suffisent, et l'identifiant retenu est celui du compte,
+    /// comme le fait déjà CallerContext quand le jeton ne porte pas de
+    /// driver_id.
+    /// </remarks>
+    private static Actor ActeurTitulaire(Account account)
+        => account.Roles.Contains(Domain.Roles.Driver)
+            ? Actor.Driver(account.Id.ToString())
+            : Actor.Customer(account.Id.ToString());
 }

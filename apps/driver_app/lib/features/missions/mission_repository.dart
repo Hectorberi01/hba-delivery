@@ -188,8 +188,19 @@ class MissionRepository {
   Future<Issue> confirmDelivery(String missionId, String otp) =>
       _action(missionId, 'deliver', {'otp': otp});
 
-  /// Rejoue ce qui attend. Rend le nombre d'actions parties.
-  Future<int> viderLaFile() => _file.vider(_api);
+  /// Declare que la course ne peut pas aboutir.
+  ///
+  /// LE MOTIF EST LIBRE, ET L'ECRAN PROPOSE DES FORMULATIONS. Aucune liste
+  /// d'incidents n'est tranchee cote service : la figer ici la figerait aussi
+  /// dans le contrat et dans la base, avant que qui que ce soit l'ait decidee.
+  ///
+  /// LA CLE PORTE LA COURSE ET RIEN D'AUTRE : un incident par course, et un
+  /// rejeu ne peut pas en declarer deux.
+  Future<Issue> declareIncident(String missionId, String reason) =>
+      _action(missionId, 'incident', {'reason': reason});
+
+  /// Rejoue ce qui attend. Rend ce qui est parti ET ce que le serveur a refuse.
+  Future<BilanDeFile> viderLaFile() => _file.vider(_api);
 
   Future<int> get actionsEnAttente => _file.nombre;
 

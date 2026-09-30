@@ -117,6 +117,18 @@ services:
     networks: [hba-internal]
     environment:
       GARAGE_CONFIG_FILE: /etc/garage.toml
+      # LES TROIS SECRETS ARRIVENT D'ICI, PLUS DU FICHIER DE CONFIGURATION.
+      # Ils etaient en clair dans garage.toml, suivi par git dans un depot
+      # public (corrige le 30/09/2026). Ils vivent dans deploy/.env, qui n'est
+      # pas versionne ; « ./scripts/garage-secrets.sh » les pose.
+      #
+      # LA FORME « :? » FAIT ECHOUER COMPOSE AVEC CE MESSAGE si la variable est
+      # absente. Sans elle, Compose passerait une chaine vide et Garage
+      # demarrerait sans jeton d'administration — une API d'admin ouverte, pour
+      # un oubli de .env.
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?absent de deploy/.env — lancez ./scripts/garage-secrets.sh --si-absent}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?absent de deploy/.env — lancez ./scripts/garage-secrets.sh --si-absent}
+      GARAGE_METRICS_TOKEN: ${GARAGE_METRICS_TOKEN:?absent de deploy/.env — lancez ./scripts/garage-secrets.sh --si-absent}
       # Sans cela, Garage n'ecrit que les erreurs et le diagnostic est aveugle.
       RUST_LOG: garage=info
     ports:

@@ -200,6 +200,7 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
             DriverId = v.DriverId.ToString(),
             DistanceMeters = v.DistanceMeters,
             Position = new Hba.Contracts.Common.V1.GeoPoint { Latitude = v.Latitude, Longitude = v.Longitude },
+            VehicleType = ToProto(v.VehicleType),
         }));
 
         return response;
@@ -278,6 +279,7 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
             },
             ProfilePhotoUrl = view.ProfilePhotoUrl?.ToString() ?? string.Empty,
             CanSubmit = view.CanSubmit,
+            VehicleDeclared = view.VehicleDeclared,
         };
 
         reponse.Documents.AddRange(view.Documents.Select(d => new DocumentSummary
@@ -291,6 +293,7 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
         }));
 
         reponse.MissingDocuments.AddRange(view.MissingDocuments.Select(ToProto));
+        reponse.RequiredDocuments.AddRange(view.RequiredDocuments.Select(ToProto));
 
         return reponse;
     }
@@ -314,6 +317,30 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
 
         var view = await dispatcher.SendAsync(
             new SuspendDriverCommand(ParseId(request.DriverId), request.Reason),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(view);
+    }
+
+    public override async Task<ProtoDriver> EnsureDriver(EnsureDriverRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new EnsureDriverCommand(),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(view);
+    }
+
+    public override async Task<ProtoDriver> ReinstateDriver(ReinstateDriverRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new ReinstateDriverCommand(ParseId(request.DriverId), request.Reason),
             context.CancellationToken).ConfigureAwait(false);
 
         return ToProto(view);
@@ -455,6 +482,8 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
         CommonVehicleType.Motorcycle => DomainVehicleType.Motorcycle,
         CommonVehicleType.Car => DomainVehicleType.Car,
         CommonVehicleType.Van => DomainVehicleType.Van,
+        CommonVehicleType.Bicycle => DomainVehicleType.Bicycle,
+        CommonVehicleType.Tricycle => DomainVehicleType.Tricycle,
         _ => null,
     };
 
@@ -463,6 +492,8 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
         DomainVehicleType.Motorcycle => CommonVehicleType.Motorcycle,
         DomainVehicleType.Car => CommonVehicleType.Car,
         DomainVehicleType.Van => CommonVehicleType.Van,
+        DomainVehicleType.Bicycle => CommonVehicleType.Bicycle,
+        DomainVehicleType.Tricycle => CommonVehicleType.Tricycle,
         _ => CommonVehicleType.Unspecified,
     };
 

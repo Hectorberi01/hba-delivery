@@ -66,7 +66,12 @@ public sealed class FindAvailableNearbyHandler(
             .FindAvailableAsync([.. retenus.Select(c => c.DriverId)], query.VehicleType, cancellationToken)
             .ConfigureAwait(false);
 
-        var autorises = eligibles.Select(d => d.Id).ToHashSet();
+        // LE VEHICULE VIENT DE L'AGREGAT, PAS DE REDIS. L'index geographique ne
+        // porte que des coordonnees ; c'est la base qui sait avec quoi roule
+        // chacun. On a deja les agregats sous la main — les relire couterait une
+        // requete pour une donnee qu'on tient.
+        var vehicules = eligibles.ToDictionary(d => d.Id, d => d.Vehicle.Type);
+        var autorises = vehicules.Keys.ToHashSet();
 
         // L'ORDRE VIENT DE REDIS, PAS DE LA BASE : la recherche geographique
         // rend deja du plus proche au plus lointain, et c'est cet ordre que la
@@ -76,7 +81,12 @@ public sealed class FindAvailableNearbyHandler(
             .. retenus
                 .Where(c => autorises.Contains(c.DriverId))
                 .Take(query.Limit)
-                .Select(c => new NearbyDriverView(c.DriverId, c.DistanceMeters, c.Latitude, c.Longitude)),
+                .Select(c => new NearbyDriverView(
+                    c.DriverId,
+                    c.DistanceMeters,
+                    c.Latitude,
+                    c.Longitude,
+                    vehicules[c.DriverId])),
         ];
     }
 }

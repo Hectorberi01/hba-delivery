@@ -6,8 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hba_core/hba_core.dart';
 import 'package:hba_ui/hba_ui.dart';
 
+import '../profil/support.dart';
+import 'annulation.dart';
 import 'delivery_providers.dart';
 import 'models.dart';
+import 'recherche_livreur_vue.dart';
 
 /// Suivi d'une livraison.
 class TrackingScreen extends ConsumerStatefulWidget {
@@ -37,53 +40,27 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     super.dispose();
   }
 
-  Future<void> _cancel(Delivery delivery) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Annuler la livraison ?'),
-        // Aucun montant n'est annonce ici : la politique d'annulation n'est pas
-        // tranchee, et promettre un remboursement que le service ne fera pas
-        // serait pire que de ne rien dire.
-        content: const Text(
-          "Le livreur ne viendra pas. Les conditions de remboursement vous "
-          "seront confirmees par le service.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Garder'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Annuler la course'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
-
-    try {
-      await ref
-          .read(deliveryRepositoryProvider)
-          .cancel(delivery.id, 'Annulee par le client');
-      ref.invalidate(deliveryProvider(widget.deliveryId));
-    } on ApiException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final async = ref.watch(deliveryProvider(widget.deliveryId));
 
+    // L'ATTENTE A SON PROPRE ECRAN, PLEIN CADRE.
+    //
+    // Tant qu'aucun livreur n'est attribue, le client n'a rien a faire et rien
+    // a decider : la liste de renseignements lui demande de chercher
+    // l'information qui compte alors qu'il n'y en a qu'une. Des qu'un livreur
+    // est la, en revanche, il y a un nom, un vehicule, un code de remise — et
+    // la liste reprend tout son sens.
+    final etat = async.valueOrNull?.status;
+    final attente = etat == DeliveryStatus.searchingDriver ||
+        etat == DeliveryStatus.noDriverFound;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Suivi')),
+      // Pas de barre de titre pendant l'attente : la carte va jusqu'en haut,
+      // et la navigation en arc reste accessible par-dessus.
+      appBar: attente ? null : AppBar(title: const Text('Suivi')),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(
@@ -96,7 +73,12 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
             ),
           ),
         ),
-        data: (delivery) => ListView(
+        data: (delivery) => attente
+            ? RechercheLivreurVue(
+                delivery: delivery,
+                onAnnuler: () => unawaited(annulerLaCourse(context, ref, delivery)),
+              )
+            : ListView(
           padding: const EdgeInsets.all(HbaSpacing.gutter),
           children: [
             // LE STATUT SUR SA PROPRE LIGNE, SOUS LA REFERENCE.
@@ -132,15 +114,29 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
             Text(
               switch (delivery.status) {
                 DeliveryStatus.pendingPayment =>
-                  'Terminez le paiement pour lancer la recherche.',
+                  'Terminez le paiement pour lancer la recherche. Sans '
+                      'confirmation sous $delaiDePaiementMinutes minutes, la '
+                      'commande est abandonnée.',
                 DeliveryStatus.paymentFailed =>
-                  "Le paiement n'a pas abouti. Aucun montant n'a ete preleve.",
+                  "Le paiement n'a pas abouti. Aucun montant n'a été prélevé.",
                 DeliveryStatus.paid =>
-                  'Paiement confirme. La recherche va commencer.',
+                  'Paiement confirmé. La recherche va commencer.',
                 DeliveryStatus.searchingDriver =>
-                  "Nous cherchons un livreur. Vous n'avez rien a faire.",
+                  "Nous cherchons un livreur. Vous n'avez rien à faire.",
                 DeliveryStatus.noDriverFound =>
-                  'Aucun livreur disponible. Vous serez rembourse.',
+                  // LE MEME TEXTE QUE L'ACCUEIL, MOT POUR MOT, et sans
+                  // promesse de remboursement : FedaPay n'a pas d'API de
+                  // remboursement (verifie le 30 septembre 2026, tableau de
+                  // bord uniquement, MTN seulement). Promettre « vous serez
+                  // rembourse » engageait un mecanisme qui n'existe pas.
+                  //
+                  // UNE FOIS LE REMBOURSEMENT CONSTATE, ON LE DIT. C'est le
+                  // webhook du fournisseur qui l'apprend au service, apres que
+                  // finance a rendu l'argent a la main.
+                  delivery.estRemboursee
+                      ? 'Aucun livreur disponible. Le montant vous a été rendu.'
+                      : 'Aucun livreur disponible. HBA revient vers vous au '
+                          'sujet du montant prélevé.',
                 DeliveryStatus.driverAssigned =>
                   'Un livreur vient chercher le colis.',
                 DeliveryStatus.driverAtPickup =>
@@ -148,11 +144,11 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                 DeliveryStatus.pickedUp =>
                   'Le colis est en route vers le destinataire.',
                 DeliveryStatus.delivered =>
-                  'Le colis a ete remis contre le code.',
-                DeliveryStatus.cancelled => 'Cette course a ete annulee.',
+                  'Le colis a été remis contre le code.',
+                DeliveryStatus.cancelled => 'Cette course a été annulée.',
                 DeliveryStatus.failed => "La course n'a pas pu aboutir.",
                 DeliveryStatus.unknown =>
-                  "Etat inconnu. Tirez vers le bas pour actualiser.",
+                  "État inconnu. Tirez vers le bas pour actualiser.",
               },
               style: theme.textTheme.bodyMedium
                   ?.copyWith(color: HbaColors.inkMuted),
@@ -167,10 +163,6 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
             // descend la liste un livreur a la fois : la recherche peut durer
             // plusieurs minutes. Un ecran qui cherche en silence pendant ce
             // temps se fait fermer avant la fin.
-            if (delivery.status == DeliveryStatus.searchingDriver) ...[
-              RechercheEnCours(depuis: delivery.createdAt),
-              const SizedBox(height: HbaSpacing.md),
-            ],
 
             if (delivery.showsOtp) ...[
               _OtpCard(code: delivery.deliveryOtp),
@@ -198,12 +190,22 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                 ],
               ),
             ),
+            // L'AIDE EST ICI, ET PAS SEULEMENT DANS L'ONGLET AIDE.
+            //
+            // Un client dont la course se passe mal ne va pas chercher un
+            // autre onglet : il regarde l'ecran qui lui pose probleme. La
+            // reference part dans l'objet du courriel — la recopier a la main
+            // depuis le haut de l'ecran, il le ferait de travers une fois sur
+            // cinq, et le support repondrait sur la mauvaise course.
+            const SizedBox(height: HbaSpacing.md),
+            AideSurLaCourse(reference: delivery.reference),
+
             if (delivery.status.canCancel) ...[
               const SizedBox(height: HbaSpacing.lg),
               HbaButton(
                 label: 'Annuler la livraison',
                 tone: HbaButtonTone.danger,
-                onPressed: () => _cancel(delivery),
+                onPressed: () => unawaited(annulerLaCourse(context, ref, delivery)),
               ),
             ],
             const SizedBox(height: HbaSpacing.lg),
@@ -276,6 +278,25 @@ class _DriverCard extends StatelessWidget {
 
   final AssignedDriver driver;
 
+  /// Le pictogramme du vehicule qui vient vraiment.
+  ///
+  /// UNE MOTO ETAIT DESSINEE EN DUR, quel que soit le vehicule — et le type ne
+  /// sortait meme pas de la passerelle, si bien que l'ecran n'avait aucun moyen
+  /// de savoir. Depuis le 30 septembre 2026 le velo et le tricycle existent :
+  /// un cycliste serait apparu en motard au client qui l'attend sur le pas de
+  /// sa porte.
+  ///
+  /// LE REPLI EST LA MOTO, et c'est le bon : a Cotonou le zemidjan est le mode
+  /// par defaut, et un vehicule non rendu par un service plus ancien y
+  /// ressemble plus qu'a autre chose.
+  static IconData _icone(String type) => switch (type) {
+        'Car' => Icons.directions_car_outlined,
+        'Van' => Icons.local_shipping_outlined,
+        'Bicycle' => Icons.pedal_bike_outlined,
+        'Tricycle' => Icons.electric_rickshaw_outlined,
+        _ => Icons.two_wheeler_outlined,
+      };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -291,7 +312,7 @@ class _DriverCard extends StatelessWidget {
               color: HbaColors.primarySoft,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(Icons.two_wheeler_outlined, color: HbaColors.primary),
+            child: Icon(_icone(driver.vehicleType), color: HbaColors.primary),
           ),
           const SizedBox(width: HbaSpacing.md),
           Expanded(
@@ -453,50 +474,68 @@ class _RechercheEnCoursState extends State<RechercheEnCours> {
     final theme = Theme.of(context);
     final compteur = widget.depuis == null ? null : _duree(_ecoule);
 
-    return HbaCard(
-      highlighted: true,
-      padding: const EdgeInsets.all(HbaSpacing.lg),
+    // SUR LA CARTE, PLUS DANS UNE CARTE. Ce bloc etait une vignette dans une
+    // liste ; il est desormais pose sur le plan, sous le halo. Les TEXTES
+    // n'ont pas bouge d'une lettre : ils sont exacts — « un par un, du plus
+    // proche au plus eloigne » decrit ce que fait le dispatch depuis le point
+    // 23 — et sept tests les verifient. La maquette proposait « nous cherchons
+    // le livreur le plus proche de vous » : plus court, moins vrai, et rien ne
+    // l'aurait surveille.
+    //
+    // DU BLANC OMBRE, ET C'ETAIT UN PARI PERDU. La version precedente ecrivait
+    // en blanc avec une ombre portee, au motif qu'un aplat semi-transparent
+    // masquerait la carte. Le plan de cette application est le style CLAIR :
+    // blanc sur blanc, l'ombre ne rattrape rien et le texte a disparu. Verifie
+    // a l'ecran le 29 septembre 2026.
+    //
+    // UN PANNEAU OPAQUE, DONC, et de la couleur des autres cartes de
+    // l'application. Il masque une bande de plan sous le halo — c'est le prix,
+    // et il est sans commune mesure avec un ecran qu'on ne peut pas lire.
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: HbaSpacing.sm),
+      padding: const EdgeInsets.symmetric(
+        horizontal: HbaSpacing.md,
+        vertical: HbaSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: HbaColors.surface,
+        borderRadius: BorderRadius.circular(HbaRadius.card),
+        boxShadow: const [
+          BoxShadow(color: Color(0x22000000), blurRadius: 16, offset: Offset(0, 4)),
+        ],
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              const SizedBox(
-                height: 18,
-                width: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: HbaColors.primary,
-                ),
-              ),
-              const SizedBox(width: HbaSpacing.sm),
-              Expanded(
-                child: Text(
-                  'Recherche d\'un livreur',
-                  style: theme.textTheme.titleMedium,
-                ),
-              ),
-            ],
+          Text(
+            'Recherche d\'un livreur',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
           ),
           if (compteur != null) ...[
-            const SizedBox(height: HbaSpacing.sm),
-            // LE COMPTEUR EST ANNONCE POUR CE QU'IL EST. Voir plus haut : on
-            // mesure depuis la commande, on l'ecrit.
+            const SizedBox(height: HbaSpacing.xs),
+            // LE COMPTEUR EST ANNONCE POUR CE QU'IL EST. On mesure depuis la
+            // commande, on l'ecrit.
             Text(
-              'Commandee il y a $compteur',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: HbaColors.inkMuted,
-              ),
+              'Commandée il y a $compteur',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: HbaColors.inkMuted),
             ),
           ],
           const SizedBox(height: HbaSpacing.sm),
           Text(
             'HBA contacte les livreurs un par un, du plus proche au plus '
-            'eloigne. Chacun dispose de quelques secondes pour repondre.',
-            style: theme.textTheme.bodyMedium,
+            'éloigné. Chacun dispose de quelques secondes pour répondre.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(color: HbaColors.inkMuted),
           ),
         ],
       ),
     );
   }
+
 }

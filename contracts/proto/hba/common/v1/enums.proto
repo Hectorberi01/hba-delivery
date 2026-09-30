@@ -29,12 +29,33 @@ enum ActorType {
   ACTOR_TYPE_PAYMENT_PROVIDER = 7;
   // Expirations de devis, timeouts, rapprochements.
   ACTOR_TYPE_SCHEDULER = 8;
+
+  // Un autre service du système, appelant pour son propre compte. Distinct du
+  // planificateur : celui-ci agit à l'heure dite, celui-là parce qu'un autre
+  // service le lui a demandé.
+  ACTOR_TYPE_SERVICE = 9;
 }
 
 // Type de véhicule du livreur.
+//
+// LE VÉLO ET LE TRICYCLE SONT ARRIVÉS LE 30 SEPTEMBRE 2026, et ce ne fut pas
+// une affaire de dessin : ce type est la CLÉ DU TARIF dans Pricing (zone +
+// véhicule + période), il décide des pièces exigées au dossier, et il s'affiche
+// sur la carte. Voir le point 28 de docs/architecture/points-a-trancher.md.
+//
+// LES NUMÉROS NE SE RÉUTILISENT JAMAIS ET NE SE RÉORDONNENT PAS. Un champ
+// protobuf voyage par son numéro, pas par son nom : intercaler le vélo en 2
+// aurait fait lire « vélo » à tout message déjà écrit qui disait « voiture ».
 enum VehicleType {
   VEHICLE_TYPE_UNSPECIFIED = 0;
   VEHICLE_TYPE_MOTORCYCLE = 1;
   VEHICLE_TYPE_CAR = 2;
   VEHICLE_TYPE_VAN = 3;
+
+  // Sans moteur. Le seul type dont le dossier n'exige ni permis ni carte grise.
+  VEHICLE_TYPE_BICYCLE = 4;
+
+  // Le trois-roues motorisé, immatriculé comme un véhicule à moteur : mêmes
+  // pièces que la moto.
+  VEHICLE_TYPE_TRICYCLE = 5;
 }

@@ -18,11 +18,27 @@ replication_factor = 1
 # piece tout juste deposee soit introuvable a la relecture.
 consistency_mode = "consistent"
 
-# Secret du protocole entre noeuds. Il n'y en a qu'un ici, mais Garage refuse
-# de demarrer sans. Cette valeur est celle du developpement — elle est dans le
-# depot, donc publique. EN PRODUCTION, elle se regenere :
-#   openssl rand -hex 32
-rpc_secret = "b9a1f4c0d2e7368a5b1c9d0e4f7a2b8c3d6e9f0a1b2c3d4e5f6a7b8c9d0e1f2a"
+# LE SECRET DU PROTOCOLE ENTRE NOEUDS N'EST PLUS ICI, ET C'EST UNE CORRECTION
+# D'INCIDENT DU 30 SEPTEMBRE 2026.
+#
+# Il etait ecrit en clair dans ce fichier, suivi par git, dans un depot PUBLIC.
+# Le commentaire d'origine l'assumait — « cette valeur est celle du
+# developpement, elle est dans le depot, donc publique ; en production, elle se
+# regenere » — mais RIEN NE LA REGENERAIT, et deploy/compose.infra.yml monte
+# exactement ce fichier. La production allait donc tourner avec un secret que
+# n'importe qui pouvait lire sur raw.githubusercontent.com.
+#
+# Il arrive desormais par la variable d'environnement GARAGE_RPC_SECRET, depuis
+# deploy/.env qui n'est pas versionne. Garage accepte trois formes pour chaque
+# secret — « rpc_secret », « rpc_secret_file », ou la variable — et la variable
+# prime sur le fichier ; l'une et l'autre des deux premieres sont exclusives.
+#
+# ET SON ABSENCE FAIT ECHOUER LE DEMARRAGE, ce qui est la propriete qu'on
+# cherche : Garage refuse de demarrer sans secret RPC. Un oubli se voit tout de
+# suite, au lieu de passer inapercu derriere une valeur publique.
+#
+#   ./scripts/garage-secrets.sh --si-absent   # premiere installation
+#   ./scripts/garage-secrets.sh               # rotation
 rpc_bind_addr = "[::]:3901"
 rpc_public_addr = "garage:3901"
 
@@ -36,7 +52,18 @@ root_domain = ".s3.hba.local"
 
 [admin]
 api_bind_addr = "[::]:3903"
-# Jeton de l'API d'administration, utilise par le script d'initialisation.
-# En production : openssl rand -base64 32
-admin_token = "hba-garage-admin-dev"
-metrics_token = "hba-garage-metrics-dev"
+# LES DEUX JETONS D'ADMINISTRATION SONT PARTIS AVEC LE SECRET RPC, meme raison,
+# meme date. Ils arrivent par GARAGE_ADMIN_TOKEN et GARAGE_METRICS_TOKEN.
+#
+# AU PASSAGE, LE COMMENTAIRE QUI ETAIT ICI ETAIT FAUX. Il disait le jeton
+# d'administration « utilise par le script d'initialisation » : scripts/garage-init.sh
+# passe par la CLI dans le conteneur (« docker compose exec garage /garage … »),
+# qui lit ce fichier de configuration et n'a besoin d'aucun jeton HTTP. Rien,
+# dans le depot, n'appelait l'API d'administration. Le jeton etait donc expose
+# sans meme etre utilise.
+#
+# A TRANCHER, ET NON IMPLEMENTE ICI : depuis Garage v2, ces deux jetons
+# « maitres » sont decourages au profit de jetons crees a la demande
+# (« garage admin-token create --expires-in 30d --scope … »), qui se limitent a
+# un sous-ensemble d'appels, expirent et se revoquent un par un. Y passer est un
+# choix d'exploitation, pas une correction de faille.

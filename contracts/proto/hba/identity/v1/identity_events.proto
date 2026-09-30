@@ -17,6 +17,7 @@ message IdentityEvent {
     AccountRolesChanged roles_changed = 11;
     AccountStatusChanged status_changed = 12;
     PartnerClientRegistered partner_registered = 13;
+    AccountErased erased = 14;
   }
 }
 
@@ -30,6 +31,30 @@ message AccountRegistered {
   repeated string roles = 5;
   string merchant_id = 6;
   google.protobuf.Timestamp registered_at = 7;
+}
+
+// LE COMPTE N'EXISTE DEJA PLUS QUAND CET EVENEMENT PART.
+//
+// Il est publie dans la MEME transaction que la suppression de la ligne : sans
+// cela, le compte disparaitrait et personne ne l'apprendrait — ni Directory,
+// qui garde le nom, le courriel et les adresses, ni Media, qui garde la photo.
+// C'est exactement ce que l'Outbox est la pour empecher.
+//
+// IL NE PORTE NI NOM NI TELEPHONE, ET C'EST TOUT L'INTERET. Un evenement de
+// suppression qui recopierait l'identite du titulaire la ferait vivre dans
+// Kafka pendant toute la retention du topic, precisement au moment ou quelqu'un
+// demande a ce qu'elle disparaisse. L'identifiant suffit aux consommateurs pour
+// retrouver ce qu'ils detiennent.
+//
+// LE MOTIF EST CELUI DE LA DEMANDE, PAS UNE RAISON LIBRE : la suppression n'est
+// demandee que par le titulaire, et seul le delai de grace peut la separer du
+// geste initial.
+message AccountErased {
+  string account_id = 1;
+  // Quand le titulaire l'a demandee.
+  google.protobuf.Timestamp requested_at = 2;
+  // Quand l'effacement a reellement eu lieu, au terme du delai.
+  google.protobuf.Timestamp erased_at = 3;
 }
 
 message AccountRolesChanged {

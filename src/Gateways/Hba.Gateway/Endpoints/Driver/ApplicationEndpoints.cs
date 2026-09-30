@@ -47,6 +47,8 @@ public static class ApplicationEndpoints
                         "MOTORCYCLE" => VehicleType.Motorcycle,
                         "CAR" => VehicleType.Car,
                         "VAN" => VehicleType.Van,
+                        "BICYCLE" => VehicleType.Bicycle,
+                        "TRICYCLE" => VehicleType.Tricycle,
                         _ => VehicleType.Unspecified,
                     },
                     Plate = body.Plate ?? string.Empty,
@@ -146,6 +148,15 @@ public static class ApplicationEndpoints
             readUrlExpiresAt = d.ReadUrlExpiresAt?.ToDateTimeOffset(),
         }),
         missingDocuments = dossier.MissingDocuments.Select(t => t.ToString()),
+
+        // LES PIECES EXIGEES POUR CE VEHICULE-LA, et non les cinq en dur que
+        // l'application affichait. Un cycliste y voyait « permis » et « carte
+        // grise », deux lignes qu'il n'aurait jamais pu satisfaire.
+        requiredDocuments = dossier.RequiredDocuments.Select(t => t.ToString()),
+
+        // LE VEHICULE EST-IL DECLARE. L'application le devinait par « la plaque
+        // n'est pas vide » ; un velo n'en a pas.
+        vehicleDeclared = dossier.VehicleDeclared,
     };
 }
 

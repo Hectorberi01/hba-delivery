@@ -50,4 +50,13 @@ public static class IdentityErrorCodes
     public const string InvalidRateLimit = "INVALID_RATE_LIMIT";
 
     public const string UnknownSource = "UNKNOWN_SOURCE";
+
+    /// <summary>Une échéance d'effacement déjà passée ne laisse pas annuler.</summary>
+    public const string DeletionDateInPast = "DELETION_DATE_IN_PAST";
+
+    /// <summary>On efface un compte qui n'a rien demandé.</summary>
+    public const string DeletionNotRequested = "DELETION_NOT_REQUESTED";
+
+    /// <summary>L'échéance n'est pas encore atteinte.</summary>
+    public const string DeletionNotDue = "DELETION_NOT_DUE";
 }

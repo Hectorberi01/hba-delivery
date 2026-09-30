@@ -14,6 +14,25 @@ public interface IMediaRepository
 
     void Add(MediaAsset asset);
 
+    /// <summary>
+    /// Les médias d'une nature donnée, déposés avant une date.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// POUR LA PURGE PAR RÉTENTION, et pour elle seule. Le point 27 justifiait
+    /// l'inventaire par trois usages, dont celui-ci : « une purge par
+    /// rétention […] un objet qu'on ne sait pas nommer ne se supprime pas ».
+    ///
+    /// PAR LOT, PAS D'UN COUP. Un balayage qui chargerait tout l'inventaire
+    /// d'un mois tiendrait la mémoire du service pendant qu'il supprime, et
+    /// chaque suppression touche AUSSI le stockage objet, donc le réseau.
+    /// </remarks>
+    Task<IReadOnlyList<MediaAsset>> ListerAvantAsync(
+        MediaKind kind,
+        DateTimeOffset limite,
+        int lot,
+        CancellationToken cancellationToken);
+
     void Remove(MediaAsset asset);
 
     void Consigner(MediaAccessRecord record);

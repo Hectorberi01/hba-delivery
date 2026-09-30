@@ -45,10 +45,24 @@ internal sealed class DriverGrpcDirectory(
         }
     }
 
+    /// <summary>
+    /// CE QUI ARRIVE ICI EST ECRIT SUR LA COURSE, ET NE SE CORRIGE PLUS.
+    /// « AssignedDriver » est une copie figee : un velo avale par le repli
+    /// resterait une moto dans l'historique de la course, longtemps apres que
+    /// Driver a raison. D'ou un bras par type connu.
+    ///
+    /// LE REPLI RESTE « MOTO » POUR L'INDETERMINE, et c'est un defaut ANTERIEUR
+    /// qu'il faut connaitre : l'enumeration de ce service n'a pas de valeur
+    /// « non precise », donc un livreur dont Driver ignore le vehicule est
+    /// inscrit comme motard. Le corriger demande d'ajouter Unspecified a
+    /// l'enumeration et de le traiter partout ou la course l'affiche.
+    /// </summary>
     private static DomainVehicleType MapVehicle(Contracts.Common.V1.VehicleType type) => type switch
     {
         Contracts.Common.V1.VehicleType.Car => DomainVehicleType.Car,
         Contracts.Common.V1.VehicleType.Van => DomainVehicleType.Van,
+        Contracts.Common.V1.VehicleType.Bicycle => DomainVehicleType.Bicycle,
+        Contracts.Common.V1.VehicleType.Tricycle => DomainVehicleType.Tricycle,
         _ => DomainVehicleType.Motorcycle,
     };
 }

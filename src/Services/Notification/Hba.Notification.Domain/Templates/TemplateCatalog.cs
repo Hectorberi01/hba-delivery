@@ -31,6 +31,29 @@ public static class TemplateCatalog
     /// <summary>Le colis a été remis.</summary>
     public const string DeliveryCompleted = "delivery_completed";
 
+    /// <summary>
+    /// Le récapitulatif de la course, par courriel, une fois le colis remis.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// UN MODELE A PART, ET NON UN CANAL DE PLUS SUR « delivery_completed ».
+    /// Les deux messages ne disent pas la même chose : le SMS annonce
+    /// l'événement, et il est court parce qu'il se paie au segment ; celui-ci
+    /// se garde — il porte les deux adresses, le prix et la date, et personne
+    /// ne relit un SMS pour retrouver une dépense.
+    ///
+    /// Les réunir sous un même identifiant aurait surtout fait du courriel un
+    /// REPLI du SMS dans la chaîne du catalogue : le premier canal qui aboutit
+    /// gagne, et les suivants ne partent pas. Or ces deux-là doivent partir
+    /// tous les deux.
+    ///
+    /// CE N'EST PAS UNE FACTURE, et le texte le dit lui-même. Une facture au
+    /// Bénin suppose une numérotation continue, l'IFU et le régime de TVA de
+    /// HBA : rien de tout cela n'existe dans le dépôt, et l'inventer
+    /// produirait un document faux que des clients garderaient. Point 29.
+    /// </remarks>
+    public const string DeliveryReceipt = "delivery_receipt";
+
     private static readonly Dictionary<string, TemplateBinding> All = new(StringComparer.Ordinal)
     {
         // WHATSAPP D'ABORD, SMS EN REPLI. Le titulaire du compte donne son
@@ -76,6 +99,39 @@ public static class TemplateCatalog
                 NotificationChannel.Sms,
                 "HBA : votre livraison {reference} a ete remise. Merci.",
                 SmsMaxLength)),
+
+        // COURRIEL SEULEMENT, ET AUCUN REPLI. Un reçu qui basculerait en SMS
+        // arriverait tronqué et coûterait trois segments pour dire moins que
+        // rien. Sans adresse connue, il ne part pas — et c'est consigné
+        // « ignoré », ce qui n'est pas un échec.
+        //
+        // LES ACCENTS SONT ICI, contrairement aux modèles SMS juste au-dessus :
+        // la contrainte GSM-7 qui les interdit là ne vaut pas pour un courriel,
+        // qui s'écrit en UTF-8. Les omettre serait une faute sans excuse.
+        [DeliveryReceipt] = new(
+            DeliveryReceipt,
+            [NotificationChannel.Email],
+            email: new(
+                DeliveryReceipt,
+                "Votre course {reference} — HBA Delivery",
+                """
+                Bonjour,
+
+                Votre colis a été remis le {date}.
+
+                Référence    : {reference}
+                Départ       : {depart}
+                Arrivée      : {arrivee}
+                Montant payé : {montant}
+
+                Ce message est un reçu : il confirme que la course a eu lieu
+                et qu'elle a été réglée. Ce n'est pas une facture.
+
+                Une question sur cette course ? Répondez à ce message en
+                gardant la référence dans l'objet.
+
+                HBA Delivery
+                """)),
     };
 
     public static TemplateBinding Get(string templateId)

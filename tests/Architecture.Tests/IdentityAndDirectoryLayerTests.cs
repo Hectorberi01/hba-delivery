@@ -23,6 +23,14 @@ public sealed class IdentityAndDirectoryLayerTests
     private static readonly Assembly DirectoryDomain = typeof(Hba.Directory.Domain.Customers.Customer).Assembly;
     private static readonly Assembly DirectoryApplication =
         typeof(Hba.Directory.Application.Customers.GetCustomerQuery).Assembly;
+    /// <summary>
+    /// Billing n'a encore que son domaine. Il entre ICI des sa naissance, et
+    /// pas « quand le service sera fini » : c'est le moment ou une reference a
+    /// EF Core ou a un client HTTP se glisse sans que personne ne la voie.
+    /// </summary>
+    private static readonly Assembly BillingDomain =
+        typeof(Hba.Billing.Domain.Accounts.BillingAccount).Assembly;
+
     private static readonly Assembly NotificationDomain =
         typeof(Hba.Notification.Domain.Templates.TemplateCatalog).Assembly;
     private static readonly Assembly NotificationApplication =
@@ -82,6 +90,7 @@ public sealed class IdentityAndDirectoryLayerTests
         { "Identity.Domain", IdentityDomain },
         { "Directory.Domain", DirectoryDomain },
         { "Notification.Domain", NotificationDomain },
+        { "Billing.Domain", BillingDomain },
     };
 
     public static TheoryData<string, Assembly> Applications() => new()

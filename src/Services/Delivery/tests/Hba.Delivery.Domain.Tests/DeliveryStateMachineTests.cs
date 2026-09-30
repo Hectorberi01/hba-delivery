@@ -67,10 +67,17 @@ public sealed class DeliveryStateMachineTests
     {
         var delivery = DeliveryBuilder.PickedUp();
 
-        var act = () => delivery.ConfirmDelivery("000000", null, Actor.Driver(DeliveryBuilder.DriverId), DeliveryBuilder.At(30));
+        var issue = delivery.ConfirmDelivery(
+            "000000",
+            Actor.Driver(DeliveryBuilder.DriverId),
+            DeliveryBuilder.At(30));
 
-        act.Should().Throw<DomainException>().Which.Code.Should().Be("INVALID_OTP");
+        // L'AGREGAT REND LE REFUS, IL NE LE LEVE PLUS. C'est l'appelant qui
+        // enregistre la tentative consommée puis traduit en INVALID_OTP ; tant
+        // que le refus était une exception, l'enregistrement n'avait pas lieu.
+        issue.Should().Be(DeliveryConfirmation.OtpRefused);
         delivery.Status.Should().Be(DeliveryStatus.PickedUp);
+        delivery.Otp.FailedAttempts.Should().Be(1);
     }
 
     [Fact]
@@ -80,13 +87,24 @@ public sealed class DeliveryStateMachineTests
         var code = delivery.Otp.Code;
         delivery.ClearDomainEvents();
 
-        delivery.ConfirmDelivery(code, "proof/1.jpg", Actor.Driver(DeliveryBuilder.DriverId), DeliveryBuilder.At(30));
+        delivery.ConfirmDelivery(code, Actor.Driver(DeliveryBuilder.DriverId), DeliveryBuilder.At(30));
 
         delivery.Status.Should().Be(DeliveryStatus.Delivered);
         delivery.DomainEvents.OfType<DeliveryCompleted>().Should().ContainSingle()
             .Which.DriverEarning.Amount.Should().Be(1100);
     }
 
+    /// <summary>
+    /// CE TEST NE PROUVE QUE LA REGLE, PAS LE VERROU REEL, et il faut le savoir
+    /// en le lisant. Il enchaîne cinq refus sur la MEME instance en mémoire, où
+    /// le compteur n'a aucune occasion d'être perdu. Dans sa version du
+    /// 29 septembre 2026 il passait au vert alors que la production ne
+    /// verrouillait jamais : le gestionnaire n'enregistrait pas les tentatives.
+    ///
+    /// Ce qui manquait est ailleurs, et y est désormais :
+    /// <c>ConfirmDeliveryPersistenceTests.Le_compteur_de_tentatives_survit_a_un_code_faux</c>
+    /// rejoue la même séquence à travers une vraie base.
+    /// </summary>
     [Fact]
     public void Le_code_de_remise_se_verrouille_après_cinq_échecs()
     {
@@ -95,11 +113,17 @@ public sealed class DeliveryStateMachineTests
 
         for (var attempt = 0; attempt < 5; attempt++)
         {
-            var act = () => delivery.ConfirmDelivery("000000", null, driver, DeliveryBuilder.At(30));
-            act.Should().Throw<DomainException>();
+            delivery.ConfirmDelivery("000000", driver, DeliveryBuilder.At(30))
+                .Should().Be(DeliveryConfirmation.OtpRefused);
         }
 
-        var locked = () => delivery.ConfirmDelivery(delivery.Otp.Code, null, driver, DeliveryBuilder.At(31));
+        delivery.Otp.FailedAttempts.Should().Be(5);
+        delivery.Otp.IsLocked.Should().BeTrue();
+
+        // LE BON CODE NE SAUVE PLUS RIEN une fois le verrou posé : la remise
+        // passe par le support. C'est bien une exception, celle-là : elle ne
+        // consomme aucune tentative, donc elle n'a rien à faire enregistrer.
+        var locked = () => delivery.ConfirmDelivery(delivery.Otp.Code, driver, DeliveryBuilder.At(31));
 
         locked.Should().Throw<DomainException>().Which.Code.Should().Be("OTP_LOCKED");
     }
@@ -138,7 +162,7 @@ public sealed class DeliveryStateMachineTests
         var delivery = DeliveryBuilder.Assigned();
         delivery.Cancel("client injoignable", Actor.Customer(DeliveryBuilder.CustomerId), DeliveryBuilder.At(15));
 
-        var act = () => delivery.MarkPickedUp(null, Actor.Driver(DeliveryBuilder.DriverId), DeliveryBuilder.At(20));
+        var act = () => delivery.MarkPickedUp(Actor.Driver(DeliveryBuilder.DriverId), DeliveryBuilder.At(20));
 
         act.Should().Throw<InvalidStateTransitionException>();
     }

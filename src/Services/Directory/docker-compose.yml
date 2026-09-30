@@ -28,17 +28,33 @@ services:
         required: false
     networks: [hba-internal]
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: ${DIRECTORY_ENVIRONMENT:-Production}
       # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte
       # un mot de passe de developpement. La forme :? fait REFUSER le demarrage
       # par Compose, avant tout conteneur. Sans elle, une variable absente
       # devient la chaine vide et la base partirait ouverte a hba/hba.
       ConnectionStrings__DirectoryDb: ${DIRECTORYDB_CONNECTION:?DIRECTORYDB_CONNECTION absent - renseignez-le dans le .env du service}
       Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      ServiceToken__IdentityAddress: ${IDENTITY_GRPC:-http://identity:8081}
+      ServiceToken__ClientId: directory
+      ServiceToken__ClientSecret: ${SERVICE_SECRET_DIRECTORY:-}
       Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
       Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
       Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
       Jwt__RequireHttpsMetadata: "false"
+
+      # DIAGNOSTIC : DEMASQUE LES PARAMETRES SQL ET IMPRIME L'ETAT DU SUIVI EF.
+      #
+      # A NE LAISSER A « true » QUE LE TEMPS DE COMPRENDRE. Il fait apparaitre
+      # telephones et adresses EN CLAIR dans les journaux, et le service refuse
+      # de l'activer si ASPNETCORE_ENVIRONMENT ne vaut pas Development.
+      DirectoryDb__Trace: ${DIRECTORY_DB_TRACE:-false}
+
+      # LE SERVICE MEDIA, POUR LA PHOTO DE PROFIL DU CLIENT (point 27).
+      # Directory ne garde qu'un identifiant de media ; c'est Media qui detient
+      # le fichier, et qui signe le lien de lecture une fois que Directory a
+      # verifie le droit.
+      Services__Media: ${MEDIA_GRPC:-http://media:8081}
 
       # CONSERVATION DU JOURNAL DES LECTURES DE DONNEES PERSONNELLES.
       #

@@ -207,9 +207,8 @@ namespace Hba.Delivery.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<string>("DeliveryProofObjectKey")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                    b.Property<Guid?>("DeliveryProofMediaId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("ExternalOrderId")
                         .HasMaxLength(128)
@@ -245,14 +244,19 @@ namespace Hba.Delivery.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<string>("PickupProofObjectKey")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                    b.Property<Guid?>("PickupProofMediaId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Reference")
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
+
+                    b.Property<bool>("RefundPartial")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("RefundedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Source")
                         .HasColumnType("integer");

@@ -94,13 +94,34 @@ public sealed class RequestOtpHandler(
 
     /// <summary>
     /// Un numéro sans compte est éligible : c'est une inscription. Un compte
-    /// existant l'est s'il est actif et se connecte bien par SMS — un compte de
-    /// commerçant ou de back-office a un mot de passe et le portail web.
+    /// existant l'est s'il se connecte bien par SMS — un compte de commerçant ou
+    /// de back-office a un mot de passe et le portail web.
     /// </summary>
+    ///
+    /// <remarks>
+    /// UN COMPTE EN SURSIS DE SUPPRESSION EST ÉLIGIBLE, ET C'ÉTAIT LE DÉFAUT.
+    ///
+    /// La condition exigeait « Active ». Un titulaire qui avait demandé la
+    /// suppression de son compte ne recevait donc plus AUCUN SMS : le défi était
+    /// marqué non éligible, et la vérification répondait « Code incorrect. » à
+    /// chaque tentative. Son numéro étant unique, il ne pouvait pas non plus
+    /// recréer de compte. Il restait dehors trente jours, puis tout était
+    /// effacé — alors que les deux écrans lui promettent l'inverse : « vous
+    /// reconnecter avant cette date vous permettra de tout garder ».
+    ///
+    /// LE REFUS ÉTAIT AU MAUVAIS ÉTAGE. Account.EnsureCanAuthenticate dit
+    /// exactement ce qu'il faut et ne bloque que « Suspended », avec la raison
+    /// écrite à côté de l'énumération : se reconnecter EST le geste qui annule
+    /// la demande. C'est cette éligibilité-ci, un cran plus haut, que personne
+    /// n'avait mise à jour.
+    ///
+    /// ON N'ÉNUMÈRE TOUJOURS RIEN : un compte suspendu reste non éligible, et le
+    /// message rendu est le même dans tous les cas.
+    /// </remarks>
     private static bool IsEligible(Account? account)
     {
-        if (account is null){ return true;}
-        if (account.Status != AccountStatus.Active){return false;}
+        if (account is null) { return true; }
+        if (account.Status is not (AccountStatus.Active or AccountStatus.PendingDeletion)) { return false; }
         return account.Roles.Any(Domain.Roles.SelfServiceByOtp.Contains);
     }
 }

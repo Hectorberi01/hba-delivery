@@ -64,8 +64,12 @@ public sealed class ObjectStoreIsolationTests
     /// VÉRIFIABLE.
     ///
     /// Le 28 septembre 2026, le port et l'adaptateur sont montés dans le socle
-    /// commun, pour que Directory écrive la photo d'un client sans dupliquer
-    /// cent cinquante lignes. Dans un premier temps ils ont partagé UN projet —
+    /// commun. Le motif écrit ici était « pour que Directory écrive la photo
+    /// d'un client » : ce n'est PLUS VRAI depuis le même jour. Le point 27 a
+    /// tranché pour un service Media, et Directory ne touche aucun stockage —
+    /// il garde un identifiant de média et rien d'autre. Ce sont Media et
+    /// Driver qui écrivent, et c'est pour eux deux que le socle est partagé.
+    /// Dans un premier temps port et adaptateur ont partagé UN projet —
     /// et le test ci-dessus serait passé quand même, parce qu'il inspecte les
     /// types de l'assembly et non ses références : toute couche Application
     /// référençant ce projet aurait vu Minio par transitivité, sans qu'aucun

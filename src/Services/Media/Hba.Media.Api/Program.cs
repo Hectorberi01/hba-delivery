@@ -3,6 +3,7 @@ using Hba.BuildingBlocks.Http;
 using Hba.BuildingBlocks.Observability;
 using Hba.BuildingBlocks.Security;
 using Hba.Media.Api.Endpoints;
+using Hba.Media.Api.Scheduling;
 using Hba.Media.Application;
 using Hba.Media.Infrastructure;
 
@@ -24,6 +25,16 @@ builder.Services.AddHbaSecurity(builder.Configuration);
 
 builder.Services.AddMediaApplication();
 builder.Services.AddMediaInfrastructure(builder.Configuration);
+
+// LA RETENTION DES PREUVES, TRANCHEE LE 30 SEPTEMBRE 2026 AU POINT 7 : un mois.
+//
+// ELLE TOURNE AVANT QUE LA MOINDRE PREUVE EXISTE, et c'est l'ordre voulu. Le
+// depot d'une photo de remise n'est pas encore ouvert ; ecrire le depot d'abord
+// aurait cree des donnees personnelles sans savoir qui les efface. Tant qu'il
+// n'y a rien a purger, ce balayage ne trouve rien.
+builder.Services.Configure<PreuveRetentionOptions>(
+    builder.Configuration.GetSection(PreuveRetentionOptions.Section));
+builder.Services.AddHostedService<PurgeDesPreuves>();
 
 var app = builder.Build();
 

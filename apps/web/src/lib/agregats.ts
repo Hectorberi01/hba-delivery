@@ -95,6 +95,8 @@ const VEHICULES: Record<number, string> = {
   1: 'Moto',
   2: 'Voiture',
   3: 'Camionnette',
+  4: 'Vélo',
+  5: 'Tricycle',
 };
 
 /** Les noms du contrat, rendus par les routes qui mettent en forme. */
@@ -103,6 +105,8 @@ const VEHICULES_PAR_NOM: Record<string, number> = {
   VEHICLE_TYPE_MOTORCYCLE: 1,
   VEHICLE_TYPE_CAR: 2,
   VEHICLE_TYPE_VAN: 3,
+  VEHICLE_TYPE_BICYCLE: 4,
+  VEHICLE_TYPE_TRICYCLE: 5,
 };
 
 export function libelleVehicule(type: number | string | undefined): string {

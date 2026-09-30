@@ -8,12 +8,15 @@ using Hba.Directory.Application.IntegrationEvents;
 using Hba.Directory.Domain.Customers;
 using Hba.Directory.Domain.Merchants;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Logging;
 
 namespace Hba.Directory.Infrastructure.Persistence;
 
 public sealed class DirectoryDbContext(
     DbContextOptions<DirectoryDbContext> options,
-    IDirectoryIntegrationEventPublisher integrationEvents) : DbContext(options), IUnitOfWork
+    IDirectoryIntegrationEventPublisher integrationEvents,
+    ILogger<DirectoryDbContext> journal) : DbContext(options), IUnitOfWork
 {
     public const string Schema = "directory";
 
@@ -47,6 +50,33 @@ public sealed class DirectoryDbContext(
 
         Drain<Customer>((aggregate, domainEvent) => integrationEvents.Publish(outbox, aggregate, domainEvent));
         Drain<Merchant>((aggregate, domainEvent) => integrationEvents.Publish(outbox, aggregate, domainEvent));
+
+        // CE QUE LE SUIVI CROIT, JUSTE AVANT D'ECRIRE.
+        //
+        // C'est la seule chose que le journal ne disait pas. « 0 lignes
+        // affectees » designe le symptome ; l'etat de chaque entite — Added,
+        // Modified, Unchanged — designe la cause. Une adresse neuve en
+        // « Modified » et un UPDATE s'expliquent l'un l'autre ; en « Added »
+        // avec un UPDATE quand meme, c'est ailleurs qu'il faut chercher.
+        //
+        // DebugView.LongView DESERIALISE TOUT LE GRAPHE : il est cher, et il
+        // affiche les valeurs. Il ne se calcule que si la trace est demandee,
+        // et EnableSensitiveDataLogging refuse deja de s'activer hors
+        // developpement.
+        if (this.GetService<IDbContextOptions>()
+                .FindExtension<CoreOptionsExtension>()?.IsSensitiveDataLoggingEnabled == true)
+        {
+            var etats = ChangeTracker.Entries()
+                .Where(e => e.State != EntityState.Unchanged)
+                .Select(e => $"{e.Metadata.ShortName()} = {e.State}")
+                .ToList();
+
+            journal.LogWarning(
+                "ChangeTracker avant enregistrement : {Etats}.{NouvelleLigne}{Detail}",
+                etats.Count == 0 ? "(rien a ecrire)" : string.Join(", ", etats),
+                Environment.NewLine,
+                ChangeTracker.DebugView.LongView);
+        }
 
         return await base.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }

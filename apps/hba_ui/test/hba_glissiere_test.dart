@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hba_ui/hba_ui.dart';
 
@@ -86,10 +85,21 @@ void main() {
     var confirme = 0;
     await poser(tester, onConfirme: () => confirme++);
 
+    // LA DUREE A UN PLANCHER, ET IL VIENT DE FLUTTER, PAS DU RAIL.
+    // « timedDrag » decoupe le geste en trames a 60 Hz et exige au moins deux
+    // points — sans quoi il n'a pas de quoi estimer une vitesse. Sous 34 ms il
+    // n'en produit qu'un seul et s'arrete sur une assertion, ce qui n'apprend
+    // rien sur le widget. 70 ms en donnent quatre.
+    //
+    // LE CALCUL EST CE QUI REND CE TEST LISIBLE : 140 px en 70 ms font
+    // 2000 px/s, soit plus du double du seuil de detente (900 px/s), pendant
+    // que la distance reste a 41 % de la course utile de 342 px — tres en
+    // dessous des 70 % du seuil de position. Les deux marges sont larges
+    // exprès : un test qui confirme pour la mauvaise raison ne protege rien.
     await tester.timedDrag(
       curseur,
-      const Offset(90, 0),
-      const Duration(milliseconds: 30),
+      const Offset(140, 0),
+      const Duration(milliseconds: 70),
     );
     await tester.pump();
 
@@ -126,7 +136,17 @@ void main() {
       const Offset(360, 0),
       const Duration(milliseconds: 600),
     );
-    await tester.pumpAndSettle();
+
+    // PAS « pumpAndSettle » ICI, ET CE N'EST PAS UN DETAIL DE TEST : pendant
+    // l'envoi, le curseur porte un CircularProgressIndicator indetermine, qui
+    // tourne aussi longtemps que la requete dure. Attendre qu'il s'arrete est
+    // attendre pour toujours — le test expirait au bout de dix minutes
+    // simulees. Un indicateur d'attente QUI S'ARRETE serait le vrai defaut.
+    //
+    // ON POUSSE PLUS LOIN QUE LE RETOUR DIFFERE DE 900 ms, parce que c'est lui
+    // qui pourrait rappeler le rail en arriere ; s'il partait a tort, ce sont
+    // ces trames-la qui le montreraient.
+    await tester.pump(const Duration(milliseconds: 1200));
 
     expect(confirme, 0);
   });
@@ -139,9 +159,14 @@ void main() {
 
     await poser(tester, onConfirme: () => confirme++);
 
-    final noeud = tester.getSemantics(find.byType(HbaGlissiere));
-    tester.binding.pipelineOwner.semanticsOwner!
-        .performAction(noeud.id, SemanticsAction.tap);
+    // LE NOEUD SE DESIGNE PAR SON LIBELLE, ET C'EST EXACT ICI : le widget pose
+    // « Semantics(label: libelle) » puis « ExcludeSemantics » sur tout son
+    // interieur, donc un seul noeud de l'arbre porte cette etiquette.
+    //
+    // « tap » VERIFIE QUE L'ACTION EXISTE AVANT DE LA JOUER, la ou l'ancien
+    // appel a performAction la lancait a l'aveugle : un rail qui cesserait
+    // d'exposer onTap passait le test sans rien declencher de visible.
+    tester.semantics.tap(find.semantics.byLabel('Glissez pour accepter'));
     await tester.pump();
 
     expect(confirme, 1);

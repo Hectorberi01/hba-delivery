@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package hba.billing.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/money.proto";
+
+option csharp_namespace = "Hba.Contracts.Billing.V1";
+
+// Billing tient les comptes des donneurs d'ordre professionnels — commerçants
+// et partenaires — et rien d'autre. Il ne connaît ni les courses, ni les
+// livreurs, ni les clients particuliers.
+//
+// L'APPEL EST SYNCHRONE, ET C'EST TOUT L'INTÉRÊT. Delivery débite AVANT de
+// créer la course. La voie asynchrone — créer la course, publier un événement,
+// laisser Billing débiter — respecterait mieux le découplage, mais un donneur
+// d'ordre au plafond recevrait un « 201 Created » suivi d'un échec silencieux.
+// Le refus doit être immédiat.
+service BillingService {
+  // Débite une course. La clé d'idempotence est l'identifiant de la course,
+  // tiré par Delivery AVANT l'appel : un rejeu retrouve le même mouvement au
+  // lieu d'en créer un second.
+  rpc Debit(DebitRequest) returns (Movement);
+
+  // Recharge, remboursement ou règlement. RÉSERVÉ AU BACK-OFFICE tant que la
+  // recharge se fait à la main : c'est `finance` qui constate un virement et
+  // crédite le compte.
+  rpc Credit(CreditRequest) returns (Movement);
+
+  // Annule un débit dont la course n'a pas pu être créée.
+  //
+  // LE DÉBIT ORPHELIN EST LE PRIX DE L'APPEL SYNCHRONE. Delivery débite avant
+  // de créer ; si la création échoue ensuite, l'argent est parti et rien n'est
+  // arrivé. Cet appel-ci est le rattrapage, et il est REJOUABLE : la clé de
+  // l'annulation est dérivée de celle du débit.
+  //
+  // RÉSERVÉ AU SYSTÈME ET AU BACK-OFFICE FINANCIER. JAMAIS AU TITULAIRE.
+  //
+  // Cette ligne a dit le contraire pendant une journée, sur un raisonnement
+  // faux : « aucun montant n'est choisi, le titulaire ne peut donc que récupérer
+  // son propre argent ». La clé du débit EST l'identifiant de la course, rendu au
+  // donneur d'ordre à la création : il se faisait rembourser une course en cours
+  // et la gardait. Billing ne connaît pas les courses et ne peut pas distinguer
+  // un débit sans contrepartie d'un débit qui en a une — seul l'appelant le sait,
+  // donc la règle porte sur l'appelant.
+  //
+  // Delivery appelle avec son JETON DE SERVICE, pas avec celui du donneur
+  // d'ordre.
+  rpc ReverseDebit(ReverseDebitRequest) returns (Movement);
+
+  rpc GetAccount(GetAccountRequest) returns (Account);
+
+  rpc OpenAccount(OpenAccountRequest) returns (Account);
+}
+
+// « merchant » ou « partner ». Le couple (owner_type, owner_id) désigne un
+// compte et un seul : la base en tient l'unicité.
+message AccountOwner {
+  string owner_type = 1;
+  string owner_id = 2;
+}
+
+enum SettlementMode {
+  SETTLEMENT_MODE_UNSPECIFIED = 0;
+  SETTLEMENT_MODE_PREPAID = 1;
+  SETTLEMENT_MODE_POSTPAID = 2;
+}
+
+enum AccountStatus {
+  ACCOUNT_STATUS_UNSPECIFIED = 0;
+  ACCOUNT_STATUS_ACTIVE = 1;
+  ACCOUNT_STATUS_SUSPENDED = 2;
+}
+
+enum MovementKind {
+  MOVEMENT_KIND_UNSPECIFIED = 0;
+  MOVEMENT_KIND_TOPUP = 1;
+  MOVEMENT_KIND_DEBIT = 2;
+  MOVEMENT_KIND_REFUND = 3;
+  MOVEMENT_KIND_INVOICE_PAYMENT = 4;
+  MOVEMENT_KIND_ADJUSTMENT = 5;
+}
+
+message DebitRequest {
+  AccountOwner owner = 1;
+  hba.common.v1.Money amount = 2;
+  // La course à l'origine du débit.
+  string reference = 3;
+  string idempotency_key = 4;
+}
+
+message CreditRequest {
+  AccountOwner owner = 1;
+  MovementKind kind = 2;
+  hba.common.v1.Money amount = 3;
+  string reference = 4;
+  string idempotency_key = 5;
+}
+
+message ReverseDebitRequest {
+  AccountOwner owner = 1;
+  // LA CLÉ DU DÉBIT, c'est-à-dire l'identifiant de la course. L'appelant ne
+  // connaît que celle-là : dans le cas où tout échoue, il n'a pas pu retenir
+  // l'identifiant du mouvement.
+  string debit_idempotency_key = 2;
+}
+
+message GetAccountRequest {
+  AccountOwner owner = 1;
+}
+
+message OpenAccountRequest {
+  AccountOwner owner = 1;
+  hba.common.v1.Money low_balance_threshold = 2;
+}
+
+message Account {
+  string id = 1;
+  AccountOwner owner = 2;
+  SettlementMode mode = 3;
+  // NÉGATIF = ENCOURS, en postpayé. Le solde n'est pas une quantité d'argent
+  // détenue : c'est une position.
+  hba.common.v1.Money balance = 4;
+  hba.common.v1.Money credit_limit = 5;
+  // CE QUE LE COMPTE PEUT ENCORE PORTER : solde + plafond. Rendu par le
+  // service plutôt que laissé à l'addition de l'appelant, qui la ferait un
+  // jour de travers.
+  hba.common.v1.Money available = 6;
+  hba.common.v1.Money low_balance_threshold = 7;
+  AccountStatus status = 8;
+}
+
+message Movement {
+  string id = 1;
+  string account_id = 2;
+  MovementKind kind = 3;
+  // MONTANT SIGNÉ : positif au crédit, négatif au débit. La somme des
+  // mouvements d'un compte doit refaire son solde.
+  hba.common.v1.Money amount = 4;
+  hba.common.v1.Money balance_after = 5;
+  string reference = 6;
+  google.protobuf.Timestamp created_at = 7;
+}

@@ -186,6 +186,14 @@ namespace Hba.Identity.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("DeletionRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deletion_requested_at");
+
+                    b.Property<DateTimeOffset?>("DeletionScheduledFor")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deletion_scheduled_for");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(120)
@@ -255,6 +263,9 @@ namespace Hba.Identity.Infrastructure.Persistence.Migrations
                         .HasColumnName("whatsapp_opt_in_at");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DeletionScheduledFor")
+                        .HasFilter("deletion_scheduled_for IS NOT NULL");
 
                     b.HasIndex("DriverId")
                         .IsUnique()

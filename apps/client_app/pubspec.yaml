@@ -27,6 +27,21 @@ dependencies:
   # au milieu d'un paiement.
   webview_flutter: ^4.10.0
 
+  # PHOTO DE PROFIL. Memes paquets et memes versions que l'application livreur,
+  # qui les utilise depuis les pieces du dossier : deux applications du meme
+  # depot qui reduisent une image de deux facons differentes finiraient par
+  # envoyer deux poids differents au meme plafond de cinq megaoctets.
+  image_picker: ^1.1.2
+
+  # COMPRESSION DE L'IMAGE CADREE. L'ecran de cadrage redessine la portion
+  # choisie et la rend en PNG — un a deux megaoctets pour mille pixels de
+  # cote ; ce paquet la ramene a cent cinquante kilooctets en JPEG. Le client
+  # paie ses donnees a la recharge.
+  #
+  # LA COMPRESSION NATIVE, et pas la meme chose en Dart pur, qui gelerait
+  # l'ecran une seconde ou deux.
+  flutter_image_compress: ^2.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

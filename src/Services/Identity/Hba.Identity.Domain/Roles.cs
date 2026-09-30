@@ -18,6 +18,12 @@ public static class Roles
     public const string Support = "support";
     public const string Finance = "finance";
 
+    /// <summary>
+    /// Un service, pas une personne. Voir HbaRoles.Service : il n'ouvre que
+    /// deux lectures nommées, et jamais une écriture.
+    /// </summary>
+    public const string Service = "service";
+
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         Customer,
@@ -29,6 +35,7 @@ public static class Roles
         Ops,
         Support,
         Finance,
+        Service,
     };
 
     /// <summary>Rôles qu'une simple vérification de numéro peut créer.</summary>

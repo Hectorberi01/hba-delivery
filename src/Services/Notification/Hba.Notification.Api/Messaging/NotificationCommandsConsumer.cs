@@ -86,6 +86,25 @@ public sealed class NotificationCommandsConsumer(
                 Copy(message.SendPush.Variables),
                 correlationId),
 
+            // LE DESTINATAIRE EST VIDE, ET L'IDENTIFIANT DE COMPTE PORTE TOUT.
+            // C'est Notification qui demandera son adresse a Directory : celui
+            // qui publie la commande — Delivery, quand une course se termine —
+            // ne la connait pas, et la lui faire chercher mettrait un appel
+            // reseau dans la transaction qui cloture une livraison.
+            NotificationCommand.PayloadOneofCase.SendEmail => new SendNotificationCommand(
+                NotificationChannel.Email,
+                string.Empty,
+                message.SendEmail.TemplateId,
+                Copy(message.SendEmail.Variables),
+                correlationId,
+                Guid.TryParse(message.SendEmail.SubjectId, out var compte) ? compte : null,
+                // L'IDENTIFIANT DE L'EVENEMENT, ET NON CELUI DE CORRELATION.
+                // Le second suit une requete HTTP et change a chaque rejeu ;
+                // le premier est derive de facon deterministe par le service
+                // qui publie, donc deux tentatives d'un meme envoi portent la
+                // meme cle et le fournisseur n'expedie qu'une fois.
+                message.Envelope?.EventId),
+
             _ => null,
         };
     }

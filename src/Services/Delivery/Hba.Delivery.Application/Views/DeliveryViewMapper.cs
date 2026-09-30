@@ -27,6 +27,19 @@ public static class DeliveryViewMapper
         // Le livreur ne voit l'adresse exacte de destination qu'après acceptation.
         var showDropoff = !isDriver || isAssignedDriver;
 
+        // LE NUMÉRO DU DESTINATAIRE S'ÉTEINT AVEC LA COURSE, POUR LE LIVREUR.
+        //
+        // Il n'avait aucune borne de temps, alors que le code de remise, lui,
+        // est coupé à la clôture deux lignes plus bas. L'historique rend les
+        // vingt-cinq dernières courses : un livreur gardait donc le téléphone
+        // personnel de vingt-cinq destinataires, indéfiniment, pour des courses
+        // finies.
+        //
+        // L'ADRESSE RESTE, ET C'EST VOULU. Il est allé là-bas ; son historique
+        // doit rester relisible, et un repère écrit n'est pas un moyen de
+        // joindre quelqu'un. C'est le numéro qui l'est.
+        var showRecipientPhone = showDropoff && (!isDriver || !delivery.IsClosed);
+
         // Le téléphone du livreur est visible pendant la mission, pour le client
         // et le commerçant. Jamais pour un partenaire (système), toujours pour
         // le back-office.
@@ -51,9 +64,9 @@ public static class DeliveryViewMapper
             MerchantId = isBackOffice || isMerchant ? delivery.MerchantId : null,
             PickupPointId = delivery.PickupPointId,
             Pickup = ToLocationView(delivery.Pickup, includePhone: true),
-            Dropoff = showDropoff ? ToLocationView(delivery.Dropoff, includePhone: true) : null,
+            Dropoff = showDropoff ? ToLocationView(delivery.Dropoff, includePhone: showRecipientPhone) : null,
             RecipientName = showDropoff ? delivery.Recipient.Name : null,
-            RecipientPhone = showDropoff ? delivery.Recipient.Phone : null,
+            RecipientPhone = showRecipientPhone ? delivery.Recipient.Phone : null,
             Pricing = showFullPricing ? ToPricingView(delivery.Pricing) : null,
             DriverEarningXof = isDriver || isBackOffice ? delivery.Pricing.DriverEarning.Amount : null,
             Driver = delivery.Driver is null || isDriver ? null : ToDriverView(delivery.Driver, showDriverPhone),
@@ -66,6 +79,12 @@ public static class DeliveryViewMapper
             AssignedAt = delivery.AssignedAt,
             PickedUpAt = delivery.PickedUpAt,
             CompletedAt = delivery.CompletedAt,
+
+            // LE REMBOURSEMENT NE REGARDE QUE LE DONNEUR D'ORDRE ET LE
+            // BACK-OFFICE. Ce qui s'est passe entre le client et HBA apres la
+            // course ne concerne ni le livreur, ni un partenaire tiers.
+            RefundedAt = isBackOffice || isCustomer || isMerchant ? delivery.RefundedAt : null,
+            RefundPartial = (isBackOffice || isCustomer || isMerchant) && delivery.RefundPartial,
         };
     }
 

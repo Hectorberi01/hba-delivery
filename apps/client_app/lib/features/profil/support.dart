@@ -17,11 +17,7 @@ import 'tuile.dart';
 /// compilation, un deploiement sans numero de support n'affiche pas de bouton
 /// « Appeler » — il affiche la raison. Voir [Reglages].
 class BlocSupport extends StatelessWidget {
-  const BlocSupport({this.reference, super.key});
-
-  /// Reference d'une course, si l'on vient d'un ecran de suivi : elle part dans
-  /// l'objet du courriel et evite au client de la recopier.
-  final String? reference;
+  const BlocSupport({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +52,7 @@ class BlocSupport extends StatelessWidget {
             icone: Icons.mail_outline,
             libelle: 'Écrire au support',
             detail: Reglages.supportEmail,
-            cible: courrielSupport(reference: reference),
+            cible: courrielSupport(),
           ),
 
         const SizedBox(height: HbaSpacing.lg),
@@ -86,6 +82,39 @@ class BlocSupport extends StatelessWidget {
           enLigne: Reglages.confidentialite,
         ),
       ],
+    );
+  }
+}
+
+/// Une ligne d'aide portant sur UNE course.
+///
+/// ELLE NE VIT PAS DANS [BlocSupport], ET C'EST LE POINT. Ce bloc-la porte les
+/// deux contacts ET les documents legaux : le poser sur un ecran de suivi y
+/// mettrait les conditions generales entre le code de remise et le bouton
+/// d'annulation. Ce qui se partage, c'est [courrielSupport], pas la mise en
+/// page.
+///
+/// LA REFERENCE PART DANS L'OBJET, ET C'EST TOUTE SA RAISON D'ETRE. Un client
+/// qui ecrit depuis son suivi n'a pas a recopier « HBA-4F2A1C » a la main — il
+/// le recopierait de travers une fois sur cinq, et le support repondrait sur la
+/// mauvaise course.
+///
+/// RIEN NE S'AFFICHE SANS ADRESSE CONFIGUREE. Meme regle que partout ailleurs :
+/// un bouton qui n'ouvre rien est pire que pas de bouton.
+class AideSurLaCourse extends StatelessWidget {
+  const AideSurLaCourse({required this.reference, super.key});
+
+  final String reference;
+
+  @override
+  Widget build(BuildContext context) {
+    if (Reglages.supportEmail.isEmpty) return const SizedBox.shrink();
+
+    return _Entree(
+      icone: Icons.help_outline,
+      libelle: 'Un problème sur cette course ?',
+      detail: 'Écrire au support — la référence $reference sera jointe',
+      cible: courrielSupport(reference: reference, sujet: 'Course'),
     );
   }
 }
@@ -133,8 +162,18 @@ class _Entree extends StatelessWidget {
     }
 
     if (!context.mounted) return;
+
+    // LE MESSAGE DIT LE CONTACT, PAS LE LIBELLE DE LA LIGNE. Il se construisait
+    // sur « detail », qui n'est un numero ou une adresse que pour deux des
+    // trois entrees : la troisieme aurait donne « Impossible d'ouvrir Ecrire au
+    // support — la reference HBA-4F2A1C sera jointe. » Or c'est precisement au
+    // moment ou rien ne s'ouvre que le client a besoin de LIRE le contact pour
+    // le composer lui-meme.
+    final quoi = cible.startsWith('tel:') ? 'le composeur' : 'votre messagerie';
+    final contact = uri?.path ?? detail;
+
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Impossible d'ouvrir $detail.")),
+      SnackBar(content: Text("Impossible d'ouvrir $quoi. Notez : $contact")),
     );
   }
 }

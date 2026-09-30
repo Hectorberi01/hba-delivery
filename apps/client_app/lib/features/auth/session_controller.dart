@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
+import '../deliveries/delivery_providers.dart';
 import 'auth_repository.dart';
 
 sealed class SessionState {
@@ -35,6 +36,17 @@ final sessionProvider =
 class SessionController extends Notifier<SessionState> {
   @override
   SessionState build() => const SessionUnknown();
+
+  /// Combien de comptes ont quitte ce telephone depuis le lancement.
+  ///
+  /// CE NOMBRE EST LU PAR « generationDuCompteProvider », qui porte la raison
+  /// d'etre complete d'un compteur plutot que d'un booleen. En deux mots :
+  /// Riverpod ne reconstruit un dependant que si la valeur recalculee a CHANGE,
+  /// et un booleen qui repasse par sa valeur d'origine — A part, B arrive — ne
+  /// change pas. Un compteur ne revient jamais sur ses pas.
+  int _generation = 0;
+
+  int get generation => _generation;
 
   Future<void> restore() async {
     final tokens = ref.read(tokenStoreProvider);
@@ -77,7 +89,35 @@ class SessionController extends Notifier<SessionState> {
     state = SessionSignedIn(displayName: nom);
   }
 
-  void signedOut() => state = const SessionSignedOut();
+  /// LA SEULE PORTE DE SORTIE, et les deux chemins y passent : le bouton
+  /// « Se deconnecter » et la perte de session decidee par ApiClient. C'est ce
+  /// qui permet de n'ecrire l'oubli qu'une fois.
+  ///
+  /// CE QUI EST VIDE ICI EST CE QUE LE RESEAU NE RECONSTRUIT PAS. Tout ce qui
+  /// vient du compte passe par un depot, donc par « apiClientProvider », qui
+  /// surveille « generationDuCompteProvider » : le compteur avance ci-dessous et
+  /// reconstruit a lui seul le profil, les adresses, les courses et le reste.
+  /// « courseEnAttenteProvider », lui, ne vient d'aucune requete — il porte
+  /// l'identifiant de la course que le client vient de payer, le temps que le
+  /// webhook arrive. Laisse en place, il envoie l'accueil du compte SUIVANT
+  /// chercher une course qui n'est pas la sienne : la fiche repond 403 ou 404,
+  /// rien ne le rattrape, et l'accueil de B tourne indefiniment.
+  ///
+  /// L'ORDRE COMPTE. On vide AVANT de changer l'etat : la bascule declenche la
+  /// redirection du routeur, et un ecran reconstruit entre les deux lirait
+  /// encore l'identifiant de l'ancien compte.
+  void signedOut() {
+    ref.invalidate(courseEnAttenteProvider);
+
+    // LE COMPTEUR AVANCE ICI, ET NULLE PART AILLEURS. C'est la seule porte de
+    // sortie : on n'arrive pas sur un autre compte sans y etre passe. Le faire
+    // avancer aussi a la connexion ou au renommage rendrait le nombre sensible
+    // a des changements qui ne changent PAS de compte, et chaque correction de
+    // prenom ferait repartir toutes les requetes de l'application.
+    _generation++;
+
+    state = const SessionSignedOut();
+  }
 
   Future<void> signOut() async {
     await ref.read(authRepositoryProvider).signOut();

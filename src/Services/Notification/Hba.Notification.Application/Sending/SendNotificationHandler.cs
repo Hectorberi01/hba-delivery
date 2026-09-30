@@ -19,6 +19,7 @@ namespace Hba.Notification.Application.Sending;
 public sealed class SendNotificationHandler(
     IEnumerable<INotificationSender> senders,
     ISentNotificationRepository repository,
+    ICarnetDAdresses carnet,
     IUnitOfWork unitOfWork,
     IClock clock,
     ILogger<SendNotificationHandler> logger) : ICommandHandler<SendNotificationCommand, Unit>
@@ -29,6 +30,64 @@ public sealed class SendNotificationHandler(
 
         var binding = TemplateCatalog.Get(command.TemplateId);
         var chain = ResolveChain(binding, command.Channel);
+
+        // L'ADRESSE SE RESOUT ICI, ET UNE SEULE FOIS. La commande porte un
+        // identifiant de compte quand l'appelant ne connait pas l'adresse — un
+        // recu de course, par exemple, dont Delivery sait tout sauf ou
+        // l'envoyer. Resoudre dans AttemptAsync appellerait Directory une fois
+        // par canal essaye.
+        var destinataire = command.Recipient;
+
+        if (command.SubjectId is { } sujet)
+        {
+            var adresse = await carnet.CourrielAsync(sujet, cancellationToken).ConfigureAwait(false);
+
+            destinataire = adresse.Courriel ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(destinataire))
+            {
+                // PAS UNE EXCEPTION, ET SURTOUT PAS UN RENVOI. Un client sans
+                // courriel est le cas COURANT : l'adresse est facultative dans
+                // ce produit. Lever ferait rejouer ce message par l'Inbox
+                // jusqu'a la fin des temps pour une raison qui ne changera pas
+                // toute seule.
+                //
+                // LE MOTIF DIT LEQUEL DES DEUX, ET C'EST TOUT CE QUI A CHANGE
+                // ICI. Il disait « le compte n'a pas de courriel » dans les deux
+                // cas — y compris quand l'annuaire etait injoignable, ce qui est
+                // un incident et non une absence d'adresse. Le journal accusait
+                // le client d'une panne de Directory, et la vraie cause etait
+                // devenue invisible.
+                var motif = adresse.Indisponible
+                    ? "L'annuaire n'a pas pu etre interroge : adresse inconnue."
+                    : "Le compte n'a pas de courriel.";
+
+                Consigner(binding, chain, sujet, command, motif);
+                await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+                if (adresse.Indisponible)
+                {
+                    // EN AVERTISSEMENT, PARCE QUE C'EST UNE PANNE. Un client
+                    // sans adresse est une information ; un annuaire muet est
+                    // quelque chose a aller regarder.
+                    logger.LogWarning(
+                        "Message {TemplateId} non envoye au compte {Sujet} : l'annuaire n'a pas repondu.",
+                        binding.Id,
+                        sujet);
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "Message {TemplateId} non envoye : le compte {Sujet} n'a pas de courriel.",
+                        binding.Id,
+                        sujet);
+                }
+
+                return Unit.Value;
+            }
+
+            command = command with { Recipient = destinataire };
+        }
 
         if (chain.Count == 0)
         {
@@ -96,7 +155,7 @@ public sealed class SendNotificationHandler(
 
         try
         {
-            message = Build(binding, channel, command.Variables);
+            message = Build(binding, channel, command);
         }
         catch (DomainException ex)
         {
@@ -157,8 +216,10 @@ public sealed class SendNotificationHandler(
     private static OutboundMessage Build(
         TemplateBinding binding,
         NotificationChannel channel,
-        IReadOnlyDictionary<string, string> variables)
+        SendNotificationCommand command)
     {
+        var variables = command.Variables;
+
         switch (channel)
         {
             case NotificationChannel.WhatsApp:
@@ -176,6 +237,10 @@ public sealed class SendNotificationHandler(
             case NotificationChannel.Sms:
                 return new TextMessage(binding.RequireSms().Render(variables));
 
+            case NotificationChannel.Email:
+                var courriel = binding.RequireEmail().Render(variables);
+                return new EmailMessage(courriel.Subject, courriel.Body, command.MessageId);
+
             default:
                 throw new DomainException(
                     "CHANNEL_UNSUPPORTED",
@@ -188,5 +253,52 @@ public sealed class SendNotificationHandler(
     /// de quoi reconnaître un numéro sans le publier en clair.
     /// </summary>
     internal static string Mask(string recipient)
-        => recipient.Length <= 4 ? "****" : string.Concat("****", recipient.AsSpan(recipient.Length - 4));
+    {
+        // UNE ADRESSE NE SE MASQUE PAS COMME UN NUMERO. Garder les quatre
+        // derniers caracteres d'un telephone laisse de quoi le reconnaitre
+        // sans le publier ; les garder d'une adresse ne laisse que « .com »,
+        // qui n'identifie rien, et masque le domaine, qui aiderait justement a
+        // diagnostiquer un rejet. On garde donc le domaine et la premiere
+        // lettre : « h***@hbatechettrade.com ».
+        var arobase = recipient.IndexOf('@', StringComparison.Ordinal);
+
+        if (arobase > 0)
+        {
+            return string.Concat(recipient.AsSpan(0, 1), "***", recipient.AsSpan(arobase));
+        }
+
+        return recipient.Length <= 4
+            ? "****"
+            : string.Concat("****", recipient.AsSpan(recipient.Length - 4));
+    }
+
+    /// <summary>
+    /// Ecrit une trace « ignore » sans appeler le moindre fournisseur.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ELLE EXISTE PARCE QUE L'ABSENCE D'ADRESSE SE CONSTATE AVANT LE CANAL.
+    /// Le chemin normal consigne dans AttemptAsync, une ligne par tentative ;
+    /// ici il n'y a rien a tenter, et ne rien ecrire du tout laisserait croire
+    /// que le recu est parti.
+    /// </remarks>
+    private void Consigner(
+        TemplateBinding binding,
+        IReadOnlyList<NotificationChannel> chain,
+        Guid sujet,
+        SendNotificationCommand command,
+        string motif)
+    {
+        var canal = chain.Count > 0 ? chain[0] : NotificationChannel.Email;
+
+        var trace = SentNotification.Create(
+            canal,
+            sujet.ToString(),
+            binding.Id,
+            command.CorrelationId,
+            clock.UtcNow);
+
+        repository.Add(trace);
+        trace.MarkSkipped(motif, clock.UtcNow);
+    }
 }

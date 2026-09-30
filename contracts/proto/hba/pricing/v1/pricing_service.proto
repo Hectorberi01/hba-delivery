@@ -36,6 +36,11 @@ message GetQuoteByIdRequest {
 message ConsumeQuoteRequest {
   string quote_id = 1;
   string delivery_id = 2;
+  // Le trajet de la livraison en cours de creation. Pricing REFUSE de consommer
+  // un devis pour un autre trajet que celui qu'il a chiffre : sans ces deux
+  // champs, un devis court servait a payer une course longue.
+  hba.common.v1.GeoPoint pickup = 3;
+  hba.common.v1.GeoPoint dropoff = 4;
 }
 
 message Quote {

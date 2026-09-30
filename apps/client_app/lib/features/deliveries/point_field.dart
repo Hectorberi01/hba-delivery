@@ -26,6 +26,7 @@ class PointField extends StatelessWidget {
     required this.hint,
     required this.value,
     required this.onChanged,
+    this.accentue = false,
     super.key,
   });
 
@@ -37,13 +38,20 @@ class PointField extends StatelessWidget {
   final PickedPoint? value;
   final ValueChanged<PickedPoint> onChanged;
 
+  /// Met la carte en avant alors qu'aucun point n'est encore choisi.
+  ///
+  /// SERT A DESIGNER LE PROCHAIN GESTE, pas a feter celui qui est fait. Un
+  /// formulaire de six champs ou rien ne ressort laisse chercher par ou
+  /// commencer ; une seule carte encadree repond a la question sans texte.
+  final bool accentue;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final point = value;
 
     return HbaCard(
-      highlighted: point != null,
+      highlighted: point != null || accentue,
       padding: const EdgeInsets.all(HbaSpacing.md),
       onTap: () async {
         final picked = await Navigator.of(context).push<PickedPoint>(
@@ -60,12 +68,16 @@ class PointField extends StatelessWidget {
             height: 44,
             width: 44,
             decoration: BoxDecoration(
-              color: point == null ? HbaColors.background : HbaColors.primarySoft,
+              color: point == null && !accentue
+                  ? HbaColors.background
+                  : HbaColors.primarySoft,
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(
-              point == null ? Icons.map_outlined : Icons.place,
-              color: point == null ? HbaColors.inkFaint : HbaColors.primary,
+              point == null ? Icons.place_outlined : Icons.place,
+              color: point == null && !accentue
+                  ? HbaColors.inkFaint
+                  : HbaColors.primary,
             ),
           ),
           const SizedBox(width: HbaSpacing.md),
@@ -73,7 +85,14 @@ class PointField extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: theme.textTheme.bodySmall),
+                Text(
+                  label.toUpperCase(),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: HbaColors.inkFaint,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Text(
                   point == null ? hint : point.pretty,

@@ -50,6 +50,21 @@ internal sealed class CallerContext(IHttpContextAccessor accessor) : ICallerCont
             throw new ForbiddenException("Appel non authentifié.");
         }
 
+        // LE SERVICE PASSE EN PREMIER, ET IL NE PORTE QUE CE ROLE-LA. Le
+        // tester d'abord evite qu'un jour un autre role pose sur ce jeton en
+        // fasse un acteur humain dans l'audit.
+        if (IsInRole(HbaRoles.Service))
+        {
+            // LE SUJET EST « service:<nom> » — voir IssueServiceTokenHandler.
+            // On rend le nom seul : l'audit doit lire « notification », pas un
+            // identifiant prefixe qu'il faudrait savoir decouper.
+            var nom = SubjectId.StartsWith("service:", StringComparison.Ordinal)
+                ? SubjectId["service:".Length..]
+                : SubjectId;
+
+            return Actor.Service(string.IsNullOrWhiteSpace(nom) ? "inconnu" : nom);
+        }
+
         if (IsInRole(HbaRoles.Driver))
         {
             return Actor.Driver(DriverId ?? SubjectId);

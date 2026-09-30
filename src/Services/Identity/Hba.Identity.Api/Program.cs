@@ -6,7 +6,9 @@ using Hba.Identity.Api.Bootstrap;
 using Hba.Identity.Api.Endpoints;
 using Hba.Identity.Api.Grpc;
 using Hba.Identity.Api.Middleware;
+using Hba.Identity.Api.Scheduling;
 using Hba.Identity.Application;
+using Hba.Identity.Application.Features.Accounts.Commands;
 using Hba.Identity.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Swagger;
@@ -73,6 +75,16 @@ builder.Services.AddIdentityInfrastructure(builder.Configuration, builder.Enviro
 builder.Services.AddOptions<BootstrapOptions>()
     .Bind(builder.Configuration.GetSection(BootstrapOptions.SectionName));
 builder.Services.AddHostedService<AdminBootstrap>();
+
+// LA SUPPRESSION DE COMPTE, DEMANDEE PAR SON TITULAIRE (point 28).
+//
+// Le delai de grace et le rythme du balayage se reglent ici plutot que dans le
+// code : la duree est un choix de produit, qui peut devoir suivre une exigence
+// de magasin. Changer le reglage NE DEPLACE AUCUNE ECHEANCE DEJA ANNONCEE — la
+// date est figee dans le compte au moment de la demande.
+builder.Services.AddOptions<AccountDeletionOptions>()
+    .Bind(builder.Configuration.GetSection(AccountDeletionOptions.Section));
+builder.Services.AddHostedService<PurgeDesComptes>();
 
 // SANS AddEndpointsApiExplorer, SwaggerGen NE PEUT PAS ETRE CONSTRUIT.
 // SwaggerGenerator prend IApiDescriptionGroupCollectionProvider dans son

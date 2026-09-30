@@ -364,11 +364,42 @@ public sealed class DispatchAggregate : AggregateRoot
     }
 
     /// <summary>
-    /// La course est annulee ailleurs. Aucun evenement n'est leve : Dispatch
-    /// n'apprend rien a personne ici, il cesse simplement de chercher.
+    /// La course est annulee ailleurs. Le moteur cesse de chercher, et REND LES
+    /// LIVREURS QU'IL AVAIT RESERVES.
     /// </summary>
-    public void Cancel(DateTimeOffset now)
+    ///
+    /// <remarks>
+    /// CETTE METHODE NE LEVAIT AUCUN EVENEMENT, ET ELLE IMMOBILISAIT UN LIVREUR
+    /// POUR TOUJOURS.
+    ///
+    /// Un livreur qui recoit une offre passe RESERVED — c'est Driver qui le
+    /// note, sur « OfferSent ». Il n'en ressort que sur un evenement de fin
+    /// d'offre : le consommateur de Driver ne libere que sur « OfferExpired ».
+    /// Ici, les offres etaient bien perimees en memoire, mais SANS RIEN DIRE a
+    /// personne : le livreur restait RESERVED, et FindAvailableAsync n'accepte
+    /// que « Available ». Il ne recevait plus jamais d'offre.
+    ///
+    /// AUCUN RATTRAPAGE N'EXISTAIT NON PLUS : le balayage des offres echues ne
+    /// repasse que sur les recherches encore « Searching », et celle-ci vient
+    /// de passer « Cancelled ». Refuser l'offre ne changeait rien — Decline
+    /// sort en silence sur une offre qui n'est plus en attente. La seule issue
+    /// etait de basculer hors ligne puis en ligne, ce que rien a l'ecran ne
+    /// disait, et que l'accueil ne suggerait pas puisqu'il s'affichait
+    /// toujours « en ligne ».
+    ///
+    /// « OfferSuperseded » EST EXACTEMENT LE FAIT QU'IL FALLAIT LEVER, et il
+    /// existait deja : Accept s'en sert pour les offres des AUTRES livreurs, et
+    /// le publieur le traduit sur le fil en « OfferExpired », que Driver sait
+    /// consommer. Il n'y avait rien a inventer, seulement a le dire.
+    ///
+    /// L'ACTEUR EST CELUI QUI A ANNULE, ET IL VIENT DE L'APPELANT. Dispatch ne
+    /// sait pas qui annule — client, exploitation, planificateur — et l'ecrire
+    /// au hasard mentirait a l'audit.
+    /// </remarks>
+    public void Cancel(Actor actor, DateTimeOffset now)
     {
+        ArgumentNullException.ThrowIfNull(actor);
+
         if (Status is DispatchStatus.Assigned or DispatchStatus.Cancelled)
         {
             return;
@@ -377,6 +408,7 @@ public sealed class DispatchAggregate : AggregateRoot
         foreach (var offer in _offers.Where(o => o.IsPending))
         {
             offer.Supersede(now);
+            Raise(new OfferSuperseded(DeliveryId, offer.Id, offer.DriverId, actor, now));
         }
 
         Status = DispatchStatus.Cancelled;

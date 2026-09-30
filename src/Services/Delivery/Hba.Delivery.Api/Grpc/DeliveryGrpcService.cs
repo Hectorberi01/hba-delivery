@@ -195,6 +195,26 @@ public sealed class DeliveryGrpcService(IDispatcher dispatcher, ITimeCalendar ca
         return DeliveryProtoMapper.ToProto(view);
     }
 
+    public override async Task<ProtoDelivery> DeclareIncident(
+        DeclareIncidentRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher
+            .SendAsync(
+                new DeclareIncidentCommand(
+                    ParseId(request.DeliveryId),
+                    request.Reason,
+                    request.OccurredAt?.ToDateTimeOffset(),
+                    Nullify(request.IdempotencyKey)),
+                context.CancellationToken)
+            .ConfigureAwait(false);
+
+        return DeliveryProtoMapper.ToProto(view);
+    }
+
     public override async Task<ProtoDelivery> AdminCloseDelivery(
         AdminCloseDeliveryRequest request,
         ServerCallContext context)

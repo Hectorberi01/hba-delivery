@@ -6,6 +6,7 @@ using Hba.BuildingBlocks.Storage;
 using Hba.Driver.Application.Common.Interfaces;
 using Hba.Driver.Application.Common.Views;
 using Hba.Driver.Application.Features.Drivers.Commands;
+using Hba.Driver.Domain.Drivers;
 
 namespace Hba.Driver.Application.Features.Drivers.Queries;
 
@@ -88,17 +89,27 @@ public sealed class GetDriverApplicationHandler(
             driver.SubmittedAt,
             pieces,
             manquantes,
+
+            // CE QUE L'ECRAN DOIT AFFICHER, ET QU'IL DEVINAIT EN DUR. Les cinq
+            // pieces n'etaient plus les memes pour tout le monde : un cycliste
+            // voyait « permis » et « carte grise », deux lignes qu'il n'aurait
+            // jamais pu satisfaire.
+            [.. DriverAggregate.PiecesRequisesPour(driver.Vehicle.Type)],
             driver.Vehicle.Type,
             driver.Vehicle.Plate,
             driver.Vehicle.CapacityGrams,
             photo,
+            driver.VehiculeDeclare,
 
             // MEME REGLE QUE L'AGREGAT, exprimee une fois de plus — et c'est
             // le seul endroit ou c'est acceptable : l'ecran doit savoir s'il
             // peut proposer le bouton AVANT de l'appuyer. Une divergence se
             // verrait aussitot, puisque SubmitForReview refuserait.
+            // « VehiculeDeclare » ET NON « la plaque est remplie ». Un velo
+            // n'a pas de plaque : la condition d'origine l'aurait retenu au
+            // guichet pour toujours, sans rien lui dire de compréhensible.
             manquantes.Count == 0
-                && !string.IsNullOrWhiteSpace(driver.Vehicle.Plate)
+                && driver.VehiculeDeclare
                 && driver.DossierModifiable);
     }
 }

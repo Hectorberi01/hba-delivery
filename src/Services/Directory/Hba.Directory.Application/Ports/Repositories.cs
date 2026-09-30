@@ -43,6 +43,23 @@ public interface ICustomerRepository
     Task<int> CountAsync(string? query, CancellationToken cancellationToken);
 
     void Add(Customer customer);
+
+    /// <summary>
+    /// Retire la fiche et tout ce qu'elle possède.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LE SEUL APPELANT EST L'EFFACEMENT D'UN COMPTE, et il vient d'Identity
+    /// par événement. Aucune route ne l'expose : une fiche client ne se
+    /// supprime pas depuis le back-office, elle disparaît avec le compte de
+    /// son titulaire.
+    ///
+    /// LES ADRESSES FAVORITES PARTENT AVEC ELLE, sans rien de plus à écrire :
+    /// elles sont un type possédé (OwnsMany), donc EF les supprime en cascade.
+    /// C'est important — elles contiennent les noms et les téléphones de TIERS
+    /// que le client avait enregistrés.
+    /// </remarks>
+    void Remove(Customer customer);
 }
 
 public interface IMerchantRepository

@@ -66,6 +66,15 @@ services:
       # ajouter un service ici veut dire ajouter une ligne, pas migrer une base.
       ServiceClients__Clients__delivery: ${SERVICE_SECRET_DELIVERY:?SERVICE_SECRET_DELIVERY absent - sans lui Delivery ne peut pas affecter de livreur}
       ServiceClients__Clients__dispatch: ${SERVICE_SECRET_DISPATCH:?SERVICE_SECRET_DISPATCH absent - sans lui le dispatch ne peut chercher aucun livreur}
+      # « :- » et non « :? » : sans ce secret, Notification envoie toujours les
+      # codes de connexion et de remise ; seul le recu de course, qui demande
+      # l'adresse du client a Directory, ne partira pas. Point 29.
+      ServiceClients__Clients__notification: ${SERVICE_SECRET_NOTIFICATION:-}
+
+      # SANS LUI, LA PHOTO D'UN COMPTE SUPPRIME SURVIT. Directory fait effacer
+      # les medias depuis le consommateur AccountErased, sans utilisateur
+      # derriere : il lui faut un jeton de service.
+      ServiceClients__Clients__directory: ${SERVICE_SECRET_DIRECTORY:-}
     volumes:
       # La clé de signature survit aux redémarrages : sans cela, tous les
       # jetons émis seraient invalidés à chaque déploiement.

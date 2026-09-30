@@ -71,8 +71,32 @@ public sealed class PaymentEventsConsumer(
 
                 break;
 
+            // LE REMBOURSEMENT EST CONSTATE ICI, ET IL NE L'ETAIT NULLE PART.
+            //
+            // Le commentaire disait « traite par Settlement » : il n'existe pas
+            // de service Settlement dans ce depot, et « PaymentRefunded »
+            // n'avait ni producteur ni consommateur. Le client lisait « HBA
+            // revient vers vous au sujet du montant preleve » et rien, jamais,
+            // ne venait dire que c'etait fait.
+            //
+            // AUCUN CHANGEMENT D'ETAT : la course reste annulee, echouee ou sans
+            // livreur. On note la date, et l'ecran peut enfin le dire.
+            case PaymentEvent.PayloadOneofCase.Refunded:
+                var refunded = message.Refunded;
+                if (Guid.TryParse(refunded.DeliveryId, out var refundedId))
+                {
+                    await dispatcher.SendAsync(
+                        new MarkDeliveryRefundedCommand(
+                            refundedId,
+                            refunded.Partial,
+                            refunded.OccurredAt?.ToDateTimeOffset() ?? DateTimeOffset.UtcNow),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                break;
+
             default:
-                // Remboursement : traité par Settlement, pas par Delivery.
+                // Rien d'autre ne concerne Delivery.
                 break;
         }
     }

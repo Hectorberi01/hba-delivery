@@ -50,6 +50,28 @@ service IdentityService {
   rpc SuspendAccount(SuspendAccountRequest) returns (Account);
   rpc ReactivateAccount(ReactivateAccountRequest) returns (Account);
 
+  // --- Suppression du compte, a la demande de son titulaire ---
+  //
+  // TROIS APPELS, PARCE QUE LA SUPPRESSION EST UNE FENETRE ET NON UN INSTANT.
+  // Le titulaire demande ; le compte entre en PENDING_DELETION et ses sessions
+  // sont revoquees ; trente jours plus tard un travail planifie efface la ligne
+  // pour de bon et publie AccountErased. Se reconnecter pendant la fenetre
+  // permet d'annuler.
+  //
+  // POURQUOI UN DELAI PLUTOT QU'UN EFFACEMENT IMMEDIAT. Un telephone reste
+  // deverrouille, un appui malheureux, et l'historique d'un client part sans
+  // retour possible — le support ne peut alors rien pour lui, puisqu'il ne
+  // reste rien a restaurer. Trente jours coutent un etat de plus et un
+  // ordonnanceur ; l'effacement immediat coute des clients.
+  //
+  // AUCUN IDENTIFIANT DANS LES REQUETES : on ne supprime que son propre compte.
+  // Le back-office qui aurait a le faire pour quelqu'un passera par une autre
+  // porte, le jour ou elle existera — lui en donner une ici ferait d'un geste
+  // du titulaire un geste d'administration.
+  rpc RequestAccountDeletion(RequestAccountDeletionRequest) returns (AccountDeletion);
+  rpc CancelAccountDeletion(CancelAccountDeletionRequest) returns (AccountDeletion);
+  rpc GetAccountDeletion(GetAccountDeletionRequest) returns (AccountDeletion);
+
   // --- Partenaires B2B (OAuth2 client credentials) ---
   rpc CreatePartnerClient(CreatePartnerClientRequest) returns (PartnerClientCreated);
   rpc IssuePartnerToken(IssuePartnerTokenRequest) returns (TokenPair);
@@ -75,6 +97,33 @@ enum AccountStatus {
   ACCOUNT_STATUS_UNSPECIFIED = 0;
   ACCOUNT_STATUS_ACTIVE = 1;
   ACCOUNT_STATUS_SUSPENDED = 2;
+
+  // Le titulaire a demande la suppression ; la ligne existe encore, le temps
+  // du delai de grace. ELLE N'EST PAS UNE SUSPENSION : un compte suspendu ne
+  // se connecte plus, celui-ci le doit — c'est en se reconnectant qu'on annule.
+  ACCOUNT_STATUS_PENDING_DELETION = 3;
+}
+
+// L'etat de la demande de suppression, tel que le titulaire a le droit de le
+// voir.
+//
+// « requested » FAUX N'EST PAS UNE ABSENCE DE REPONSE. L'application doit
+// pouvoir distinguer « vous n'avez rien demande » de « nous n'avons pas pu
+// verifier » : sans ce booleen, une date vide dirait les deux a la fois.
+message AccountDeletion {
+  bool requested = 1;
+  google.protobuf.Timestamp requested_at = 2;
+  // Le jour ou l'effacement aura lieu si rien ne l'annule.
+  google.protobuf.Timestamp scheduled_for = 3;
+}
+
+message RequestAccountDeletionRequest {
+}
+
+message CancelAccountDeletionRequest {
+}
+
+message GetAccountDeletionRequest {
 }
 
 // À quoi sert l'OTP demandé. Détermine le rôle du compte créé si le numéro est

@@ -1,6 +1,7 @@
 using Hba.BuildingBlocks.Application.Abstractions;
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Domain;
+using Hba.BuildingBlocks.Security;
 using Hba.BuildingBlocks.Storage;
 using Hba.Media.Domain.Assets;
 using Microsoft.Extensions.Logging;
@@ -64,22 +65,32 @@ public sealed class StoreMediaHandler(
             caller.ToActor(),
             maintenant);
 
-        // UNE NATURE UNIQUE REMPLACE, LES AUTRES S'AJOUTENT. Personne n'a deux
-        // visages ; une pièce corrigée, en revanche, ne doit pas effacer celle
-        // qu'ops est en train de comparer.
-        if (MediaKinds.EstUnique(command.Kind))
-        {
-            var anciens = await medias
-                .ListAsync(command.OwnerType, command.OwnerId, command.Kind, cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var ancien in anciens)
-            {
-                medias.Remove(ancien);
-                await stockage.DeleteAsync(ancien.StorageKey, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
+        // LE REMPLACEMENT N'A PAS LIEU ICI, ET CE FUT UN BOGUE.
+        //
+        // Ce handler effaçait l'ancienne photo au moment du DEPOT, parce que
+        // MediaKinds.EstUnique dit qu'un propriétaire n'en a qu'une. Mais
+        // déposer n'est que la PREMIERE moitié du geste : la passerelle
+        // attache ensuite le nouveau média au profil, et cette seconde moitié
+        // peut échouer — Directory indisponible, échéance gRPC dépassée.
+        //
+        // L'ANCIENNE PHOTO ETAIT ALORS DETRUITE POUR RIEN. Le profil pointait
+        // toujours sur elle, son fichier n'existait plus, et l'écran retombait
+        // sur les initiales sans rien dire. Le client avait perdu sa photo en
+        // essayant de la changer.
+        //
+        // CELUI QUI EFFACE EST DESORMAIS CELUI QUI SAIT QUE LE REMPLACEMENT A
+        // REUSSI : Customer.SetPhoto rend l'identifiant de la photo qu'elle
+        // remplace, et SetCustomerPhotoHandler demande sa suppression APRES
+        // l'enregistrement. Le pire y est un fichier orphelin — que
+        // l'inventaire de Media sait retrouver — au lieu d'une perte.
+        //
+        // MediaKinds.EstUnique N'A PLUS AUCUN APPELANT, et il faut le dire
+        // plutot que de laisser croire qu'il protege encore quelque chose. La
+        // regle « un seul portrait » est desormais tenue par une COLONNE :
+        // Customer.PhotoMediaId n'en porte qu'un. Ce qui reste dans
+        // MediaKinds est une description exacte du domaine de Media, utile au
+        // back-office le jour ou il listera les pieces d'un dossier — pas une
+        // garantie en vigueur.
         medias.Add(asset);
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -95,7 +106,9 @@ public sealed class StoreMediaHandler(
     }
 }
 
-public sealed class GetMediaHandler(IMediaRepository medias) : IQueryHandler<GetMediaQuery, MediaView>
+public sealed class GetMediaHandler(
+    IMediaRepository medias,
+    ICallerContext caller) : IQueryHandler<GetMediaQuery, MediaView>
 {
     public async Task<MediaView> HandleAsync(GetMediaQuery query, CancellationToken cancellationToken)
     {
@@ -103,6 +116,11 @@ public sealed class GetMediaHandler(IMediaRepository medias) : IQueryHandler<Get
 
         var asset = await medias.GetByIdAsync(query.MediaId, cancellationToken).ConfigureAwait(false)
             ?? throw new NotFoundException("Média", query.MediaId.ToString());
+
+        // LA FICHE SEULE SUFFIT A NUIRE : elle nomme le propriétaire, la nature
+        // du fichier et qui l'a déposé. « Ce média est la pièce d'identité du
+        // livreur untel » est déjà une fuite, même sans l'octet.
+        MediaAccess.EnsureCanReadAsset(caller, asset.OwnerType, asset.OwnerId, asset.Kind, query.MediaId);
 
         return Projection.Vers(asset);
     }
@@ -122,6 +140,11 @@ public sealed class GetReadUrlHandler(
         var asset = await medias.GetByIdAsync(query.MediaId, cancellationToken).ConfigureAwait(false)
             ?? throw new NotFoundException("Média", query.MediaId.ToString());
 
+        // AVANT DE SIGNER, PAS APRES. Une URL signée vaut cinq minutes d'accès
+        // libre au fichier : la produire puis refuser l'appel l'aurait déjà
+        // fabriquée, et le journal aurait consigné une lecture autorisée.
+        MediaAccess.EnsureCanReadAsset(caller, asset.OwnerType, asset.OwnerId, asset.Kind, query.MediaId);
+
         var url = await stockage.GetReadUrlAsync(asset.StorageKey, cancellationToken).ConfigureAwait(false);
 
         // UNE REQUETE QUI ECRIT, ET C'EST ASSUME. Le nom dit « query », mais
@@ -134,7 +157,9 @@ public sealed class GetReadUrlHandler(
     }
 }
 
-public sealed class ListMediaHandler(IMediaRepository medias)
+public sealed class ListMediaHandler(
+    IMediaRepository medias,
+    ICallerContext caller)
     : IQueryHandler<ListMediaQuery, IReadOnlyList<MediaView>>
 {
     public async Task<IReadOnlyList<MediaView>> HandleAsync(
@@ -143,18 +168,33 @@ public sealed class ListMediaHandler(IMediaRepository medias)
     {
         ArgumentNullException.ThrowIfNull(query);
 
+        // LE PROPRIETAIRE EST UN PARAMETRE DE LA REQUETE, et c'est ce qui rendait
+        // cette lecture si commode : il suffisait de nommer un livreur pour
+        // obtenir l'inventaire de son dossier. On vérifie donc AVANT d'interroger
+        // la base — il n'y a aucune raison de lire ce qu'on ne rendra pas.
+        MediaAccess.EnsureCanList(caller, query.OwnerType, query.OwnerId);
+
         var assets = await medias
             .ListAsync(query.OwnerType, query.OwnerId, query.Kind, cancellationToken)
             .ConfigureAwait(false);
 
-        return assets.Select(Projection.Vers).ToList();
+        // LA FICHE SEULE TRAHIT DEJA. Une preuve de livraison ne se lit que par
+        // l'admin depuis le 30 septembre 2026 ; la laisser paraitre dans une
+        // liste apprendrait a ops qu'elle existe, quand elle a ete prise et par
+        // qui, pour une piece qu'il n'a pas le droit de voir. On retire donc ce
+        // qu'on refuserait de rendre, plutot que d'annoncer son existence.
+        return assets
+            .Where(a => MediaAccess.PeutVoirCeGenreDeMedia(caller, a.Kind))
+            .Select(Projection.Vers)
+            .ToList();
     }
 }
 
 public sealed class DeleteMediaHandler(
     IMediaRepository medias,
     IObjectStore stockage,
-    IUnitOfWork unitOfWork) : ICommandHandler<DeleteMediaCommand, bool>
+    IUnitOfWork unitOfWork,
+    ICallerContext caller) : ICommandHandler<DeleteMediaCommand, bool>
 {
     public async Task<bool> HandleAsync(DeleteMediaCommand command, CancellationToken cancellationToken)
     {
@@ -170,6 +210,12 @@ public sealed class DeleteMediaHandler(
             return false;
         }
 
+        // L'IDEMPOTENCE CI-DESSUS NE S'ETEND PAS AU MEDIA D'AUTRUI. « Faux »
+        // signifie « c'était déjà fait » : le rendre pour un fichier qu'on n'a
+        // pas le droit de toucher serait un mensonge, et un mensonge rassurant.
+        // Le refus se présente en absence, comme à la lecture.
+        MediaAccess.EnsureCanReadAsset(caller, asset.OwnerType, asset.OwnerId, asset.Kind, command.MediaId);
+
         medias.Remove(asset);
         await stockage.DeleteAsync(asset.StorageKey, cancellationToken).ConfigureAwait(false);
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -182,11 +228,30 @@ public sealed class DeleteOwnerMediaHandler(
     IMediaRepository medias,
     IObjectStore stockage,
     IUnitOfWork unitOfWork,
+    ICallerContext caller,
     ILogger<DeleteOwnerMediaHandler> logger) : ICommandHandler<DeleteOwnerMediaCommand, int>
 {
     public async Task<int> HandleAsync(DeleteOwnerMediaCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        // CETTE COMMANDE N'AVAIT AUCUNE VERIFICATION D'APPELANT.
+        //
+        // Elle efface TOUS les medias d'un proprietaire nomme dans la requete,
+        // pieces d'identite comprises, et ne reposait que sur le [Authorize] de
+        // classe : n'importe quel porteur de jeton valide pouvait effacer les
+        // fichiers de n'importe qui. Aucune route de passerelle ne l'expose, ce
+        // qui limite la portee au reseau interne — mais l'ADR 0007 dit que
+        // l'autorisation se verifie cote service, pas que l'absence de route en
+        // tient lieu.
+        //
+        // DEUX APPELANTS LEGITIMES, ET DEUX SEULEMENT : le service Directory,
+        // quand un compte est efface pour de bon, et le back-office.
+        if (!caller.IsInRole(HbaRoles.Service) && !caller.Roles.Overlaps(HbaRoles.BackOffice))
+        {
+            throw new ForbiddenException(
+                "Effacer les medias d'un proprietaire releve du systeme ou du back-office.");
+        }
 
         var assets = await medias
             .ListAsync(command.OwnerType, command.OwnerId, kind: null, cancellationToken)

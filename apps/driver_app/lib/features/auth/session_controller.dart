@@ -39,6 +39,17 @@ final sessionProvider =
     NotifierProvider<SessionController, SessionState>(SessionController.new);
 
 class SessionController extends Notifier<SessionState> {
+  /// Combien de comptes ont quitte ce telephone depuis le lancement.
+  ///
+  /// CE NOMBRE EST LU PAR « generationDuCompteProvider », qui porte la raison
+  /// d'etre complete d'un compteur plutot que d'un booleen : Riverpod ne
+  /// reconstruit un dependant que si la valeur recalculee a CHANGE, et un
+  /// booleen qui repasse par sa valeur d'origine — A part, B arrive — ne change
+  /// pas.
+  int _generation = 0;
+
+  int get generation => _generation;
+
   @override
   SessionState build() => const SessionUnknown();
 
@@ -132,6 +143,13 @@ class SessionController extends Notifier<SessionState> {
     // ON DETACHE AVANT DE CHANGER D'ETAT : un plantage survenu pendant la
     // deconnexion ne doit plus porter l'identifiant de celui qui part.
     Plantages.livreur(null);
+
+    // LE COMPTEUR AVANCE ICI, ET NULLE PART AILLEURS. Le faire avancer a la
+    // connexion ou au rafraichissement du dossier rendrait le nombre sensible a
+    // des changements qui ne changent PAS de compte, et chaque piece validee
+    // ferait repartir toutes les requetes de l'application.
+    _generation++;
+
     state = const SessionSignedOut();
   }
 

@@ -53,6 +53,17 @@ public sealed class IdentityEventsConsumer(
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(services);
 
+        // DEUX EVENEMENTS, ET C'EST LE MEME CONSOMMATEUR. Un compte cree donne
+        // une fiche, un compte efface l'emporte : les deux viennent du meme
+        // topic et du meme agregat. Un second consommateur aurait sa propre
+        // position de lecture, donc son propre risque de traiter la creation
+        // et la suppression dans le desordre.
+        if (message.PayloadCase == IdentityEvent.PayloadOneofCase.Erased)
+        {
+            await EffacerAsync(message.Erased, services, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         if (message.PayloadCase != IdentityEvent.PayloadOneofCase.Registered)
         {
             return;
@@ -81,5 +92,38 @@ public sealed class IdentityEventsConsumer(
                 string.IsNullOrWhiteSpace(registered.Email) ? null : registered.Email,
                 registered.RegisteredAt?.ToDateTimeOffset() ?? DateTimeOffset.UtcNow),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Le compte a ete efface d'Identity : sa fiche et ses medias suivent.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// AUCUN FILTRE SUR LE ROLE ICI, contrairement a la creation. A la
+    /// creation, on ne fabrique une fiche que pour un client ; a l'effacement,
+    /// on supprime ce qui EXISTE. Un compte qui n'avait pas de fiche n'en a
+    /// simplement pas a effacer, et la commande le dit sans lever.
+    ///
+    /// D'AILLEURS L'EVENEMENT NE PORTE PAS LES ROLES, et c'est voulu : il ne
+    /// porte ni nom, ni telephone, ni rien qui ferait vivre l'identite du
+    /// titulaire dans Kafka pendant toute la retention du topic — au moment
+    /// precis ou il demande qu'elle disparaisse.
+    /// </remarks>
+    private async Task EffacerAsync(
+        AccountErased erased,
+        IServiceProvider services,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(erased.AccountId, out var accountId))
+        {
+            logger.LogError("Identifiant de compte efface illisible : {AccountId}.", erased.AccountId);
+            return;
+        }
+
+        var dispatcher = services.GetRequiredService<IDispatcher>();
+
+        await dispatcher
+            .SendAsync(new EraseCustomerCommand(accountId), cancellationToken)
+            .ConfigureAwait(false);
     }
 }

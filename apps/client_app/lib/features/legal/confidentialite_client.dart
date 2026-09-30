@@ -20,7 +20,7 @@ const confidentialiteClient = DocumentLegal(
   chapeau:
       "Ce que l'application collecte, pourquoi, qui peut le consulter, et ce "
       'que vous pouvez en demander.',
-  version: 'v0.1',
+  version: 'v0.2',
   miseAJour: '28 septembre 2026',
   sections: [
     SectionLegale(
@@ -125,21 +125,30 @@ const confidentialiteClient = DocumentLegal(
       paragraphes: [
         'Vous pouvez consulter et corriger votre nom, votre adresse e-mail et '
             'vos adresses enregistrées à tout moment depuis votre profil.',
-        'Vous pouvez demander la suppression de votre compte en écrivant au '
-            'support. Les courses déjà effectuées restent dans l\'historique '
-            'de HBA — elles concernent aussi des livreurs et des '
-            'destinataires — mais votre nom en est retiré.',
+        'Vous pouvez supprimer votre compte depuis votre profil, en bas de '
+            "l'écran. Vous êtes déconnecté aussitôt, et la suppression a lieu "
+            '30 jours plus tard : vous reconnecter avant cette date la '
+            'annule, et vous retrouvez tout.',
+        'Au terme de ce délai, votre profil, vos adresses enregistrées et '
+            'votre photo sont effacés pour de bon. Les courses déjà '
+            "effectuées restent dans l'historique de HBA — elles concernent "
+            'aussi des livreurs et des destinataires — mais elles ne portent '
+            'pas votre nom, et plus rien ne permet de les rattacher à vous.',
       ],
       aTrancher:
-          "L'application cliente n'offre aujourd'hui aucun bouton pour "
-          'déposer cette demande : elle passe par le support, et la '
-          "suppression elle-même n'est pas encore automatisée.",
+          'Deux choses échappent encore à cette suppression, et il faut le '
+          'dire : les enregistrements de paiement et la trace des messages '
+          "qui vous ont été envoyés. Ils portent votre numéro. La durée que "
+          'la comptabilité impose de les conserver doit être vérifiée avant '
+          "d'y toucher : effacer un justificatif que la loi oblige à garder "
+          'serait une faute, et le garder sans le dire en serait une autre.',
     ),
     SectionLegale(
       titre: 'Nous écrire à ce sujet',
       paragraphes: [
-        'Les coordonnées du support figurent dans votre profil. Une demande '
-            'concernant vos données personnelles passe par le même chemin.',
+        'Les coordonnées du support figurent dans votre profil et dans '
+            "l'aide. Une demande concernant vos données personnelles passe par "
+            'le même chemin.',
       ],
     ),
   ],

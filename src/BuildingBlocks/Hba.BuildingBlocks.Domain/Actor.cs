@@ -21,6 +21,19 @@ public enum ActorKind
 
     /// <summary>Planificateur : expirations de devis, timeouts, rapprochements.</summary>
     Scheduler = 8,
+
+    /// <summary>
+    /// Un autre service du système, appelant pour son propre compte.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// DISTINCT DE « Scheduler », ET LES CONFONDRE AURAIT MENTI A L'AUDIT. Le
+    /// planificateur agit à l'heure dite ; un service agit parce qu'un autre
+    /// service le lui a demandé — Notification qui demande une adresse,
+    /// Directory qui fait effacer une photo. L'audit doit pouvoir dire lequel
+    /// des deux, sinon « qui a supprimé ce fichier » n'a pas de réponse.
+    /// </remarks>
+    Service = 9,
 }
 
 /// <summary>
@@ -63,6 +76,12 @@ public sealed class Actor : ValueObject
     public static Actor Partner(string partnerId) => Human(ActorKind.Partner, partnerId);
 
     public static Actor Admin(string id) => Human(ActorKind.Admin, id);
+
+    /// <summary>
+    /// Un autre service du système. L'identifiant est son nom de client, tel
+    /// qu'il l'a présenté à Identity — « notification », « directory ».
+    /// </summary>
+    public static Actor Service(string clientId) => new(ActorKind.Service, clientId, null);
 
     public static readonly Actor DispatchEngine = new(ActorKind.Dispatch, "dispatch", "Moteur de dispatch");
 
