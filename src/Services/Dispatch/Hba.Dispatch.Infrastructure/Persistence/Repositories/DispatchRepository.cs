@@ -6,8 +6,13 @@ namespace Hba.Dispatch.Infrastructure.Persistence.Repositories;
 
 internal sealed class DispatchRepository(DispatchDbContext context) : IDispatchRepository
 {
-    public Task<DispatchAggregate?> GetByDeliveryIdAsync(Guid deliveryId, CancellationToken cancellationToken)
-        => context.Dispatches.FirstOrDefaultAsync(d => d.DeliveryId == deliveryId, cancellationToken);
+    public Task<DispatchAggregate?> GetByReferenceAsync(
+        ServiceType serviceType,
+        Guid referenceId,
+        CancellationToken cancellationToken)
+        => context.Dispatches.FirstOrDefaultAsync(
+            d => d.ServiceType == serviceType && d.ReferenceId == referenceId,
+            cancellationToken);
 
     public Task<DispatchAggregate?> GetByOfferIdAsync(Guid offerId, CancellationToken cancellationToken)
         => context.Dispatches.FirstOrDefaultAsync(d => d.Offers.Any(o => o.Id == offerId), cancellationToken);

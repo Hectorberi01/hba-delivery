@@ -81,15 +81,18 @@ public sealed class DispatchScheduler(
             try
             {
                 await unitaire
-                    .SendAsync(new AdvanceDispatchCommand(recherche.DeliveryId), cancellationToken)
+                    .SendAsync(
+                        new AdvanceDispatchCommand(recherche.ServiceType, recherche.ReferenceId),
+                        cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception exception)
             {
                 logger.LogWarning(
                     exception,
-                    "La livraison {DeliveryId} n'a pas pu avancer ; reprise au prochain balayage.",
-                    recherche.DeliveryId);
+                    "La mission {Nature} {ReferenceId} n'a pas pu avancer ; reprise au prochain balayage.",
+                    recherche.ServiceType,
+                    recherche.ReferenceId);
             }
         }
     }

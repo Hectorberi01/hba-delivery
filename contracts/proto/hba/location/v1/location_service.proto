@@ -1,0 +1,198 @@
+syntax = "proto3";
+
+package hba.location.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/geo.proto";
+
+option csharp_namespace = "Hba.Contracts.Location.V1";
+
+// Location répond à UNE question : où se trouve actuellement un chauffeur ?
+//
+// CE SERVICE NE SAIT PAS QUI EST LE CHAUFFEUR, et c'est la frontière qui justifie
+// son existence. Il ne connaît ni son nom, ni son véhicule, ni son dossier, ni
+// ses habilitations, ni s'il est en mission. Il tient des points et leur
+// fraîcheur.
+//
+// DONC IL NE RÉPOND PAS « QUI PEUT PRENDRE CETTE COURSE ». FindNearbyDrivers rend
+// la GÉOGRAPHIE SEULE : les identifiants les plus proches, frais, avec leur
+// distance. C'est l'appelant — Dispatch pour une vague, la passerelle pour une
+// carte — qui demande ensuite à Driver lesquels sont éligibles. Mettre ce
+// croisement ici obligerait Location à porter une copie du statut, du véhicule et
+// des habilitations de chaque chauffeur : il saurait alors qui est le chauffeur,
+// et la séparation ne vaudrait plus rien.
+//
+// AUCUNE DONNÉE DURABLE. Les positions vivent dans Redis, avec une fenêtre de
+// fraîcheur. Il n'y a pas d'historique de déplacement : la trace GPS permanente
+// d'un travailleur ne se conserve pas sans une raison écrite et une durée de
+// rétention décidée, et aucune des deux n'existe aujourd'hui.
+//
+// LA DIFFUSION TEMPS RÉEL N'EST PAS ICI NON PLUS. Les lecteurs sondent. Le choix
+// d'un hub — dans ce service ou dans une passerelle temps réel dédiée — est
+// traité à part, quand la chaîne sera éprouvée en sondage.
+service LocationService {
+  // Un battement de position. C'EST L'APPEL LE PLUS FRÉQUENT DU SYSTÈME : un
+  // point toutes les quelques secondes, par chauffeur en ligne. Il n'écrit rien
+  // en base relationnelle et ne lit aucun agrégat.
+  rpc UpdatePosition(UpdatePositionRequest) returns (UpdatePositionResponse);
+
+  // « Celui-là, où est-il ? », et sa distance à un point donné.
+  //
+  // CE N'EST PAS FindNearbyDrivers AVEC UN RAYON INFINI. La recherche de
+  // proximité répond « les N plus proches » : aucun rayon, aucune limite ne
+  // garantit qu'un chauffeur précis figure dans sa réponse.
+  rpc GetPosition(GetPositionRequest) returns (PositionLookup);
+
+  // Les chauffeurs dont la position RÉCENTE tombe dans le rayon, du plus proche
+  // au plus lointain. Géographie seule — voir l'en-tête du service.
+  rpc FindNearbyDrivers(FindNearbyDriversRequest) returns (FindNearbyDriversResponse);
+
+  // Toutes les positions récentes, de la plus fraîche à la plus ancienne.
+  //
+  // CE N'EST PAS FindNearbyDrivers SANS CENTRE. La recherche de proximité part de
+  // l'index géographique et filtre ensuite sur la fraîcheur ; ici on part de la
+  // fraîcheur — les seuls chauffeurs qui comptent sont ceux qui ont donné signe
+  // de vie — et on va chercher leurs coordonnées ensuite. L'index GEO garde
+  // indéfiniment la dernière position d'un téléphone éteint.
+  rpc ListFreshPositions(ListFreshPositionsRequest) returns (ListFreshPositionsResponse);
+
+  // Oublie la position : le chauffeur passe hors ligne.
+  //
+  // CE N'EST PLUS CE QUI EMPÊCHE DE LUI PROPOSER UNE COURSE, et la nuance compte.
+  // Tant que Driver répondait aux deux questions, retirer le point était le geste
+  // qui mettait quelqu'un hors du dispatch. Depuis que l'éligibilité se lit dans
+  // Driver, un point qui traîne ne produit aucune offre par lui-même : l'oubli
+  // garde le tableau propre, il ne porte plus la décision.
+  rpc ForgetPosition(ForgetPositionRequest) returns (ForgetPositionResponse);
+}
+
+// ---- Le point ---------------------------------------------------------------
+
+message DriverPosition {
+  string driver_id = 1;
+  hba.common.v1.GeoPoint point = 2;
+
+  // Cap suivi, en degrés depuis le nord géographique, de 0 inclus à 360 exclu.
+  //
+  // ABSENT N'EST PAS ZÉRO, D'OÙ « optional ». Zéro degré veut dire « plein nord »,
+  // et un téléphone à l'arrêt ne rend aucun cap : les confondre ferait pointer
+  // toutes les motos immobiles vers le nord sur la carte.
+  optional double heading_degrees = 3;
+
+  // Vitesse en mètres par seconde. Absente quand le téléphone ne la donne pas ;
+  // zéro veut dire « à l'arrêt », ce qui n'est pas la même chose.
+  optional double speed_mps = 4;
+
+  // Rayon d'incertitude annoncé par le GPS, en mètres.
+  //
+  // POURQUOI LE SERVICE LE TRANSPORTE SANS S'EN SERVIR. Il ne filtre rien : un
+  // point à cinquante mètres près reste la meilleure information disponible, et
+  // l'écarter laisserait un chauffeur invisible sous un toit de tôle. Il sert à
+  // LIRE une carte — deux points à trois cents mètres l'un de l'autre peuvent être
+  // le même véhicule — et le jour où un seuil sera décidé, il sera déjà là.
+  optional double accuracy_meters = 5;
+
+  // Heure du TÉLÉPHONE. Transportée pour l'analyse, elle ne décide RIEN : une
+  // horloge mal réglée, ou un point mis en file pendant une coupure réseau, ferait
+  // paraître neuve une position ancienne — ou l'inverse.
+  google.protobuf.Timestamp captured_at = 6;
+
+  // Heure de RÉCEPTION par le service. C'est elle, et elle seule, qui décide de la
+  // fraîcheur.
+  google.protobuf.Timestamp seen_at = 7;
+}
+
+// ---- Écriture ---------------------------------------------------------------
+
+message UpdatePositionRequest {
+  string driver_id = 1;
+  hba.common.v1.GeoPoint point = 2;
+  google.protobuf.Timestamp captured_at = 3;
+  optional double heading_degrees = 4;
+  optional double speed_mps = 5;
+  optional double accuracy_meters = 6;
+}
+
+message UpdatePositionResponse {
+  bool ok = 1;
+}
+
+message ForgetPositionRequest {
+  string driver_id = 1;
+}
+
+message ForgetPositionResponse {
+  bool ok = 1;
+}
+
+// ---- Lectures ---------------------------------------------------------------
+
+message GetPositionRequest {
+  string driver_id = 1;
+
+  // Point de référence de la distance — le lieu de prise en charge qu'on envisage.
+  // Facultatif : sans lui, la réponse rend la position sans distance.
+  hba.common.v1.GeoPoint reference = 2;
+}
+
+message PositionLookup {
+  // Faux quand ce chauffeur n'a pas donné signe de vie dans la fenêtre de
+  // fraîcheur. C'EST LA RÉPONSE UTILE, pas une erreur : on ne propose pas une
+  // course à un téléphone éteint, et « il était là il y a une heure » n'aide
+  // personne à décider.
+  bool found = 1;
+  DriverPosition position = 2;
+
+  // Distance à vol d'oiseau jusqu'à « reference », en mètres. Renseignée seulement
+  // si found et si une référence a été donnée.
+  //
+  // À VOL D'OISEAU, ET CE N'EST PAS UN ITINÉRAIRE. Le temps de trajet réel se
+  // demande à Routing. Location ne sait pas par où passent les rues.
+  int32 distance_meters = 3;
+
+  // La fenêtre qui définit « récent », en secondes. Elle sort du service parce que
+  // l'écran doit la dire : « absent » sans « vu dans les 120 dernières secondes »
+  // se lit comme un constat définitif.
+  int32 freshness_seconds = 4;
+}
+
+message FindNearbyDriversRequest {
+  hba.common.v1.GeoPoint center = 1;
+  int32 radius_meters = 2;
+  int32 limit = 3;
+
+  // Chauffeurs à ne pas rendre — les vagues précédentes d'un dispatch.
+  //
+  // IL EST ICI ET NON CHEZ L'APPELANT parce que la limite s'applique APRÈS
+  // l'exclusion : filtrer après coup rendrait moins de candidats que demandé, et
+  // une vague se viderait au fil de ses tours sans que rien ne le dise.
+  repeated string exclude_driver_ids = 4;
+}
+
+message NearbyDriver {
+  string driver_id = 1;
+  // Distance à vol d'oiseau depuis le centre, en mètres.
+  int32 distance_meters = 2;
+  DriverPosition position = 3;
+}
+
+message FindNearbyDriversResponse {
+  repeated NearbyDriver drivers = 1;
+  int32 freshness_seconds = 2;
+}
+
+message ListFreshPositionsRequest {
+  // Plafond de points rendus. Zéro vaut la valeur par défaut du service ; au-delà
+  // de mille, le service ramène à mille — une carte ne se lit plus, et la charge
+  // Redis n'a pas à dépendre d'un paramètre client.
+  int32 limit = 1;
+}
+
+message ListFreshPositionsResponse {
+  repeated DriverPosition positions = 1;
+
+  // « 14 chauffeurs » ne veut rien dire sans « vus dans les 120 dernières
+  // secondes » : sans cette fenêtre, l'appelant afficherait un effectif là où il
+  // n'y a qu'un compte de points récents.
+  int32 freshness_seconds = 2;
+}

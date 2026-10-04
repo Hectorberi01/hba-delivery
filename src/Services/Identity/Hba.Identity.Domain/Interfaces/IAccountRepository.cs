@@ -34,6 +34,22 @@ public interface IAccountRepository
     Task<bool> AnyWithRoleAsync(string role, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Les comptes portant au moins un rôle du back-office, triés par nom
+    /// affiché.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LES SUSPENDUS EN FONT PARTIE. Un compte suspendu existe toujours et se
+    /// réactive ; l'omettre de la liste reviendrait à le faire disparaître aux
+    /// yeux de qui doit décider de son sort.
+    ///
+    /// LE PLAFOND EST DANS LA SIGNATURE, comme pour les effacements dus : une
+    /// méthode sans limite finit toujours par être appelée sur une table qui a
+    /// grossi.
+    /// </remarks>
+    Task<IReadOnlyList<Account>> ListBackOfficeAsync(int limit, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Les comptes dont l'échéance d'effacement est atteinte.
     /// </summary>
     ///

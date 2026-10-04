@@ -1,11 +1,12 @@
 using Hba.Payment.Domain.Earnings;
+using Hba.Payment.Domain.Payments;
 
 namespace Hba.Payment.Application.Common.Interfaces;
 
 public interface IDriverLedgerRepository
 {
     /// <summary>
-    /// Le credit deja ecrit pour cette course, s'il existe.
+    /// Le credit deja ecrit pour cette mission DANS CE GENRE, s'il existe.
     ///
     /// DEUXIEME GARDE-FOU, APRES L'INBOX. L'Inbox ecarte deja le meme
     /// evenement livre deux fois ; celle-ci ecarte le meme FAIT arrive par un
@@ -14,7 +15,18 @@ public interface IDriverLedgerRepository
     /// deux fois la meme course est le genre d'erreur qu'on ne decouvre qu'au
     /// moment ou l'argent manque.
     /// </summary>
-    Task<DriverLedgerEntry?> FindDeliveryEarningAsync(Guid deliveryId, CancellationToken cancellationToken);
+    ///
+    /// LE GENRE EST DANS LA CLE DEPUIS LE 2 OCTOBRE 2026, et sans lui la methode
+    /// serait fausse : une remuneration et un dedommagement portent le MEME
+    /// identifiant de mission, et le second serait pris pour un rejeu du premier.
+    /// Les deux ne peuvent pas coexister en pratique — une course livree n'est pas
+    /// annulee — mais s'en remettre a cette impossibilite reviendrait a faire
+    /// dependre le grand livre d'une invariante ecrite ailleurs.
+    Task<DriverLedgerEntry?> FindMissionEntryAsync(
+        LedgerEntryKind kind,
+        ServiceType serviceType,
+        Guid referenceId,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Ce qui est RETIRABLE aujourd'hui : les remunerations anterieures a

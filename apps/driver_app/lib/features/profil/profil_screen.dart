@@ -16,6 +16,8 @@ import '../auth/session_controller.dart';
 import '../dossier/dossier_repository.dart';
 import 'profil_repository.dart';
 import '../legal/conditions_livreur.dart';
+import '../reputation/reputation_models.dart';
+import '../reputation/reputation_providers.dart';
 import '../legal/confidentialite.dart';
 import 'reglages_app.dart';
 import 'suppression_compte.dart';
@@ -97,6 +99,8 @@ class ProfilScreen extends ConsumerWidget {
               // etre lu — c'est precisement le moment ou un livreur a besoin
               // d'appeler. L'objet du courriel est alors sans identifiant, ce
               // qui vaut mieux qu'un bouton absent.
+              const _CarteReputation(),
+              const SizedBox(height: HbaSpacing.md),
               const _CarteReglages(),
               const SizedBox(height: HbaSpacing.md),
               _Assistance(livreurId: profil.valueOrNull?.id),
@@ -824,6 +828,62 @@ class _Ouvrir extends StatelessWidget {
 /// ELLE S'APPELAIT « _CeQuiManque » DU TEMPS OU ELLE ANNONCAIT CE QUE
 /// L'APPLICATION NE SAVAIT PAS FAIRE. Elle ouvre aujourd'hui l'ecran qui le
 /// fait ; le nom a suivi.
+/// La reputation du livreur, en une ligne, et la porte vers le detail.
+///
+/// SUR LE PROFIL, PAS SUR L'ACCUEIL. L'accueil est l'ecran de travail : y
+/// afficher une note en permanence mettrait un livreur sous son propre regard
+/// toute la journee, pour un chiffre qui bouge d'un centieme par course.
+///
+/// ELLE MENE AU DETAIL, ET CE N'EST PAS DECORATIF. Une moyenne sans motif est
+/// une sanction sans motif : la carte ne vaut que parce qu'on peut l'ouvrir.
+///
+/// MUETTE QUAND RATING NE REPOND PAS. La note n'est pas un element vital du
+/// profil ; une carte d'erreur de plus sur cet ecran ferait croire a une panne
+/// du compte alors que les pieces, le vehicule et le telephone sont la.
+class _CarteReputation extends ConsumerWidget {
+  const _CarteReputation();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final note = ref.watch(reputationProvider).valueOrNull ?? Reputation.vide;
+
+    return HbaCard(
+      padding: const EdgeInsets.all(HbaSpacing.lg),
+      onTap: () => context.push('/profil/avis'),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Mes avis', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 2),
+
+                // « PAS ENCORE DE NOTE » N'EST PAS « ZERO ETOILE », et c'est le
+                // service qui tranche par « assez » : dix courses ne font pas
+                // une moyenne, et 2,0 sur un seul avis est plus faux que rien.
+                Text(
+                  note.assez
+                      ? '${note.moyenne.toStringAsFixed(1).replaceAll('.', ',')} '
+                          'sur 5 · ${note.nombre} avis'
+                      : 'Pas encore de note',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+          if (note.assez) ...[
+            const Icon(Icons.star_rounded, size: 20, color: HbaColors.primary),
+            const SizedBox(width: HbaSpacing.xs),
+          ],
+          const Icon(Icons.chevron_right, color: HbaColors.inkFaint),
+        ],
+      ),
+    );
+  }
+}
+
 class _LienDossier extends StatelessWidget {
   const _LienDossier();
 

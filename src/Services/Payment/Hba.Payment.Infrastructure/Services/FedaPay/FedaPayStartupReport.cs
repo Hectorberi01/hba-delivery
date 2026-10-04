@@ -14,10 +14,7 @@ namespace Hba.Payment.Infrastructure.Services.FedaPay;
 /// ligne au demarrage coute une ligne de journal et supprime cette classe
 /// entiere de surprises.
 /// </summary>
-internal sealed class FedaPayStartupReport(
-    IOptions<FedaPayOptions> options,
-    IHostEnvironment environment,
-    ILogger<FedaPayStartupReport> logger) : IHostedService
+internal sealed class FedaPayStartupReport(IOptions<FedaPayOptions> options, IHostEnvironment environment, ILogger<FedaPayStartupReport> logger) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -25,9 +22,7 @@ internal sealed class FedaPayStartupReport(
 
         if (!settings.IsConfigured)
         {
-            logger.LogError(
-                "PAIEMENT NON CONFIGURE : aucune cle FedaPay. Aucune course ne pourra etre payee.");
-
+            logger.LogError("PAIEMENT NON CONFIGURE : aucune cle FedaPay. Aucune course ne pourra etre payee.");
             return Task.CompletedTask;
         }
 

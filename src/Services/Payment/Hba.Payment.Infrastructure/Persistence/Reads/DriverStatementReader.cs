@@ -47,8 +47,9 @@ internal sealed class DriverStatementReader(PaymentDbContext context) : IDriverS
                 e.Kind,
                 e.Direction,
                 e.AmountXof,
-                e.DeliveryId,
-                e.DeliveryReference,
+                e.ServiceType,
+                e.ReferenceId,
+                e.ReferenceLabel,
                 e.PayoutId,
                 e.OccurredAt))
             .ToListAsync(cancellationToken)

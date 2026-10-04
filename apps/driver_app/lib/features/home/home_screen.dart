@@ -1,4 +1,3 @@
-import 'package:hba_core/hba_core.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -6,14 +5,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:hba_core/hba_core.dart';
 import 'package:hba_ui/hba_ui.dart';
 
 import '../../core/plantages.dart';
 import '../../core/preferences.dart';
+import '../../core/providers.dart';
 import '../../core/service_en_ligne.dart';
 import '../../core/signal.dart';
 import '../auth/session_controller.dart';
 import '../profil/profil_repository.dart';
+import '../missions/course_models.dart';
+import '../missions/course_screen.dart';
 import '../missions/mission_providers.dart';
 import '../missions/mission_repository.dart';
 import '../missions/mission_screen.dart';
@@ -33,16 +36,26 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver {
-  /// Intervalle de sondage des offres. Une notification poussee prendra le
-  /// relais ; tant qu'elle n'existe pas, sonder reste le moyen le plus simple
-  /// de ne pas rater une vague.
-  static const _pollInterval = Duration(seconds: 5);
+  /// Intervalle de sondage des offres, DEPUIS QUE LE TEMPS REEL EXISTE.
+  ///
+  /// IL EST PASSE DE CINQ A TRENTE SECONDES, ET IL N'A PAS DISPARU. Le hub des
+  /// offres previent a la seconde ou la vague part — ce sont les secondes qui font
+  /// le taux d'acceptation, puisqu'une offre dure quelques dizaines de secondes et
+  /// que celui qui est prevenu le premier accepte le premier. Mais le service de
+  /// diffusion consomme Kafka au PLUS RECENT et ne rejoue rien : une offre posee
+  /// pendant que le telephone dormait, ou pendant une coupure, n'a ete poussee a
+  /// personne. Ce sondage est le filet, et il reste.
+  ///
+  /// TRENTE SECONDES ET PAS DAVANTAGE : une offre perdue coute une course au
+  /// livreur et une attente au client. C'est le delai maximal au bout duquel il la
+  /// voit quand meme.
+  static const _pollInterval = Duration(seconds: 30);
 
   /// Intervalle d'envoi de la position.
   ///
-  /// CE NOMBRE EST LIE A UN AUTRE, DANS UN AUTRE DEPOT. Le service Driver
+  /// CE NOMBRE EST LIE A UN AUTRE, DANS UN AUTRE DEPOT. Le service LOCATION
   /// ecarte des recherches toute position plus vieille que
-  /// `DriverLocations:FreshnessSeconds` — 120 s par defaut. Vingt secondes
+  /// `Location:FreshnessSeconds` — 120 s par defaut. Vingt secondes
   /// laissent donc passer cinq echecs consecutifs avant que le livreur ne
   /// disparaisse des vagues. Allonger l'un sans regarder l'autre fait
   /// s'evanouir des livreurs en ligne, sans erreur nulle part.
@@ -54,7 +67,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Age au-dela duquel le serveur cesse de compter ce livreur.
   ///
   /// CE NOMBRE EST LA COPIE D'UN AUTRE, DANS UN AUTRE DEPOT :
-  /// `DriverLocations:FreshnessSeconds`, 120 s par defaut. Le recopier ici est
+  /// `Location:FreshnessSeconds`, 120 s par defaut. Le recopier ici est
   /// un compromis assume — aucune route ne le publie, et sans lui l'ecran ne
   /// peut pas savoir a partir de quand il ment. S'ils divergent, c'est
   /// l'ecran qui aura tort, et il le fera en affichant du vert.
@@ -81,11 +94,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   String? _notice;
   Mission? _mission;
 
+  /// La course de personnes en cours. L'UNE OU L'AUTRE, JAMAIS LES DEUX : un
+  /// chauffeur ne conduit qu'un vehicule, et le dispatch ne lui envoie pas
+  /// d'offre tant qu'il porte une mission — quelle que soit sa nature.
+  CourseLivreur? _course;
+
   /// Vrai entre l'acceptation d'une offre et le moment ou le serveur rend la
   /// course lisible. Voir [_attendreLaCourse].
   bool _attendLaCourse = false;
 
   Timer? _poller;
+
+  /// La connexion au hub des offres. Nulle tant que le livreur est hors ligne.
+  ///
+  /// OUVERTE SEULEMENT EN LIGNE, et c'est la meme logique que le battement de
+  /// position : une socket ouverte par un livreur qui ne travaille pas consomme sa
+  /// batterie et sa donnee pour des messages qui ne viendront pas — le dispatch ne
+  /// propose rien a quelqu'un de hors ligne.
+  ConnexionTempsReel? _hub;
   Timer? _heartbeat;
 
   /// Veille sur le dossier, tant qu'il n'est pas valide. Voir
@@ -243,6 +269,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _poller?.cancel();
+    _arreterLeHub();
     _heartbeat?.cancel();
     _veille?.cancel();
     super.dispose();
@@ -263,6 +290,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await Future.wait([
       ref.read(sessionProvider.notifier).refresh(),
       _loadMission(),
+      _loadCourse(),
     ]);
   }
 
@@ -346,6 +374,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // une faute de version a celui qui roule.
       if (_online && profil.operationnel == EtatOperationnel.horsLigne) {
         _poller?.cancel();
+        _arreterLeHub();
         _heartbeat?.cancel();
         _positionAcceptee = null;
 
@@ -371,6 +400,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       setState(() => _online = true);
 
       _startPolling();
+      _demarrerLeHub();
       _startHeartbeat();
 
       // UN BATTEMENT TOUT DE SUITE, SANS ATTENDRE LA MINUTERIE. Sans lui,
@@ -419,6 +449,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
+  /// LES DEUX NATURES SE LISENT SEPAREMENT, ET IL FAUT LES DEUX. Un chauffeur
+  /// qui redemarre son telephone au milieu d'une course de personnes retrouvait
+  /// un accueil vide : « GET /missions » ne rend que des livraisons.
+  Future<void> _loadCourse() async {
+    try {
+      final course = await ref.read(missionRepositoryProvider).courseActive();
+      if (mounted) setState(() => _course = course);
+    } on Object {
+      // Meme raison qu'au-dessus.
+    }
+  }
+
   Future<void> _toggle(bool value) async {
     setState(() {
       _busy = true;
@@ -459,6 +501,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _horsLigneAConfirmer = false;
 
         _startPolling();
+        _demarrerLeHub();
         _startHeartbeat();
 
         // LE SERVICE DEMARRE APRES LE PASSAGE EN LIGNE, PAS AVANT. S'il
@@ -475,6 +518,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         await ServiceEnLigne.demarrer();
       } else {
         _poller?.cancel();
+        _arreterLeHub();
         _heartbeat?.cancel();
         _positionAcceptee = null;
 
@@ -540,6 +584,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _poller = Timer.periodic(_pollInterval, (_) => _pollOffer());
   }
 
+  /// Ouvre le hub des offres.
+  ///
+  /// LA TRAME NE FAIT QU'APPELER _pollOffer, ET C'EST TOUT LE PROPOS. Elle porte
+  /// l'identifiant de l'offre et son echeance, mais on ne s'en sert pas pour
+  /// construire la feuille : c'est la route REST qui la donne, avec l'adresse, le
+  /// montant et la distance. Deux chemins pour ouvrir une offre finiraient par
+  /// differer, et celui qui differe est celui qu'on teste le moins.
+  ///
+  /// _pollOffer EST DEJA PROTEGE CONTRE LES DOUBLONS — il relit ses verrous avant
+  /// ET apres son aller-retour reseau, precisement parce que deux sondages
+  /// pouvaient ouvrir deux feuilles pour la meme offre. Le hub est un troisieme
+  /// declencheur qui passe par la meme porte.
+  ///
+  /// NE LEVE JAMAIS : un hub qui n'arrive pas a s'ouvrir laisse le sondage faire
+  /// son travail, trente secondes plus tard.
+  void _demarrerLeHub() {
+    if (_hub != null) return;
+
+    final hub = ConnexionTempsReel(
+      urlDuHub: urlDuHub(apiBaseUrl, '/hubs/driver'),
+      jetons: ref.read(tokenStoreProvider),
+    );
+
+    // AUCUN REABONNEMENT APRES UNE RECONNEXION, CONTRAIREMENT A L'APPLICATION
+    // CLIENTE. Le hub du livreur inscrit la connexion d'apres le claim driver_id du
+    // jeton, cote serveur, a l'ouverture : il n'y a rien a nommer, donc rien a
+    // redemander. En revanche on relit les offres au retour, parce qu'une vague a pu
+    // partir pendant la coupure — et celle-la, personne ne l'a poussee.
+    hub.surReconnexion = () => unawaited(_pollOffer());
+
+    hub.ecouter('offre', (_) => unawaited(_pollOffer()));
+
+    _hub = hub;
+    unawaited(hub.demarrer());
+  }
+
+  void _arreterLeHub() {
+    final hub = _hub;
+    _hub = null;
+    unawaited(hub?.arreter());
+  }
+
   /// Battement de position.
   ///
   /// SANS LUI, UN LIVREUR EN LIGNE DISPARAIT AU BOUT DE DEUX MINUTES. La
@@ -556,6 +642,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _heartbeat = Timer.periodic(_positionInterval, (_) => _pushPosition());
   }
 
+  /// Rend la mesure si elle est plausible, sinon null.
+  ///
+  /// POURQUOI CE FILTRE EXISTE DU COTE DE L'APPLICATION ALORS QUE LE SERVEUR
+  /// VALIDE DEJA. Parce que le serveur REFUSE : une mesure hors bornes ferait
+  /// echouer tout le battement, et un battement perdu rapproche le livreur du
+  /// moment ou il disparait des vagues — pour un cap dont personne n'a besoin.
+  /// Mieux vaut un point sans cap qu'aucun point.
+  ///
+  /// ZERO N'EST PAS ECARTE POUR LA VITESSE NI LA PRECISION : une vitesse nulle
+  /// veut dire « a l'arret », et c'est une information. Pour le cap, zero est
+  /// une valeur legitime — plein nord — et c'est le -1 des capteurs muets qui
+  /// est ecarte par la borne basse.
+  double? _mesure(double? valeur, {double? max, bool exclusive = false}) {
+    if (valeur == null || valeur.isNaN || valeur.isInfinite || valeur < 0) {
+      return null;
+    }
+
+    if (max != null && (exclusive ? valeur >= max : valeur > max)) {
+      return null;
+    }
+
+    return valeur;
+  }
+
   Future<void> _pushPosition() async {
     try {
       final (_, position) = await _position();
@@ -569,6 +679,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             latitude: position.latitude,
             longitude: position.longitude,
             capturedAt: DateTime.now(),
+
+            // ON NE TRANSMET QUE CE QUE LE GPS A VRAIMENT MESURE.
+            //
+            // Geolocator rend toujours ces trois nombres, meme quand le capteur
+            // n'a rien pu dire : il met alors 0, ou -1 selon la plateforme. Les
+            // envoyer tels quels ferait croire au serveur a un cap plein nord et
+            // a une precision parfaite — et la carte de l'exploitation
+            // afficherait des fleches inventees. Un champ absent, lui, dit la
+            // verite : « le telephone n'a rien dit ».
+            //
+            // LE CAP EST VALIDE SUR [0, 360[ ET LA VITESSE SUR [0, 111,2] par le
+            // domaine du serveur. Un nombre hors bornes serait refuse et ferait
+            // echouer TOUT le battement, donc ferait disparaitre le livreur des
+            // vagues : on filtre ici plutot que de risquer cela.
+            headingDegrees: _mesure(position.heading, max: 360, exclusive: true),
+            speedMps: _mesure(position.speed, max: 111.2),
+            accuracyMeters: _mesure(position.accuracy),
           );
 
       _positionAcceptee = DateTime.now();
@@ -650,7 +777,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// VINGT SECONDES, PUIS ON LE DIT. Au-dela, quelque chose ne va pas et le
   /// silence deviendrait un mensonge : la phrase finale envoie le livreur vers
   /// l'onglet Courses plutot que de le laisser devant une carte muette.
-  Future<void> _attendreLaCourse() async {
+  Future<void> _attendreLaCourse({bool course = false}) async {
     setState(() => _attendLaCourse = true);
 
     try {
@@ -659,16 +786,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         if (!mounted) return;
 
         try {
-          final course =
-              await ref.read(missionRepositoryProvider).currentMission();
+          final depot = ref.read(missionRepositoryProvider);
 
-          if (course != null) {
-            if (!mounted) return;
-            setState(() {
-              _mission = course;
-              _notice = null;
-            });
-            return;
+          if (course) {
+            final acceptee = await depot.courseActive();
+
+            if (acceptee != null) {
+              if (!mounted) return;
+              setState(() {
+                _course = acceptee;
+                _notice = null;
+              });
+              return;
+            }
+          } else {
+            final mission = await depot.currentMission();
+
+            if (mission != null) {
+              if (!mounted) return;
+              setState(() {
+                _mission = mission;
+                _notice = null;
+              });
+              return;
+            }
           }
         } on Object {
           // Reseau qui hoquette : l'essai suivant reprendra. On ne remonte
@@ -688,7 +829,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Future<void> _pollOffer() async {
     // Un livreur ne porte qu'une offre a la fois, et n'en recoit pas pendant
     // une course — NI PENDANT QU'ON ATTEND CELLE QU'IL VIENT D'ACCEPTER.
-    if (_sheetOpen || _mission != null || _attendLaCourse) return;
+    if (_sheetOpen || _mission != null || _course != null || _attendLaCourse) {
+      return;
+    }
 
     try {
       final offer = await ref.read(missionRepositoryProvider).currentOffer();
@@ -701,7 +844,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // du retour au premier plan — la passaient tous les deux, puis ouvraient
       // DEUX feuilles pour la meme offre. La premiere fermee remettait
       // « _sheetOpen » a faux alors que l'autre etait encore a l'ecran.
-      if (_sheetOpen || _mission != null || _attendLaCourse) return;
+      if (_sheetOpen || _mission != null || _course != null || _attendLaCourse) {
+        return;
+      }
 
       Plantages.trace('offre recue');
 
@@ -766,7 +911,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             Acceptation resultat;
 
             try {
-              resultat = await repository.acceptOffer(offer.id);
+              // LA NATURE DECIDE OU ON ATTEND LA MISSION. Sans elle, accepter
+              // un passager faisait attendre quatre secondes dans la liste des
+              // livraisons, qui ne le contiendra jamais.
+              resultat = await repository.acceptOffer(
+                offer.id,
+                course: offer.estUneCourse,
+              );
             } on Object catch (erreur) {
               if (sheetContext.mounted) Navigator.of(sheetContext).pop();
               if (!mounted) return;
@@ -790,14 +941,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
             setState(() {
               _mission = resultat.mission;
+              _course = resultat.course;
 
               // LA COURSE EST GAGNEE MEME QUAND ELLE N'EST PAS ENCORE LISIBLE.
               // On le dit tel quel plutot que de laisser un ecran vide, qui se
               // lirait comme un echec.
-              _notice = resultat.mission == null
-                  ? "Course acceptée. L'écran s'ouvre dès que le serveur l'a "
-                      'enregistree.'
-                  : null;
+              _notice = resultat.lisible
+                  ? null
+                  : "Course acceptée. L'écran s'ouvre dès que le serveur l'a "
+                      'enregistree.';
             });
 
             // LE MESSAGE NE SUFFISAIT PAS, ET C'EST LE DEFAUT QU'ON CORRIGE.
@@ -807,7 +959,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // l'application. Pire, le sondage continuait pendant ce temps et
             // pouvait lui proposer une SECONDE offre alors qu'il en avait deja
             // une sur les bras.
-            if (resultat.mission == null) unawaited(_attendreLaCourse());
+            if (!resultat.lisible) {
+              unawaited(_attendreLaCourse(course: offer.estUneCourse));
+            }
           },
           onDecline: () async {
             // MEME RAISON QU'AU-DESSUS, ET LE REFUS EST PIRE : un livreur qui
@@ -999,6 +1153,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         ),
                         const SizedBox(height: HbaSpacing.sm),
                       ],
+
+                      // LA COURSE DE PERSONNES A SA PROPRE CARTE, et les deux ne
+                      // s'affichent jamais ensemble : le dispatch n'envoie pas
+                      // d'offre a un chauffeur qui porte deja une mission.
+                      if (_course case final course?) ...[
+                        _CarteCourseDePersonnes(
+                          course: course,
+                          onOuvrir: _ouvrirCourse,
+                        ),
+                        const SizedBox(height: HbaSpacing.sm),
+                      ],
                     ],
                   ),
                 ),
@@ -1026,6 +1191,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ],
       ),
     );
+  }
+
+  Future<void> _ouvrirCourse(CourseLivreur course) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CourseScreen(
+          course: course,
+          position: _ici,
+          vehicule: ref.read(profilProvider).valueOrNull?.vehicule?.type,
+          onClosed: () => setState(() => _course = null),
+        ),
+      ),
+    );
+
+    await _refreshMission();
   }
 
   Future<void> _ouvrirMission(Mission mission) async {
@@ -1129,6 +1309,49 @@ class _Flottant extends StatelessWidget {
 
 /// La bascule en ligne / hors ligne, posee sur la carte.
 /// La course en cours, posee sur la carte.
+/// La course de personnes en cours, sur l'accueil.
+///
+/// MEME FORME QUE LA CARTE DE LIVRAISON, AUTRE CONTENU. Une course n'a pas de
+/// reference lisible a montrer — elle n'a pas de bordereau — donc la ligne du
+/// haut dit sa nature et celle du bas l'etape suivante, c'est-a-dire ce que le
+/// chauffeur doit faire maintenant.
+class _CarteCourseDePersonnes extends StatelessWidget {
+  const _CarteCourseDePersonnes({required this.course, required this.onOuvrir});
+
+  final CourseLivreur course;
+  final Future<void> Function(CourseLivreur) onOuvrir;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return _Flottant(
+      padding: const EdgeInsets.all(HbaSpacing.lg),
+      onTap: () => onOuvrir(course),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const HbaChip(label: 'PASSAGER', tone: HbaChipTone.primary),
+                const SizedBox(height: HbaSpacing.sm),
+                Text(course.etat.libelle, style: theme.textTheme.titleMedium),
+                const SizedBox(height: 2),
+                Text(
+                  course.etat.etapeSuivante?.libelle ?? 'Course en cours',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: HbaColors.inkFaint),
+        ],
+      ),
+    );
+  }
+}
+
 class _CarteMission extends StatelessWidget {
   const _CarteMission({required this.mission, required this.onOuvrir});
 

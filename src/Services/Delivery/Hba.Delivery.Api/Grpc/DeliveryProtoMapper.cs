@@ -93,6 +93,31 @@ internal static class DeliveryProtoMapper
             proto.RefundPartial = view.RefundPartial;
         }
 
+        // ZERO EST UNE REPONSE, PAS UNE ABSENCE, et c'est pour cela qu'on pose le
+        // montant des que la vue le porte. « Annulation gratuite » est une
+        // information que l'ecran doit pouvoir afficher ; un champ laisse vide
+        // serait lu comme « on ne sait pas », ce qui est l'inverse.
+        if (view.CancellationFeeDueXof is not null)
+        {
+            proto.CancellationFeeDue = ToMoney(view.CancellationFeeDueXof.Value);
+        }
+
+        // L'ITINERAIRE N'EST POSE QUE S'IL EXISTE. Un message absent et un message
+        // vide ne se lisent pas pareil sur le fil : absent dit « on ne sait pas »,
+        // ce qui est exactement le sens voulu quand aucun livreur ne roule, que
+        // rien n'est remonte ou que Routing n'a pas repondu.
+        if (view.Itineraire is { } itineraire)
+        {
+            proto.ActiveRoute = new ActiveRoute
+            {
+                DistanceMeters = itineraire.DistanceMetres,
+                DurationSeconds = itineraire.Secondes,
+                CalculatedAt = Timestamp.FromDateTimeOffset(itineraire.CalculeeA),
+                FromFallback = itineraire.DuRepli,
+                EncodedPolyline = itineraire.Trace,
+            };
+        }
+
         return proto;
     }
 
@@ -112,11 +137,17 @@ internal static class DeliveryProtoMapper
         _ => null,
     };
 
+    /// <summary>
+    /// LE PORTAIL COMMERCANT A SA VALEUR DEPUIS LE 2 OCTOBRE 2026. Sans elle,
+    /// une course commandee par un commercant retombait sur « app client » par
+    /// le bras par defaut, et se comptait comme une course de particulier.
+    /// </summary>
     public static Domain.Deliveries.DeliverySource FromProtoSource(Source source) => source switch
     {
         Source.HbaExpress => Domain.Deliveries.DeliverySource.HbaExpress,
         Source.HbaFood => Domain.Deliveries.DeliverySource.HbaFood,
         Source.PartnerApi => Domain.Deliveries.DeliverySource.PartnerApi,
+        Source.MerchantPortal => Domain.Deliveries.DeliverySource.MerchantPortal,
         _ => Domain.Deliveries.DeliverySource.ClientApp,
     };
 
@@ -141,6 +172,7 @@ internal static class DeliveryProtoMapper
         Domain.Deliveries.DeliverySource.HbaExpress => Source.HbaExpress,
         Domain.Deliveries.DeliverySource.HbaFood => Source.HbaFood,
         Domain.Deliveries.DeliverySource.PartnerApi => Source.PartnerApi,
+        Domain.Deliveries.DeliverySource.MerchantPortal => Source.MerchantPortal,
         _ => Source.ClientApp,
     };
 

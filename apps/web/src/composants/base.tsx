@@ -67,14 +67,17 @@ export function Bouton({
   variante = 'principal',
   ...reste
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variante?: 'principal' | 'discret' | 'danger' }) {
-  // L'ACTION PRINCIPALE RESTE UN APLAT DE COULEUR. C'est le defaut connu du
-  // neomorphisme : tout etant en relief doux, plus rien ne se distingue, et
-  // l'ecran perd son action evidente. Le bouton principal garde donc sa
-  // couleur pleine ; le relief est reserve au secondaire.
+  // L'ACTION PRINCIPALE EST UN APLAT DE COULEUR, LE SECONDAIRE UNE SURFACE
+  // BORDEE. La raison a change avec le style sans que le resultat bouge : le
+  // neomorphisme noyait l'action evidente sous un relief general, un style plat
+  // la noierait sous des bordures toutes semblables.
+  //
+  // PLUS D'OMBRE PORTEE SUR LES APLATS. Elle existait pour poser le bouton sur
+  // l'argile ; sur un fond blanc elle ne pose rien, elle salit.
   const styles: Record<string, string> = {
-    principal: 'pressable-plein bg-marque text-white shadow-[3px_3px_7px_var(--ombre-sombre)] hover:bg-marque-fonce',
+    principal: 'pressable-plein bg-marque text-white hover:bg-marque-fonce',
     discret: 'relief-doux pressable text-encre-2 hover:text-encre',
-    danger: 'pressable-plein bg-critique text-white shadow-[3px_3px_7px_var(--ombre-sombre)] hover:brightness-95',
+    danger: 'pressable-plein bg-critique text-white hover:brightness-95',
   };
 
   return (
@@ -116,16 +119,41 @@ export function CarteStat({
   titre,
   valeur,
   detail,
+  ecart,
 }: {
   titre: string;
   valeur: string;
   detail: string;
+
+  /**
+   * Variation par rapport a la periode precedente, en pourcentage. ABSENTE
+   * QUAND LA COMPARAISON N'A PAS DE SENS, et c'est le cas le plus frequent au
+   * pilote : periode precedente vide, ou trop maigre pour qu'un rapport veuille
+   * dire quelque chose. Voir le calcul dans l'ecran, qui decide.
+   */
+  ecart?: number;
 }) {
   return (
     <Carte className="px-5 py-4">
       <p className="text-sm text-encre-2">{titre}</p>
       <p className="mt-2 text-[28px] font-semibold leading-none tracking-tight text-encre">{valeur}</p>
-      <p className="mt-2 text-xs text-encre-3">{detail}</p>
+
+      {ecart === undefined ? (
+        <p className="mt-2 text-xs text-encre-3">{detail}</p>
+      ) : (
+        <div className="mt-2 flex items-baseline gap-1.5">
+          {/* LA FLECHE DOUBLE LA COULEUR, ET CE N'EST PAS DECORATIF : un ecart
+              code uniquement par du vert ou du rouge disparait pour qui ne
+              distingue pas les deux. */}
+          <span
+            className={`text-xs font-semibold ${ecart >= 0 ? 'text-bon' : 'text-critique'}`}
+          >
+            {ecart >= 0 ? '↑' : '↓'} {ecart >= 0 ? '+' : '−'}
+            {Math.abs(ecart)} %
+          </span>
+          <span className="text-xs text-encre-3">vs période précédente</span>
+        </div>
+      )}
     </Carte>
   );
 }

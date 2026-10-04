@@ -1,41 +1,12 @@
 using Hba.BuildingBlocks.Security;
 using Hba.Contracts.Common.V1;
 using Hba.Contracts.Driver.V1;
+using Hba.Contracts.Location.V1;
 
 namespace Hba.Gateway.Endpoints.Client;
 
 /// <summary>
 /// Les livreurs autour du client : POSITION ET VÉHICULE, RIEN D'AUTRE.
-///
-/// POURQUOI CETTE ROUTE EXISTE (point 24, tranché le 28 septembre 2026). La
-/// matrice de visibilité du référentiel était MUETTE sur les positions des
-/// livreurs côté client. Le silence n'étant pas une autorisation, la question a
-/// été posée avant d'écrire quoi que ce soit, et tranchée : le client voit les
-/// positions réelles. Un écran vide, sur un marché où le maillage est encore
-/// mince, laisse croire qu'il n'y a personne — et cette impression coûte des
-/// courses.
-///
-/// CE QUE CETTE DÉCISION N'A PAS LEVÉ, ET C'EST TOUT L'OBJET DE CE FICHIER. La
-/// ligne « Téléphone du livreur : pendant la mission » de la matrice tient
-/// toujours : aucune identité de livreur avant DRIVER_ASSIGNED. La réponse ne
-/// porte donc ni identifiant, ni nom, ni plaque, ni téléphone.
-///
-/// LE TYPE DE VÉHICULE, LUI, EST SORTI LE 30 SEPTEMBRE 2026, par une révision
-/// du point 24 puis du référentiel des acteurs et de la matrice de visibilité —
-/// dans cet ordre, avant le code. Il passe parce qu'il désigne une CATÉGORIE et
-/// non un homme : des centaines de livreurs partagent « moto ». C'est la carte
-/// du client qui le réclamait, une pastille de moto valant mieux que quatre
-/// points identiques quand il s'agit de choisir d'attendre ou de commander.
-///
-/// UN IDENTIFIANT STABLE SUFFIRAIT À ANNULER LA RÈGLE, même sans nom : il
-/// permettrait de reconnaître le même livreur d'un jour sur l'autre, de suivre
-/// ses horaires et ses trajets. C'est exactement ce que la matrice refuse.
-///
-/// LA MISE EN FORME SE FAIT ICI, ET PAS DANS LE SERVICE, pour une raison
-/// précise : <c>FindAvailableNearby</c> rend des identifiants parce que le
-/// dispatch en a besoin pour ouvrir une vague. C'est à la frontière du client
-/// qu'ils doivent disparaître, pas dans un service dont un autre appelant
-/// légitime dépend.
 /// </summary>
 public static class ClientNearbyEndpoints
 {
@@ -59,6 +30,7 @@ public static class ClientNearbyEndpoints
         group.MapGet("/drivers/nearby", async (
             double lat,
             double lng,
+            LocationService.LocationServiceClient locations,
             DriverService.DriverServiceClient drivers,
             CancellationToken cancellationToken) =>
         {
@@ -71,8 +43,15 @@ public static class ClientNearbyEndpoints
                 return Results.BadRequest(new { error = "Coordonnees invalides." });
             }
 
-            var reponse = await drivers.FindAvailableNearbyAsync(
-                new FindAvailableNearbyRequest
+            // ON DEMANDE EXACTEMENT LE PLAFOND, ET PLUS LE TRIPLE.
+            //
+            // IL A FALLU SUR-INTERROGER TANT QUE DRIVER ECARTAIT : la geographie ne
+            // sait pas qui est disponible, et demander quinze points en rendait
+            // presque toujours moins une fois le filtre passe. Depuis le 3 octobre
+            // 2026 la carte montre tout le monde — Driver n'ecarte plus personne de
+            // cette liste — et la compensation n'a plus d'objet.
+            var proches = await locations.FindNearbyDriversAsync(
+                new FindNearbyDriversRequest
                 {
                     Center = new GeoPoint { Latitude = lat, Longitude = lng },
                     RadiusMeters = RayonMetres,
@@ -80,14 +59,38 @@ public static class ClientNearbyEndpoints
                 },
                 cancellationToken: cancellationToken);
 
+            if (proches.Drivers.Count == 0)
+            {
+                return Results.Ok(new { positions = Array.Empty<object>() });
+            }
+
+            // LE VEHICULE ET LA DISPONIBILITE VIENNENT DE DRIVER, PAS DE LOCATION.
+            // L'index geographique ne sait ni avec quoi roule chacun, ni qui est
+            // libre, et n'a pas a le savoir : c'est la passerelle qui recolle.
+            //
+            // PAS FilterAvailableDrivers, ET C'EST TOUT LE CHANGEMENT DU 3 OCTOBRE :
+            // ce filtre ecartait ceux qu'il faut desormais afficher en eteint. Pas
+            // GetDriverSummaries non plus, qui rend un nom et un telephone reserves
+            // au back-office.
+            var demande = new GetDriverPinsRequest();
+            demande.DriverIds.AddRange(proches.Drivers.Select(d => d.DriverId));
+
+            var pastilles = await drivers.GetDriverPinsAsync(
+                demande,
+                cancellationToken: cancellationToken);
+
+            var parId = pastilles.Pins.ToDictionary(p => p.DriverId, StringComparer.Ordinal);
+
             // LA PROJECTION EST LA RÈGLE, PAS UNE COMMODITÉ D'AFFICHAGE.
             //
             // Ajouter un champ ici, même anodin en apparence — une distance, un
             // rang, un identifiant opaque — rouvre la question tranchée au
             // point 24, et doit passer par le référentiel AVANT le code. C'est
-            // ce qui a été fait le 30 septembre 2026 pour le type de véhicule :
-            // le point 24 a été révisé, puis le référentiel des acteurs et la
-            // matrice de visibilité, et seulement ensuite cette ligne.
+            // ce qui a été fait trois fois : le 30 septembre pour le type de
+            // véhicule, puis deux fois le 3 octobre — le décompte des écartés le
+            // matin, la disponibilité par pastille l'après-midi. À chaque fois :
+            // le point 24, puis la matrice de visibilité, puis seulement ces
+            // lignes.
             //
             // CE QUI N'EST TOUJOURS PAS RENDU, ET QUI BORNE TOUT LE RESTE :
             // l'identifiant. Il permettrait de reconnaître le même livreur d'un
@@ -98,16 +101,25 @@ public static class ClientNearbyEndpoints
             //
             // LE TYPE DE VÉHICULE EST SEMI-IDENTIFIANT, et c'est le prix assumé :
             // quatre de ses cinq valeurs sont rares à Cotonou, donc un tricycle
-            // au milieu des motos se repère. Le point 24 pèse ce que cela ouvre.
+            // au milieu des motos se repère. Le point 24 pèse ce que cela ouvre,
+            // et il pèse aussi ce que l'après-midi du 3 octobre y a ajouté : ce
+            // tricycle est maintenant visible MÊME QUAND IL TRAVAILLE.
             return Results.Ok(new
             {
-                positions = reponse.Drivers
-                    .Where(driver => driver.Position is not null)
+                positions = proches.Drivers
+                    .Where(driver => driver.Position?.Point is not null
+                        && parId.ContainsKey(driver.DriverId))
+                    .Take(Plafond)
                     .Select(driver => new
                     {
-                        latitude = driver.Position.Latitude,
-                        longitude = driver.Position.Longitude,
-                        vehicleType = driver.VehicleType.ToString(),
+                        latitude = driver.Position.Point.Latitude,
+                        longitude = driver.Position.Point.Longitude,
+                        vehicleType = parId[driver.DriverId].VehicleType.ToString(),
+
+                        // CE QUI DECIDE DU DESSIN : relief ou eteint. Il ne dit pas
+                        // POURQUOI quelqu'un est indisponible — mission, deconnexion
+                        // recente, dossier redevenu invalide — et c'est voulu.
+                        disponible = parId[driver.DriverId].Available,
                     }),
             });
         });

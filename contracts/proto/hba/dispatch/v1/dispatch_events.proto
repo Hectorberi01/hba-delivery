@@ -3,11 +3,17 @@ syntax = "proto3";
 package hba.dispatch.v1;
 
 import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
 import "hba/common/v1/envelope.proto";
 
 option csharp_namespace = "Hba.Contracts.Dispatch.V1";
 
-// Topic : hba.dispatch.events.v1 — clé de partition : delivery_id.
+// Topic : hba.dispatch.events.v1 — clé de partition : reference_id.
+//
+// CHAQUE ÉVÉNEMENT PORTE service_type, ET LE LIRE N'EST PAS OPTIONNEL. Un
+// consommateur qui agit sur reference_id sans regarder le type traitera une
+// course comme une livraison : NotFoundException, trois réessais, message
+// abandonné — sur une mission pourtant correcte.
 message DispatchEvent {
   hba.common.v1.EventEnvelope envelope = 1;
 
@@ -21,8 +27,9 @@ message DispatchEvent {
 
 message OfferSent {
   string offer_id = 1;
-  string delivery_id = 2;
+  string reference_id = 2;
   string driver_id = 3;
+  hba.common.v1.ServiceType service_type = 6;
   // ZÉRO SIGNIFIE « À LA MAIN » : l'offre a été posée par l'exploitation, en
   // dehors de toute vague. Les consommateurs n'ont rien à en faire de
   // différent — Driver réserve le livreur dans les deux cas — mais l'audit
@@ -31,24 +38,29 @@ message OfferSent {
   google.protobuf.Timestamp expires_at = 5;
 }
 
-// Consommé par Delivery pour passer en DRIVER_ASSIGNED, et par Driver pour
-// passer le livreur en ON_MISSION.
+// Consommé par Delivery (DRIVER_ASSIGNED) ou par Ride (DriverAssigned) selon
+// service_type, et par Driver — qui, lui, réserve le chauffeur dans les deux
+// cas et n'a donc pas à regarder le type.
 message OfferAccepted {
   string offer_id = 1;
-  string delivery_id = 2;
+  string reference_id = 2;
   string driver_id = 3;
   google.protobuf.Timestamp accepted_at = 4;
+  hba.common.v1.ServiceType service_type = 5;
 }
 
 message OfferExpired {
   string offer_id = 1;
-  string delivery_id = 2;
+  string reference_id = 2;
   string driver_id = 3;
+  hba.common.v1.ServiceType service_type = 4;
 }
 
-// Toutes les vagues ont échoué : Delivery passe en NO_DRIVER_FOUND.
+// Toutes les vagues ont échoué : Delivery passe en NO_DRIVER_FOUND, Ride en
+// NO_DRIVER_AVAILABLE.
 message DispatchExhausted {
-  string delivery_id = 1;
+  string reference_id = 1;
   int32 waves_attempted = 2;
   google.protobuf.Timestamp occurred_at = 3;
+  hba.common.v1.ServiceType service_type = 4;
 }

@@ -3,12 +3,18 @@ syntax = "proto3";
 package hba.payment.v1;
 
 import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
 import "hba/common/v1/envelope.proto";
 import "hba/common/v1/money.proto";
 
 option csharp_namespace = "Hba.Contracts.Payment.V1";
 
-// Topic : hba.payment.events.v1 — clé de partition : delivery_id.
+// Topic : hba.payment.events.v1 — clé de partition : reference_id.
+//
+// CHAQUE ÉVÉNEMENT PORTE service_type, ET LE LIRE N'EST PAS OPTIONNEL. Un
+// consommateur qui agit sur reference_id sans regarder le type traitera le
+// paiement d'une course comme celui d'une livraison : introuvable en base, trois
+// réessais, message abandonné — sur un paiement pourtant encaissé.
 message PaymentEvent {
   hba.common.v1.EventEnvelope envelope = 1;
 
@@ -23,16 +29,18 @@ message PaymentEvent {
 // passe en PAID que sur cet événement.
 message PaymentSucceeded {
   string payment_intent_id = 1;
-  string delivery_id = 2;
+  string reference_id = 2;
   hba.common.v1.Money amount = 3;
   google.protobuf.Timestamp succeeded_at = 4;
+  hba.common.v1.ServiceType service_type = 5;
 }
 
 message PaymentFailed {
   string payment_intent_id = 1;
-  string delivery_id = 2;
+  string reference_id = 2;
   string reason = 3;
   google.protobuf.Timestamp occurred_at = 4;
+  hba.common.v1.ServiceType service_type = 5;
 }
 
 // L'argent a été rendu. CONSTATÉ, JAMAIS DEMANDÉ PAR NOUS : FedaPay n'expose
@@ -45,7 +53,7 @@ message PaymentRefunded {
   // côté, et le fournisseur ne nous en donne pas par ce chemin.
   string refund_id = 1;
   string payment_intent_id = 2;
-  string delivery_id = 3;
+  string reference_id = 3;
   // RENSEIGNÉ UNIQUEMENT POUR UN REMBOURSEMENT TOTAL. Le statut du fournisseur
   // dit « partiellement remboursé » sans dire combien : mettre le total ferait
   // croire à un remboursement complet, et inventer une somme serait pire.
@@ -53,4 +61,5 @@ message PaymentRefunded {
   google.protobuf.Timestamp occurred_at = 5;
   // Vrai quand le remboursement est partiel, donc quand « amount » est absent.
   bool partial = 6;
+  hba.common.v1.ServiceType service_type = 7;
 }

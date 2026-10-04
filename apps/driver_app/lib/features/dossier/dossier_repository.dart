@@ -59,6 +59,13 @@ class Dossier {
     required this.exigees,
     required this.vehiculeType,
     required this.plaque,
+    required this.capaciteGrammes,
+    required this.placesPassager,
+    required this.marque,
+    required this.modele,
+    required this.couleur,
+    required this.capacites,
+    required this.capacitesPossibles,
     required this.photoProfil,
     required this.peutSoumettre,
     required this.vehiculeDeclare,
@@ -81,6 +88,33 @@ class Dossier {
 
   final String vehiculeType;
   final String plaque;
+
+  /// Charge utile declaree, en grammes. ZERO VEUT DIRE « NON DECLAREE ».
+  final int capaciteGrammes;
+
+  /// Places passagers, conducteur non compris. ZERO VAUT « AUCUNE », pas
+  /// « inconnu » : un vehicule sans place declaree n'en prend pas, et le
+  /// dispatch ne lui envoie aucune course de personnes.
+  final int placesPassager;
+
+  /// Marque, modele et couleur. DECLARATIFS : ils servent au client a
+  /// reconnaitre le vehicule qui arrive, pas a autoriser quoi que ce soit.
+  /// Aucun ecran ne les saisit encore ; l'application les relit et les renvoie
+  /// tels quels pour ne pas les effacer en enregistrant le vehicule.
+  final String marque;
+  final String modele;
+  final String couleur;
+
+  /// Ce que le livreur a declare exercer. VIDE VEUT DIRE « LE COLIS » : c'est
+  /// le socle, il ne se declare pas.
+  final List<String> capacites;
+
+  /// Ce que son vehicule permet, habilite ou non. ELLE VIENT DU SERVICE, pour
+  /// la meme raison que [exigees] : la table vehicule vers habilitations est
+  /// une regle metier, et la recopier ici en aurait fait une seconde version.
+  /// Elle contient le colis, que l'ecran n'affiche pas comme une case.
+  final List<String> capacitesPossibles;
+
   final String photoProfil;
   final bool peutSoumettre;
 
@@ -95,6 +129,25 @@ class Dossier {
   bool get valide => statut == 'Verified';
   bool get rejete => statut == 'Rejected';
   bool get suspendu => statut == 'Suspended';
+
+  static int _entier(Object? brut) => switch (brut) {
+        final int n => n,
+        final num n => n.toInt(),
+        final String s => int.tryParse(s) ?? 0,
+        _ => 0,
+      };
+
+  /// Une liste de noms, rendue vide plutot que nulle.
+  ///
+  /// UN SERVICE PLUS ANCIEN QUI NE RENVERRAIT PAS LE CHAMP DONNE UNE LISTE
+  /// VIDE, et l'ecran n'affiche alors aucune habilitation a cocher — ce qui est
+  /// exact : sans la liste du service, l'application ne sait pas ce que le
+  /// vehicule permet, et deviner serait pire que se taire.
+  static List<String> _mots(Object? brut) => [
+        if (brut is List)
+          for (final e in brut)
+            if (e is String && e.isNotEmpty) e,
+      ];
 
   static DateTime? _date(Object? brut) =>
       brut is String && brut.isNotEmpty ? DateTime.tryParse(brut)?.toLocal() : null;
@@ -129,6 +182,13 @@ class Dossier {
       ],
       vehiculeType: vehicule is Map ? vehicule['type'] as String? ?? '' : '',
       plaque: vehicule is Map ? vehicule['plate'] as String? ?? '' : '',
+      capaciteGrammes: vehicule is Map ? _entier(vehicule['capacityGrams']) : 0,
+      placesPassager: vehicule is Map ? _entier(vehicule['passengerCapacity']) : 0,
+      marque: vehicule is Map ? vehicule['brand'] as String? ?? '' : '',
+      modele: vehicule is Map ? vehicule['model'] as String? ?? '' : '',
+      couleur: vehicule is Map ? vehicule['color'] as String? ?? '' : '',
+      capacites: _mots(json['capabilities']),
+      capacitesPossibles: _mots(json['allowedCapabilities']),
       photoProfil: json['profilePhotoUrl'] as String? ?? '',
       peutSoumettre: json['canSubmit'] as bool? ?? false,
       vehiculeDeclare: json['vehicleDeclared'] as bool? ?? false,
@@ -159,12 +219,35 @@ class DossierRepository {
     required String type,
     required String plaque,
     int? capaciteGrammes,
+    int? placesPassager,
+    String? marque,
+    String? modele,
+    String? couleur,
   }) =>
       _api.put('/vehicle', body: {
         'type': type,
         'plate': plaque,
         if (capaciteGrammes != null) 'capacityGrams': capaciteGrammes,
+
+        // LA DECLARATION REMPLACE LE VEHICULE ENTIER cote domaine : un champ
+        // omis n'est pas conserve, il est remis a zero. On renvoie donc ce
+        // qu'on a lu pour les champs qu'aucun ecran ne saisit encore.
+        if (placesPassager != null) 'passengerCapacity': placesPassager,
+        if (marque != null) 'brand': marque,
+        if (modele != null) 'model': modele,
+        if (couleur != null) 'color': couleur,
       });
+
+  /// Declare les activites du livreur.
+  ///
+  /// L'ENSEMBLE COMPLET, PAS UN AJOUT : ce qui n'est pas dans la liste est
+  /// retire. Une liste vide ramene le livreur au seul colis, qui est le socle.
+  ///
+  /// LE SERVICE REFUSE SUR UN DOSSIER VALIDE (APPLICATION_NOT_EDITABLE), comme
+  /// pour les pieces et le vehicule : un dossier valide se fige, et sa
+  /// correction passe par ops.
+  Future<void> declarerHabilitations(List<String> capacites) =>
+      _api.put('/capabilities', body: {'capabilities': capacites});
 
   Future<void> soumettre() => _api.post(
         '/application/submit',

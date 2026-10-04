@@ -4,6 +4,7 @@ using Hba.BuildingBlocks.Domain;
 using Hba.BuildingBlocks.Security;
 using Hba.Dispatch.Application.Common.Interfaces;
 using Hba.Dispatch.Application.Common.Views;
+using Hba.Dispatch.Domain.Dispatching;
 using Hba.Dispatch.Domain.Exceptions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -33,7 +34,8 @@ namespace Hba.Dispatch.Application.Features.Dispatching.Commands;
 /// un code distinct pour que l'ecran ne les confonde pas.
 /// </summary>
 public sealed record OfferToDriverCommand(
-    Guid DeliveryId,
+    ServiceType ServiceType,
+    Guid ReferenceId,
     string DriverId,
     string? Reason) : ICommand<OfferToDriverResult>;
 
@@ -80,9 +82,9 @@ public sealed class OfferToDriverHandler(
         }
 
         var dispatch = await dispatches
-            .GetByDeliveryIdAsync(command.DeliveryId, cancellationToken)
+            .GetByReferenceAsync(command.ServiceType, command.ReferenceId, cancellationToken)
             .ConfigureAwait(false)
-            ?? throw new NotFoundException("Recherche de livreur", command.DeliveryId.ToString());
+            ?? throw new NotFoundException("Recherche de chauffeur", command.ReferenceId.ToString());
 
         // LE REFUS SORT AVANT L'APPEL A DRIVER. Interroger la disponibilite
         // d'un livreur pour une course qui ne cherche plus ferait payer un
@@ -121,9 +123,10 @@ public sealed class OfferToDriverHandler(
             // ne le lira. Il sert a comprendre APRES COUP pourquoi quelqu'un a
             // court-circuite le moteur, et le journal est fait pour cela.
             logger.LogInformation(
-                "Offre manuelle : livraison {DeliveryId} proposee au livreur {DriverId} par {Acteur} " +
-                "a {Distance} m du retrait. Motif : {Motif}",
-                dispatch.DeliveryId,
+                "Offre manuelle : mission {Nature} {ReferenceId} proposee au chauffeur {DriverId} " +
+                "par {Acteur} a {Distance} m du retrait. Motif : {Motif}",
+                dispatch.ServiceType,
+                dispatch.ReferenceId,
                 command.DriverId,
                 acteur.ToString(),
                 verdict.DistanceToPickupMeters,

@@ -188,16 +188,6 @@ namespace Hba.Payment.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("amount_xof");
 
-                    b.Property<Guid?>("DeliveryId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("delivery_id");
-
-                    b.Property<string>("DeliveryReference")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("delivery_reference");
-
                     b.Property<int>("Direction")
                         .HasColumnType("integer")
                         .HasColumnName("direction");
@@ -220,20 +210,35 @@ namespace Hba.Payment.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("payout_id");
 
+                    b.Property<Guid?>("ReferenceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reference_id");
+
+                    b.Property<string>("ReferenceLabel")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("reference_label");
+
+                    b.Property<int>("ServiceType")
+                        .HasColumnType("integer")
+                        .HasColumnName("service_type");
+
                     b.Property<long>("Version")
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("DeliveryId")
-                        .IsUnique()
-                        .HasFilter("kind = 1 AND delivery_id IS NOT NULL");
 
                     b.HasIndex("PayoutId")
                         .IsUnique()
                         .HasFilter("kind = 2 AND payout_id IS NOT NULL");
 
                     b.HasIndex("DriverId", "OccurredAt");
+
+                    b.HasIndex("ServiceType", "ReferenceId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_driver_ledger_compensation")
+                        .HasFilter("kind = 3 AND reference_id IS NOT NULL");
 
                     b.ToTable("driver_ledger_entries", "payment");
                 });
@@ -253,9 +258,10 @@ namespace Hba.Payment.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<Guid>("DeliveryId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("delivery_id");
+                    b.Property<string>("DriverId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("driver_id");
 
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone")
@@ -287,10 +293,22 @@ namespace Hba.Payment.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("provider_reference");
 
+                    b.Property<int>("Purpose")
+                        .HasColumnType("integer")
+                        .HasColumnName("purpose");
+
                     b.Property<string>("RedirectUrl")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)")
                         .HasColumnName("redirect_url");
+
+                    b.Property<Guid>("ReferenceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reference_id");
+
+                    b.Property<int>("ServiceType")
+                        .HasColumnType("integer")
+                        .HasColumnName("service_type");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer")
@@ -310,12 +328,12 @@ namespace Hba.Payment.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("DeliveryId");
-
                     b.HasIndex("ProviderReference")
                         .IsUnique();
 
                     b.HasIndex("SucceededAt");
+
+                    b.HasIndex("ServiceType", "ReferenceId");
 
                     b.ToTable("payment_intents", "payment");
                 });
@@ -386,6 +404,88 @@ namespace Hba.Payment.Infrastructure.Persistence.Migrations
                     b.HasIndex("Status", "RequestedAt");
 
                     b.ToTable("payout_requests", "payment");
+                });
+
+            modelBuilder.Entity("Hba.Payment.Domain.Refunds.RefundDue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long>("AmountCollected")
+                        .HasColumnType("bigint")
+                        .HasColumnName("amount_collected");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("note");
+
+                    b.Property<string>("PayerId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payer_id");
+
+                    b.Property<Guid>("PaymentIntentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_intent_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("reason");
+
+                    b.Property<long?>("RecommendedRefund")
+                        .HasColumnType("bigint")
+                        .HasColumnName("recommended_refund");
+
+                    b.Property<Guid>("ReferenceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reference_id");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("resolved_by");
+
+                    b.Property<int>("ServiceType")
+                        .HasColumnType("integer")
+                        .HasColumnName("service_type");
+
+                    b.Property<long?>("SettledAmount")
+                        .HasColumnType("bigint")
+                        .HasColumnName("settled_amount");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentIntentId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_refunds_due_intention");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("refunds_due", "payment");
                 });
 #pragma warning restore 612, 618
         }

@@ -21,7 +21,7 @@ const confidentialiteClient = DocumentLegal(
       "Ce que l'application collecte, pourquoi, qui peut le consulter, et ce "
       'que vous pouvez en demander.',
   version: 'v0.2',
-  miseAJour: '28 septembre 2026',
+  miseAJour: '2 octobre 2026',
   sections: [
     SectionLegale(
       titre: 'Qui traite vos données',
@@ -114,11 +114,16 @@ const confidentialiteClient = DocumentLegal(
       titre: 'Combien de temps',
       paragraphes: [
         'Vos données de compte sont conservées tant que votre compte existe.',
+        'Quand vous demandez la suppression de votre compte, il est effacé '
+            '30 jours plus tard. Pendant ces 30 jours, vous reconnecter '
+            "annule la suppression : c'est le seul moyen de revenir en "
+            'arrière, et il est volontairement simple.',
       ],
       aTrancher:
-          'Les durées de conservation ne sont pas arrêtées : ni celle des '
-          'courses, ni celle des preuves de remise. Le mécanisme de purge '
-          "existe dans le système, mais aucun délai n'y est encore inscrit.",
+          'Les autres durées ne sont pas arrêtées : celle des courses une '
+          'fois le compte supprimé, et celle des preuves de remise. Le '
+          "mécanisme de purge existe dans le système, mais aucun délai n'y "
+          'est inscrit pour ces deux-là.',
     ),
     SectionLegale(
       titre: 'Vos droits',

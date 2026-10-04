@@ -66,6 +66,7 @@ services:
       # ajouter un service ici veut dire ajouter une ligne, pas migrer une base.
       ServiceClients__Clients__delivery: ${SERVICE_SECRET_DELIVERY:?SERVICE_SECRET_DELIVERY absent - sans lui Delivery ne peut pas affecter de livreur}
       ServiceClients__Clients__dispatch: ${SERVICE_SECRET_DISPATCH:?SERVICE_SECRET_DISPATCH absent - sans lui le dispatch ne peut chercher aucun livreur}
+      ServiceClients__Clients__ride: ${SERVICE_SECRET_RIDE:?SERVICE_SECRET_RIDE absent - sans lui aucune course de personnes ne peut etre payee}
       # « :- » et non « :? » : sans ce secret, Notification envoie toujours les
       # codes de connexion et de remise ; seul le recu de course, qui demande
       # l'adresse du client a Directory, ne partira pas. Point 29.

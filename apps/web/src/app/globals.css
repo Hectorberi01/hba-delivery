@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* JETONS DE LA CONSOLE — NEOMORPHISME.
+/* JETONS DE LA CONSOLE — CLEAN MINIMAL SAAS.
    Deux familles distinctes, et la distinction n'est pas cosmetique :
 
    - « marque » habille l'interface (bouton principal, onglet actif). Elle ne
@@ -10,47 +10,55 @@
      donnee. L'ordre des series est fixe : la 5e serie ne s'invente pas, elle
      se replie en « Autres ».
 
-   LE FOND N'EST PLUS BLANC, ET C'EST LA CONDITION DU STYLE. Le relief
-   neomorphique se fabrique avec DEUX ombres — une claire en haut a gauche,
-   une sombre en bas a droite. Sur du blanc, l'ombre claire n'a nulle part ou
-   s'imprimer : il ne reste qu'une ombre portee ordinaire. Le plan est donc
-   une argile froide, et les surfaces portent la meme teinte que lui : ce qui
-   distingue une carte du fond, c'est son relief, pas sa couleur.
+   CE FICHIER PORTAIT UN NEOMORPHISME JUSQU'AU 2 OCTOBRE 2026, et le changement
+   est un changement de systeme, pas de teintes. L'ancien reposait sur UNE
+   lumiere et DEUX ombres : rien ne distinguait une carte du fond que son
+   relief, et le fond devait donc etre une argile froide pour que l'ombre
+   claire ait ou s'imprimer. Ici, c'est l'inverse : le fond est gris pale, les
+   cartes sont BLANCHES, et ce qui les detache est leur couleur plus une
+   bordure d'un cheveu.
 
-   TROIS COULEURS DE TEXTE ONT ETE ASSOMBRIES. Changer de fond change tous
-   les contrastes : « encre-3 » tombait de 3.59:1 sur blanc a 2.84:1 sur
-   l'argile, et il porte les sous-titres et les details — la ou la lisibilite
-   compte le plus. Les valeurs ci-dessous sont mesurees contre #e0e5ec.
-   Marque et critique servent aussi de couleur de texte : elles sont
-   assombries pour la meme raison, pas par gout. */
+   LES NOMS DE CLASSES SURVIVENT, ET C'EST TOUT L'INTERET. « relief », « creux »
+   et leurs variantes gardent leur nom et changent de definition : les huit
+   autres pages de la console suivent le nouveau style sans qu'on les touche.
+   Les noms ne decrivent plus une matiere, ils decrivent un ROLE — « relief »
+   veut dire « ceci est une surface posee », « creux » veut dire « ceci recoit,
+   ou ceci est deja choisi ».
+
+   LES CONTRASTES ONT ETE RECALCULES, PAS REPRIS. Changer de fond change tous
+   les rapports : les valeurs en commentaire sont mesurees contre #ffffff, la
+   surface des cartes, qui est le fond le plus clair de la console et donc le
+   cas le plus defavorable. */
 @theme {
-  /* Plan : teinte du fond de page ET des creux legers (survol de ligne,
-     entete de tableau, panneau en pointilles). Un ton sous la surface. */
-  --color-plan: #d8dfe9;
+  /* Plan : le fond de page. Gris pale, un cran sous le blanc des cartes —
+     assez pour qu'une carte se detache, trop peu pour se lire comme une
+     couleur. */
+  --color-plan: #f6f7f9;
 
-  /* Surface : l'argile. Meme teinte pour toutes les cartes — c'est le
-     relief qui les detache, jamais un aplat plus clair. */
-  --color-surface: #e0e5ec;
+  /* Surface : les cartes. Blanches, et c'est le changement qui porte tout le
+     style. */
+  --color-surface: #ffffff;
 
-  /* Creux : fond des champs et des zones enfoncees. */
-  --color-creux: #d1d9e6;
+  /* Creux : fond des champs, des entetes de tableau et des zones choisies. Il
+     ne s'enfonce plus, il se teinte. */
+  --color-creux: #f3f4f6;
 
-  /* Bordure : presque invisible sur les cartes, mais indispensable la ou
-     elle est le SEUL separateur — les lignes de tableau n'ont pas de
-     relief. */
-  --color-bordure: #c3cddc;
+  /* Bordure : d'un cheveu, et desormais INDISPENSABLE. Dans l'ancien style une
+     carte tenait par son relief et la bordure etait presque decorative ; ici
+     c'est elle qui dessine le contour. */
+  --color-bordure: #e5e7eb;
 
-  --color-encre: #1f2733;    /* 11.88:1 */
-  --color-encre-2: #455065;  /*  6.41:1 */
-  --color-encre-3: #565e6b;  /*  5.17:1 — 4.61:1 au fond d'un creux */
-  --color-grille: #c3cddc;
+  --color-encre: #111827;    /* 17.74:1 */
+  --color-encre-2: #4b5563;  /*  7.56:1 */
+  --color-encre-3: #6b7280;  /*  4.83:1 */
+  --color-grille: #eef0f3;
 
-  /* Teal assombri : il sert de couleur de TEXTE (onglet actif, liens), ou
-     l'ancien #0f766e ne tenait que 4.32:1 sur l'argile. En aplat, le blanc
-     par-dessus n'y perd rien — il y gagne. */
-  --color-marque: #0b5c55;        /*  6.20:1 en texte */
-  --color-marque-fonce: #084640;
-  --color-marque-doux: #cfe0dd;
+  /* Vert, et non plus le teal sourd. Il sert de couleur de TEXTE autant que
+     d'aplat : la valeur est choisie pour tenir au-dessus de 6:1 sur blanc, ou
+     un vert plus vif tomberait sous le seuil. L'aplat, lui, porte du blanc. */
+  --color-marque: #0b6b3f;        /*  6.58:1 en texte */
+  --color-marque-fonce: #064e2b;
+  --color-marque-doux: #e7f5ee;
 
   --color-serie-1: #2a78d6;
   --color-serie-2: #eb6834;
@@ -65,32 +73,27 @@
   --color-rampe-2: #3987e5;
   --color-rampe-3: #1c5cab;
 
-  --color-bon: #0ca30c;
-  --color-attention: #fab219;
-  --color-serieux: #ec835a;
-  --color-critique: #b52a2a;  /*  4.98:1 en texte */
+  /* LES COULEURS DE DONNEE ONT ETE ASSOMBRIES POUR LE BLANC. « bon » valait
+     #0ca30c, soit 3.09:1 sur fond blanc : illisible en texte, et ces teintes
+     servent aussi a ecrire un pourcentage a cote d'une pastille. */
+  --color-bon: #15803d;       /*  5.02:1 */
+  --color-attention: #b45309; /*  5.02:1 */
+  --color-serieux: #c2410c;   /*  4.72:1 */
+  --color-critique: #b52a2a;  /*  6.31:1 */
 
-  --radius-carte: 1.25rem;
-}
-
-/* LES DEUX OMBRES. Une seule source de lumiere pour toute la console, en
-   haut a gauche : c'est ce qui fait tenir l'illusion. Une carte eclairee
-   d'un cote et un bouton de l'autre, et l'oeil ne lit plus un relief mais
-   un accident. */
-:root {
-  --ombre-claire: #ffffff;
-  --ombre-sombre: rgba(163, 177, 198, 0.62);
+  /* MOINS ARRONDI QU'AVANT. 1.25rem servait un volume ; une carte plate et
+     bordee a ce rayon-la ressemble a une pastille. */
+  --radius-carte: 0.875rem;
 }
 
 html {
-  /* Le neomorphisme n'a pas de mode sombre : la metaphore repose sur une
-     lumiere qui frappe une matiere claire. En sombre, l'ombre claire
-     deviendrait une lueur, ce qui est un autre style. */
+  /* Pas de mode sombre : la console n'en a jamais eu, et en inventer un
+     demanderait de rejouer chaque contraste de ce fichier. */
   color-scheme: light;
 }
 
 body {
-  background-color: var(--color-surface);
+  background-color: var(--color-plan);
   color: var(--color-encre);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -102,73 +105,71 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------------------------------------------------------- Le relief -- */
+/* ------------------------------------------------------- Les surfaces -- */
 
-/* Bombe. Cartes, entete, boutons au repos. Le degrade de 145deg n'est pas
-   decoratif : sans lui la face superieure est plate et le volume se limite
-   au bord. */
+/* Une surface posee. Cartes, entete, panneaux.
+   L'OMBRE EST PRESQUE RIEN, ET C'EST VOULU : elle decolle la carte du fond
+   sans annoncer une profondeur. Ce qui dessine le contour, c'est la bordure. */
 .relief {
-  background-image: linear-gradient(145deg, #e7ebf1, #d6dce6);
-  box-shadow:
-    6px 6px 14px var(--ombre-sombre),
-    -6px -6px 14px var(--ombre-claire);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-bordure);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.04);
 }
 
-/* Meme chose en plus discret, pour ce qui est petit ou nombreux : un bouton
-   secondaire, une vignette. A 6px, vingt elements cote a cote donnent une
-   surface bosselee illisible. */
+/* Meme chose sans ombre, pour ce qui est petit ou nombreux : un bouton
+   secondaire, une vignette, une carte dans une grille serree. Vingt ombres
+   cote a cote salissent le fond. */
 .relief-doux {
-  background-image: linear-gradient(145deg, #e7ebf1, #d6dce6);
-  box-shadow:
-    3px 3px 7px var(--ombre-sombre),
-    -3px -3px 7px var(--ombre-claire);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-bordure);
 }
 
-/* Creuse. Champs de saisie, onglet actif, fond d'un groupe de boutons.
-   L'INVERSE DU RELIEF PORTE UN SENS : ce qui est enfonce est soit ce qui
-   recoit (un champ), soit ce qui est deja choisi. Ne pas creuser au hasard. */
+/* Ce qui RECOIT, ou ce qui est DEJA CHOISI — champs de saisie, onglet actif,
+   fond d'un groupe de boutons.
+   LE SENS SURVIT AU CHANGEMENT DE STYLE, ET C'EST LE POINT DELICAT DE CETTE
+   REFONTE. Dans l'ancien, « enfonce » disait les deux a la fois, et ce choix
+   etait documente. Un style plat n'a rien a enfoncer : le signal devient donc
+   un aplat teinte, plus sombre que la carte, avec la meme bordure. */
 .creux {
   background-color: var(--color-creux);
-  background-image: none;
-  box-shadow:
-    inset 4px 4px 9px var(--ombre-sombre),
-    inset -4px -4px 9px var(--ombre-claire);
+  border: 1px solid var(--color-bordure);
+  box-shadow: none;
 }
 
 .creux-doux {
   background-color: var(--color-plan);
-  background-image: none;
-  box-shadow:
-    inset 2px 2px 5px var(--ombre-sombre),
-    inset -2px -2px 5px var(--ombre-claire);
+  border: 1px solid var(--color-bordure);
+  box-shadow: none;
 }
 
-/* Un element en relief qui s'enfonce quand on appuie. C'est le seul retour
-   tactile dont dispose ce style : sans lui, rien ne distingue un bouton
-   presse d'un bouton survole. */
+/* Un element qui repond au clic. L'ancien style s'enfoncait ; celui-ci
+   assombrit sa surface, ce qui est le seul retour qu'un aplat clair autorise
+   sans bouger la mise en page. */
 .pressable {
   transition:
-    box-shadow 180ms ease-out,
-    transform 180ms ease-out;
+    background-color 140ms ease-out,
+    border-color 140ms ease-out;
+}
+
+.pressable:hover:not(:disabled) {
+  background-color: var(--color-creux);
 }
 
 .pressable:active:not(:disabled) {
-  box-shadow:
-    inset 3px 3px 7px var(--ombre-sombre),
-    inset -3px -3px 7px var(--ombre-claire);
-  transform: translateY(1px);
+  background-color: #eceef1;
 }
 
-/* Un aplat de couleur n'a pas de relief a creuser : il s'assombrit. */
+/* Un aplat de couleur n'a pas de surface a teinter : il s'assombrit. */
 .pressable-plein {
-  transition:
-    filter 180ms ease-out,
-    transform 180ms ease-out;
+  transition: filter 140ms ease-out;
+}
+
+.pressable-plein:hover:not(:disabled) {
+  filter: brightness(0.95);
 }
 
 .pressable-plein:active:not(:disabled) {
-  filter: brightness(0.92);
-  transform: translateY(1px);
+  filter: brightness(0.9);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -176,17 +177,13 @@ body {
   .pressable-plein {
     transition: none;
   }
-
-  .pressable:active:not(:disabled),
-  .pressable-plein:active:not(:disabled) {
-    transform: none;
-  }
 }
 
-/* LE CONTOUR DE FOCUS SURVIT AU STYLE. C'est la premiere chose que le
-   neomorphisme fait disparaitre — tout etant en relief doux, plus rien ne
-   marque ou l'on se trouve au clavier. Il reste net, et par-dessus. */
+/* LE CONTOUR DE FOCUS RESTE NET ET PAR-DESSUS. Il l'etait deja parce que le
+   neomorphisme le noyait ; il le reste parce qu'une interface a bordures fines
+   le noie autrement — une bordure de focus qui ressemble a une bordure de
+   carte ne se voit pas. */
 *:focus-visible {
   outline: 2px solid var(--color-marque);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }

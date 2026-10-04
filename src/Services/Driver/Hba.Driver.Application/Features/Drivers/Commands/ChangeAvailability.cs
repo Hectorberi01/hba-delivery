@@ -4,21 +4,37 @@ using Hba.BuildingBlocks.Domain;
 using Hba.BuildingBlocks.Security;
 using Hba.Driver.Application.Common.Interfaces;
 using Hba.Driver.Application.Common.Views;
-using Hba.Driver.Domain.ValueObjects;
 
 namespace Hba.Driver.Application.Features.Drivers.Commands;
 
 /// <summary>
-/// Passage en ligne. La position initiale est posee dans Redis dans la foulee :
-/// un livreur disponible sans position n'existe pour aucune vague.
+/// Passage en ligne : la PRESENCE DECLAREE.
 /// </summary>
-public sealed record GoOnlineCommand(Guid DriverId, double Latitude, double Longitude) : ICommand<DriverView>;
+///
+/// <remarks>
+/// IL NE POSE PLUS DE POSITION, ET CE N'EST PAS UNE REGRESSION. Jusqu'au 1er octobre
+/// 2026 ce handler ecrivait la position initiale dans Redis dans la foulee, parce qu'un
+/// livreur disponible sans position n'existait pour aucune vague. Depuis que les
+/// positions ont quitte ce service, c'est la PASSERELLE qui enchaine les deux appels —
+/// Driver pour l'etat, Location pour le premier point.
+///
+/// DEUX PRESENCES, ET IL NE FAUT PAS LES CONFONDRE. « Je me declare disponible » est un
+/// etat METIER : il se decide, il s'audite, il survit a un telephone eteint, et il vit
+/// donc dans l'agregat. « Mon telephone emet » est un fait TECHNIQUE, qui s'evapore tout
+/// seul au bout de la fenetre de fraicheur, et qui vit dans Location. « Disponible »,
+/// pour une vague, reste la conjonction des deux — c'est ce que croise l'appelant.
+///
+/// CE QUI ARRIVE SI LE SECOND APPEL ECHOUE : le livreur est en ligne en base et absent
+/// de la carte, donc aucune vague ne le trouve. C'est exactement l'etat d'un livreur
+/// dont le telephone n'a pas encore envoye son premier point — un etat normal, qui se
+/// resout au battement suivant, en quelques secondes.
+/// </remarks>
+public sealed record GoOnlineCommand(Guid DriverId) : ICommand<DriverView>;
 
 public sealed record GoOfflineCommand(Guid DriverId) : ICommand<DriverView>;
 
 public sealed class GoOnlineHandler(
     IDriverRepository drivers,
-    IDriverLocationStore locations,
     IUnitOfWork unitOfWork,
     ICallerContext caller,
     IClock clock) : ICommandHandler<GoOnlineCommand, DriverView>
@@ -32,16 +48,8 @@ public sealed class GoOnlineHandler(
         var driver = await drivers.GetByIdAsync(command.DriverId, cancellationToken).ConfigureAwait(false)
             ?? throw new NotFoundException("Livreur", command.DriverId.ToString());
 
-        var now = clock.UtcNow;
-
-        driver.GoOnline(caller.ToActor(), now);
+        driver.GoOnline(caller.ToActor(), clock.UtcNow);
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-        // APRES LE COMMIT, PAS AVANT. Poser la position d'abord rendrait
-        // joignable un livreur dont le passage en ligne vient d'etre refuse.
-        await locations
-            .UpsertAsync(driver.Id, GeoPoint.Create(command.Latitude, command.Longitude), now, cancellationToken)
-            .ConfigureAwait(false);
 
         return DriverView.From(driver);
     }
@@ -49,7 +57,6 @@ public sealed class GoOnlineHandler(
 
 public sealed class GoOfflineHandler(
     IDriverRepository drivers,
-    IDriverLocationStore locations,
     IUnitOfWork unitOfWork,
     ICallerContext caller,
     IClock clock) : ICommandHandler<GoOfflineCommand, DriverView>
@@ -66,10 +73,17 @@ public sealed class GoOfflineHandler(
         driver.GoOffline(caller.ToActor(), clock.UtcNow);
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        // La position part avec lui : une position sans disponibilite n'a
-        // aucun usage, et la garder ferait apparaitre le livreur dans une
-        // recherche avant que la base ne le filtre.
-        await locations.RemoveAsync(driver.Id, cancellationToken).ConfigureAwait(false);
+        // LA POSITION NE PART PLUS AVEC LUI, ET CE N'EST PLUS GRAVE.
+        //
+        // Avant le 1er octobre 2026, ce handler effacait le point dans la foulee, et
+        // l'oublier aurait laisse un livreur rentre chez lui apparaitre dans une
+        // recherche. Aujourd'hui la vague croise toujours la base, qui le voit hors
+        // ligne : un point qui traine ne produit plus aucune offre par lui-meme.
+        //
+        // LA PASSERELLE L'EFFACE QUAND MEME, pour la carte de l'exploitation : sans
+        // cela, ops verrait encore pendant deux minutes quelqu'un qui vient de se
+        // deconnecter. C'est de l'hygiene d'affichage, plus une decision — et c'est
+        // precisement pour cela qu'elle peut vivre a la passerelle sans risque.
 
         return DriverView.From(driver);
     }

@@ -1,5 +1,6 @@
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Messaging.Kafka;
+using Hba.Contracts.Common.V1;
 using Hba.Contracts.Payment.V1;
 using Hba.Delivery.Application.Commands.Internal;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,13 +40,30 @@ public sealed class PaymentEventsConsumer(
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(services);
 
+        // CE QUI N'EST PAS UNE LIVRAISON NE NOUS CONCERNE PAS, ET CE TEST EST
+        // OBLIGATOIRE DEPUIS LE 1er OCTOBRE 2026.
+        //
+        // Payment regle aussi des COURSES DE PERSONNES, sur le meme topic. Sans ce
+        // filtre, l'encaissement d'une course arriverait ici avec son identifiant
+        // de course : ConfirmPaymentCommand chercherait une livraison qui n'existe
+        // pas, leverait NotFoundException, le message serait reessaye trois fois
+        // puis abandonne — sur un paiement pourtant encaisse, et une course qui ne
+        // partirait jamais.
+        //
+        // UNE NATURE NON PRECISEE EST AUSSI IGNOREE : elle signale un producteur
+        // fautif, et agir dessus serait deviner.
+        if (Nature(message) != ServiceType.Delivery)
+        {
+            return;
+        }
+
         var dispatcher = services.GetRequiredService<IDispatcher>();
 
         switch (message.PayloadCase)
         {
             case PaymentEvent.PayloadOneofCase.Succeeded:
                 var succeeded = message.Succeeded;
-                if (Guid.TryParse(succeeded.DeliveryId, out var paidId))
+                if (Guid.TryParse(succeeded.ReferenceId, out var paidId))
                 {
                     await dispatcher.SendAsync(
                         new ConfirmPaymentCommand(
@@ -59,7 +77,7 @@ public sealed class PaymentEventsConsumer(
 
             case PaymentEvent.PayloadOneofCase.Failed:
                 var failed = message.Failed;
-                if (Guid.TryParse(failed.DeliveryId, out var failedId))
+                if (Guid.TryParse(failed.ReferenceId, out var failedId))
                 {
                     await dispatcher.SendAsync(
                         new FailPaymentCommand(
@@ -83,7 +101,7 @@ public sealed class PaymentEventsConsumer(
             // livreur. On note la date, et l'ecran peut enfin le dire.
             case PaymentEvent.PayloadOneofCase.Refunded:
                 var refunded = message.Refunded;
-                if (Guid.TryParse(refunded.DeliveryId, out var refundedId))
+                if (Guid.TryParse(refunded.ReferenceId, out var refundedId))
                 {
                     await dispatcher.SendAsync(
                         new MarkDeliveryRefundedCommand(
@@ -100,4 +118,19 @@ public sealed class PaymentEventsConsumer(
                 break;
         }
     }
+
+    /// <summary>
+    /// La nature de la mission portee par le message, quel que soit son payload.
+    ///
+    /// CHAQUE PAYLOAD PORTE SON PROPRE CHAMP, parce que le contrat met la nature
+    /// dans les messages et non dans l'enveloppe : l'enveloppe decrit l'EMETTEUR —
+    /// Payment, dans tous les cas — pas la mission.
+    /// </summary>
+    private static ServiceType Nature(PaymentEvent message) => message.PayloadCase switch
+    {
+        PaymentEvent.PayloadOneofCase.Succeeded => message.Succeeded.ServiceType,
+        PaymentEvent.PayloadOneofCase.Failed => message.Failed.ServiceType,
+        PaymentEvent.PayloadOneofCase.Refunded => message.Refunded.ServiceType,
+        _ => ServiceType.Unspecified,
+    };
 }

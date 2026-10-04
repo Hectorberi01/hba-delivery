@@ -575,6 +575,35 @@ public sealed class Delivery : AggregateRoot
             occurredAt));
     }
 
+    /// <summary>
+    /// Ce qui revient au livreur quand la course se clôt sans aboutir.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LA RÈGLE TIENT EN UNE LIGNE, ET ELLE EST ICI PARCE QU'ELLE EST MÉTIER
+    /// (points 3 et 34, tranchés le 2 octobre 2026). Sans livreur affecté,
+    /// personne ne s'est déplacé : la retenue est nulle et l'annulation gratuite,
+    /// quel que soit le taux de la grille. Avec un livreur, c'est le montant figé
+    /// par le devis — ni recalculé ici, ni relu dans une grille.
+    ///
+    /// LA MÊME RÈGLE VAUT POUR L'ÉCHEC ET POUR L'ANNULATION, et ce n'est pas un
+    /// raccourci : dans les deux cas le livreur s'est déplacé et n'a rien remis.
+    /// Un incident déclaré par le livreur passe par là comme une annulation
+    /// demandée par le client.
+    ///
+    /// ELLE NE DÉPEND PAS DU STATUT, SEULEMENT DE LA PRÉSENCE D'UN LIVREUR. Un
+    /// livreur affecté qui n'est pas encore parti a quand même accepté et cessé
+    /// de recevoir des offres ; distinguer « affecté » de « en route » demanderait
+    /// une décision que personne n'a prise, et elle n'est pas prise ici.
+    /// </remarks>
+    /// <remarks>
+    /// PUBLIQUE PARCE QUE L'ECRAN POSE LA MEME QUESTION QUE L'EVENEMENT. Le client
+    /// doit voir ce qui sera retenu AVANT de confirmer son annulation ; recalculer
+    /// la regle en Dart la mettrait a deux endroits, et le jour ou l'un des deux
+    /// bougerait l'ecran promettrait autre chose que ce qui serait preleve.
+    /// </remarks>
+    public long RetenueDue() => Driver is null ? 0 : Pricing.CancellationFee.Amount;
+
     public void Cancel(string reason, Actor actor, DateTimeOffset occurredAt)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -587,7 +616,7 @@ public sealed class Delivery : AggregateRoot
         ClosureReason = reason;
         CompletedAt = occurredAt;
 
-        Raise(new DeliveryCancelled(Id, previous, reason, actor, occurredAt));
+        Raise(new DeliveryCancelled(Id, previous, reason, RetenueDue(), actor, occurredAt));
     }
 
     /// <summary>
@@ -641,7 +670,7 @@ public sealed class Delivery : AggregateRoot
         ClosureReason = reason;
         CompletedAt = occurredAt;
 
-        Raise(new DeliveryFailed(Id, previous, reason, actor, occurredAt));
+        Raise(new DeliveryFailed(Id, previous, reason, RetenueDue(), actor, occurredAt));
     }
 
     /// <summary>
@@ -707,11 +736,11 @@ public sealed class Delivery : AggregateRoot
 
         if (targetStatus == DeliveryStatus.Cancelled)
         {
-            Raise(new DeliveryCancelled(Id, previous, reason, actor, occurredAt));
+            Raise(new DeliveryCancelled(Id, previous, reason, RetenueDue(), actor, occurredAt));
         }
         else
         {
-            Raise(new DeliveryFailed(Id, previous, reason, actor, occurredAt));
+            Raise(new DeliveryFailed(Id, previous, reason, RetenueDue(), actor, occurredAt));
         }
     }
 

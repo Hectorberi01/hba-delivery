@@ -1,4 +1,5 @@
 using Hba.BuildingBlocks.Domain;
+using Hba.Pricing.Domain.Exceptions;
 using Hba.Pricing.Domain.Tariffs;
 using Hba.Pricing.Domain.ValueObjects;
 
@@ -19,6 +20,7 @@ public sealed class Quote : AggregateRoot
         Guid id,
         string tariffVersion,
         string zoneCode,
+        ServiceType serviceType,
         VehicleType vehicleType,
         GeoPoint pickup,
         GeoPoint dropoff,
@@ -30,6 +32,7 @@ public sealed class Quote : AggregateRoot
     {
         TariffVersion = tariffVersion;
         ZoneCode = zoneCode;
+        ServiceType = serviceType;
         VehicleType = vehicleType;
         Pickup = pickup;
         Dropoff = dropoff;
@@ -39,6 +42,7 @@ public sealed class Quote : AggregateRoot
         VariableFare = amounts.VariableFare;
         SurgeFare = amounts.SurgeFare;
         DriverEarning = amounts.DriverEarning;
+        CancellationFee = amounts.CancellationFee;
         CreatedAt = createdAt;
         ExpiresAt = expiresAt;
     }
@@ -46,6 +50,18 @@ public sealed class Quote : AggregateRoot
     public string TariffVersion { get; private set; } = string.Empty;
 
     public string ZoneCode { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// La nature chiffrée : colis ou course de personnes.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ELLE EST GARDÉE POUR ÊTRE VÉRIFIÉE À LA CONSOMMATION, et c'est tout son objet.
+    /// Un devis de colis est moins cher qu'un devis de course sur la même distance :
+    /// sans ce champ, rien n'empêcherait de payer une course au prix d'un paquet. C'est
+    /// la même classe de faille que le trajet, déjà refermée par QUOTE_TRIP_MISMATCH.
+    /// </remarks>
+    public ServiceType ServiceType { get; private set; }
 
     public VehicleType VehicleType { get; private set; }
 
@@ -64,6 +80,16 @@ public sealed class Quote : AggregateRoot
     public MoneyXof SurgeFare { get; private set; } = null!;
 
     public MoneyXof DriverEarning { get; private set; } = null!;
+
+    /// <summary>
+    /// Retenue due si le client annule APRÈS l'affectation d'un livreur, figée au
+    /// taux de la grille au moment du devis. Zéro vaut annulation gratuite.
+    ///
+    /// ELLE REVIENT EN ENTIER AU LIVREUR : ce n'est pas une part du total à
+    /// partager, c'est le dédommagement d'un déplacement engagé. Voir
+    /// <c>Tariff.CancellationFeeBasisPoints</c>.
+    /// </summary>
+    public MoneyXof CancellationFee { get; private set; } = null!;
 
     public DateTimeOffset CreatedAt { get; private set; }
 
@@ -85,7 +111,8 @@ public sealed class Quote : AggregateRoot
         GeoPoint dropoff,
         RouteMeasurement route,
         DateTimeOffset createdAt,
-        TimeSpan lifetime)
+        TimeSpan lifetime,
+        QuoteInputs? inputs = null)
     {
         ArgumentNullException.ThrowIfNull(tariff);
         ArgumentNullException.ThrowIfNull(pickup);
@@ -97,12 +124,13 @@ public sealed class Quote : AggregateRoot
             throw new DomainException("INVALID_QUOTE_LIFETIME", "Un devis doit avoir une durée de validité positive.");
         }
 
-        var amounts = QuoteCalculator.Compute(tariff, route);
+        var amounts = QuoteCalculator.Compute(tariff, route, inputs);
 
         return new Quote(
             id,
             tariff.TariffVersion,
             tariff.ZoneCode,
+            tariff.ServiceType,
             tariff.VehicleType,
             pickup,
             dropoff,
@@ -159,10 +187,32 @@ public sealed class Quote : AggregateRoot
     /// ce qu'il a chiffre ; laisser le controle au service appelant reviendrait a
     /// lui demander de se surveiller lui-meme.
     /// </remarks>
-    public void Consume(Guid deliveryId, GeoPoint pickup, GeoPoint dropoff, DateTimeOffset now)
+    public void Consume(
+        Guid deliveryId,
+        ServiceType serviceType,
+        GeoPoint pickup,
+        GeoPoint dropoff,
+        DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(pickup);
         ArgumentNullException.ThrowIfNull(dropoff);
+
+        // LA NATURE SE VERIFIE, COMME LE TRAJET, ET POUR LA MEME RAISON.
+        //
+        // Un devis de colis est moins cher qu'un devis de course sur la meme distance
+        // — sa grille a d'autres montants. Sans ce controle, un telephone pourrait
+        // demander un devis de colis puis l'utiliser pour payer une course : le prix
+        // serait plausible et faux, et rien dans les journaux ne le dirait. C'est
+        // exactement la faille que QUOTE_TRIP_MISMATCH a refermee pour la distance.
+        //
+        // NON PRECISEE EST REFUSEE AUSSI : un appelant qui oublie le champ ne doit pas
+        // consommer n'importe quel devis.
+        if (serviceType != ServiceType)
+        {
+            throw new DomainException(
+                PricingErrorCodes.QuoteServiceMismatch,
+                $"Ce devis a ete etabli pour une prestation de type {ServiceType}, pas {serviceType}.");
+        }
 
         if (deliveryId == Guid.Empty)
         {

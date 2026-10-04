@@ -14,13 +14,26 @@ namespace Hba.Payment.Infrastructure.Services.FedaPay;
 /// <summary>
 /// Adaptateur FedaPay.
 ///
-/// LE PARCOURS RETENU EST LA PAGE DE PAIEMENT HEBERGEE, en deux appels : on
-/// cree une transaction, puis on demande son jeton, qui rend l'adresse ou
-/// envoyer le payeur. L'alternative — pousser directement une demande sur le
-/// telephone — oblige a choisir l'operateur (MTN, Moov, Celtiis) transaction
-/// par transaction, information que l'application ne collecte pas et que le
-/// client lui-meme confond souvent. La page hebergee couvre les trois, plus la
-/// carte, avec une seule integration.
+/// LE PARCOURS RETENU EST LA PAGE DE PAIEMENT HEBERGEE, en un appel : on cree
+/// la transaction, et sa reponse porte deja l'adresse ou envoyer le payeur. Il
+/// y choisit son operateur — MTN, Moov ou Celtiis — et son numero, puis valide
+/// avec son code PIN.
+///
+/// CE PARCOURS A ETE RETIRE LE 3 OCTOBRE 2026 AU MATIN ET REMIS LE MEME JOUR.
+/// L'idee etait de pousser la demande directement sur le telephone, sans rien a
+/// ouvrir. Le chemin existe bien — POST /v1/mtn_open, A LA RACINE, pas sous
+/// transactions/ — mais le fournisseur le refuse sur ce compte :
+///
+///     400 {"message":"Operation non autorisee","errors":{},"model":null}
+///
+/// SON CORPS D'ERREUR EST VIDE, ET C'EST CE QUI TRANCHE. Quand c'est la requete
+/// qui cloche, FedaPay nomme le champ fautif ; quand il ne nomme rien, c'est
+/// l'operation elle-meme qui n'est pas permise — une methode de collecte non
+/// ouverte cote fournisseur. Aucune ecriture ne leve cela.
+///
+/// POUR REESSAYER UN JOUR : faire activer MTN et Moov sur le compte marchand,
+/// puis relancer scripts/fedapay-sonde-poussee.sh, qui separe en trois essais
+/// l'operateur, la completude du client et le compte.
 ///
 /// AUCUN DEBIT N'EST POSSIBLE SANS LE CLIENT : chez FedaPay comme chez MTN
 /// MoMo, le payeur valide sur son telephone avec son code PIN. Il n'existe ni
@@ -31,23 +44,15 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    /// <summary>Noms sous lesquels l'adresse de paiement peut arriver.</summary>
-    private static readonly string[] UrlFields = ["payment_url", "url"];
-
-    /// <summary>
-    /// Indicatifs de la zone ou l'agregateur encaisse, et leur code ISO.
-    /// </summary>
+    /// <summary>Noms sous lesquels l'adresse de la page peut arriver.</summary>
     ///
     /// <remarks>
-    /// CETTE TABLE EXISTE PARCE QU'UN NUMERO NE DIT PAS SON PAYS TOUT SEUL, et
-    /// que le code precedent le decidait pour lui : il collait
-    /// « CustomerCountry » — « bj » — sur le numero du jeton, quel qu'il soit.
-    /// Un client inscrit avec un numero francais partait donc chez FedaPay
-    /// comme « +33… au Benin ». La transaction se creait, la page s'ouvrait, et
-    /// le debit echouait sans rien dire : le fournisseur sollicite le numero du
-    /// client quand la demande n'en porte pas d'autre, et aucun operateur
-    /// beninois ne debite un +33.
+    /// DEUX NOMS POUR LA MEME CHOSE, selon le point interroge : la creation
+    /// d'une transaction la rend sous « payment_url », le point /token sous
+    /// « url ». Chercher les deux evite de dependre de celui qui a repondu.
     /// </remarks>
+    private static readonly string[] UrlFields = ["payment_url", "url"];
+
     private static readonly (string Indicatif, string Iso)[] Indicatifs =
     [
         ("+229", "bj"),
@@ -66,17 +71,17 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
 
     public async Task<ProviderCheckout> OpenCheckoutAsync(
         Guid paymentIntentId,
-        Guid deliveryId,
+        ServiceType serviceType,
+        Guid referenceId,
         MoneyXof amount,
         string payerPhone,
-        string? returnUrl,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(amount);
 
         var request = new Dictionary<string, object?>
         {
-            ["description"] = $"Course HBA {deliveryId}",
+            ["description"] = Libelle(serviceType, referenceId),
 
             // ENTIER, SANS CENTIMES. Le XOF n'a pas de subdivision : 1180
             // signifie 1180 FCFA, et toute multiplication par cent facturerait
@@ -84,48 +89,44 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
             ["amount"] = amount.Amount,
             ["currency"] = new Dictionary<string, string> { ["iso"] = MoneyXof.CurrencyCode },
 
-            // C'est ce qui permet a la finance de rapprocher une ligne FedaPay
-            // d'une course sans passer par nous.
+            // C'EST PAR LA QUE FINANCE RAPPROCHE. Verifie au tableau de bord du
+            // fournisseur le 3 octobre 2026 : ces trois cles y apparaissent
+            // telles quelles sur chaque transaction, et elles suffisent a
+            // retrouver la mission sans passer par nous.
             ["custom_metadata"] = new Dictionary<string, string>
             {
                 ["payment_intent_id"] = paymentIntentId.ToString(),
-                ["delivery_id"] = deliveryId.ToString(),
+                ["service_type"] = serviceType.ToString().ToLowerInvariant(),
+                ["reference_id"] = referenceId.ToString(),
             },
         };
 
         // Un callback_url vide n'est pas un callback_url : on omet la cle
         // plutot que d'envoyer null, que le fournisseur refuse.
-        var callback = string.IsNullOrWhiteSpace(returnUrl) ? _options.CallbackUrl : returnUrl;
-        if (!string.IsNullOrWhiteSpace(callback))
+        if (!string.IsNullOrWhiteSpace(_options.CallbackUrl))
         {
-            request["callback_url"] = callback;
+            request["callback_url"] = _options.CallbackUrl;
         }
 
-        // UN CLIENT DE PLUS CHEZ LE FOURNISSEUR A CHAQUE COURSE, et c'est le
+        // UN CLIENT DE PLUS CHEZ LE FOURNISSEUR A CHAQUE MISSION, et c'est le
         // prix de ce qui suit. Verifie le 29 septembre 2026 : deux creations
         // portant le MEME numero produisent deux « customer_id » differents —
         // le fournisseur ne rapproche pas sur le telephone, il rapproche sur
-        // l'ADRESSE DE COURRIEL, que nous n'envoyons pas. Sa console se
-        // remplira donc de « Unknown Unknown » sans courriel, un par course.
+        // l'ADRESSE DE COURRIEL, que nous n'envoyons pas. Sa console affiche
+        // donc « Unknown Unknown » sur chacune de nos lignes, ce que le tableau
+        // de bord a confirme le 3 octobre.
         //
-        // CE N'EST PAS UN OUBLI QU'ON CORRIGE EN UNE LIGNE. Delivery ne detient
+        // CE N'EST PAS UN OUBLI QU'ON CORRIGE EN UNE LIGNE. Payment ne detient
         // que l'identifiant du client ; son nom et son courriel vivent dans
-        // Directory, et ce depot refuse deliberement d'appeler Directory dans
-        // le chemin de paiement — Directory injoignable, et plus personne ne
-        // peut commander. Le rapprochement comptable passe donc par
-        // « custom_metadata », qui porte la course et l'intention.
+        // Identity, et ce depot refuse deliberement d'appeler Identity dans le
+        // chemin de paiement — Identity injoignable, et plus personne ne peut
+        // commander. Le rapprochement passe donc par « custom_metadata ».
         //
-        // LE NUMERO N'EST TRANSMIS QUE S'IL EST DU PAYS OU L'ON ENCAISSE.
-        //
-        // Il ne sert qu'a preremplir la page et a servir de cible de repli : le
-        // payeur choisit de toute facon son operateur et son numero sur l'ecran
-        // du fournisseur. En transmettre un qui ne peut pas etre debite est
-        // donc sans benefice et avec un cout — celui d'une transaction qui
-        // echoue sans motif lisible.
-        //
-        // ON N'ENVOIE PAS DE « customer » SANS NUMERO. La documentation le
-        // donne pour facultatif, et un objet client vide n'apporte rien : le
-        // rapprochement comptable passe par custom_metadata, pas par lui.
+        // LE NUMERO N'EST TRANSMIS QUE S'IL EST DU PAYS OU L'ON ENCAISSE. Il ne
+        // sert qu'a preremplir la page : le payeur choisit de toute facon son
+        // operateur et son numero sur l'ecran du fournisseur. En transmettre un
+        // qui ne peut pas etre debite est sans benefice et avec un cout — celui
+        // d'une transaction qui echoue sans motif lisible.
         var paysDuPayeur = PaysDuNumero(payerPhone);
 
         if (paysDuPayeur is not null
@@ -156,7 +157,7 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
         // LA CREATION REND DEJA « payment_url ». Un second appel au point
         // /token rendrait la meme adresse : le faire systematiquement doublait
         // la latence d'ouverture d'un paiement, et donc le risque de depasser
-        // l'echeance que Delivery nous accorde. Il ne reste qu'en repli, au
+        // l'echeance que l'appelant nous accorde. Il ne reste qu'en repli, au
         // cas ou une reponse ne porterait pas l'adresse.
         //
         // VERIFIE LE 29 SEPTEMBRE 2026, ET IL AVAIT ETE MIS EN DOUTE DEUX FOIS.
@@ -165,16 +166,14 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
         // « payment_url: null » — deux raisons de croire ce commentaire faux.
         // Trois creations reelles ont tranche : la reponse de creation porte
         // « payment_url » ET « payment_token ». Le repli n'a jamais servi.
-        // Voir scripts/fedapay-essai.sh, qui repose la question en trente
-        // secondes.
         var checkoutUrl = ReadUrl(transaction);
 
         if (checkoutUrl is null)
         {
-            var token = await PostAsync($"transactions/{reference}/token", null, cancellationToken)
+            var jeton = await PostAsync($"transactions/{reference}/token", null, cancellationToken)
                 .ConfigureAwait(false);
 
-            checkoutUrl = ReadUrl(token);
+            checkoutUrl = ReadUrl(jeton);
         }
 
         if (checkoutUrl is null)
@@ -185,9 +184,10 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
         }
 
         logger.LogInformation(
-            "Transaction {Reference} ouverte chez FedaPay pour la livraison {DeliveryId} ({Amount} XOF).",
+            "Transaction {Reference} ouverte chez FedaPay pour la mission {Nature} {ReferenceId} ({Amount} XOF).",
             reference,
-            deliveryId,
+            serviceType,
+            referenceId,
             amount.Amount);
 
         return new ProviderCheckout(reference, checkoutUrl);
@@ -335,8 +335,8 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
     }
 
     /// <summary>
-    /// Adresse de la page de paiement. Elle s'appelle <c>payment_url</c> dans
-    /// l'objet transaction et <c>url</c> dans la reponse du point /token.
+    /// Adresse de la page de paiement, sous celui de ses deux noms qui est
+    /// present.
     /// </summary>
     private static string? ReadUrl(JsonElement element)
     {
@@ -353,9 +353,6 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
         return null;
     }
 
-    /// <summary>
-    /// Pays d'un numero E.164, ou null si son indicatif n'est pas de la zone.
-    /// </summary>
     private static string? PaysDuNumero(string? numero)
     {
         if (string.IsNullOrWhiteSpace(numero))
@@ -389,4 +386,14 @@ internal sealed class FedaPayClient(HttpClient http, IOptions<FedaPayOptions> op
                 PaymentErrorCodes.ProviderRejected,
                 "Identifiant de transaction illisible.");
     }
+
+    /// <summary>
+    /// Ce que le payeur lit sur la demande qui s'affiche sur son telephone,
+    /// puis sur son releve.
+    /// </summary>
+    private static string Libelle(ServiceType serviceType, Guid referenceId) => serviceType switch
+    {
+        ServiceType.Ride => $"Course HBA {referenceId}",
+        _ => $"Livraison HBA {referenceId}",
+    };
 }

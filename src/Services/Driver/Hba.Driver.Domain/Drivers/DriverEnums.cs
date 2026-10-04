@@ -23,10 +23,8 @@ public enum OperationalStatus
     Unspecified = 0,
     Offline = 1,
     Available = 2,
-
     /// <summary>Une offre lui est reservee. Il ne peut pas en recevoir une autre.</summary>
     Reserved = 3,
-
     OnMission = 4,
 }
 

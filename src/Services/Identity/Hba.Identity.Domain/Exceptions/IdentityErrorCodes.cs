@@ -42,6 +42,9 @@ public static class IdentityErrorCodes
 
     public const string InvalidRoles = "INVALID_ROLES";
 
+    /// <summary>Nom affiché vide, ou trop long pour la colonne (120).</summary>
+    public const string InvalidDisplayName = "INVALID_DISPLAY_NAME";
+
     /// <summary>Ce compte est déjà rattaché à un livreur.</summary>
     public const string DriverAlreadyLinked = "DRIVER_ALREADY_LINKED";
 

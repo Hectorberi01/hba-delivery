@@ -10,7 +10,7 @@ using Hba.Payment.Domain.ValueObjects;
 namespace Hba.Payment.Application.Features.Payments.Commands;
 
 /// <summary>
-/// Ouverture d'un paiement pour une livraison.
+/// Ouverture d'un paiement pour une MISSION : une livraison, ou une course.
 ///
 /// LE MONTANT VIENT DE L'APPELANT ET C'EST ASSUME : Delivery a fige le devis
 /// aupres de Pricing avant d'appeler ici, et c'est ce montant fige qu'il
@@ -19,12 +19,12 @@ namespace Hba.Payment.Application.Features.Payments.Commands;
 /// </summary>
 public sealed record CreatePaymentIntentCommand(
     string IdempotencyKey,
-    Guid DeliveryId,
+    ServiceType ServiceType,
+    Guid ReferenceId,
     string PayerId,
     string PayerPhone,
     long Amount,
-    PaymentMethod Method,
-    string? ReturnUrl) : ICommand<PaymentIntentView>;
+    PaymentMethod Method) : ICommand<PaymentIntentView>;
 
 public sealed class CreatePaymentIntentHandler(
     IPaymentIntentRepository intents,
@@ -37,8 +37,8 @@ public sealed class CreatePaymentIntentHandler(
     private const string IdempotencyScope = "payment:create-intent";
 
     /// <summary>
-    /// Duree de vie indicative de la page de paiement. Elle ne sert jamais a
-    /// refuser un encaissement tardif : voir <see cref="PaymentIntent.ExpiresAt"/>.
+    /// Duree de vie indicative de l'intention. Elle ne sert jamais a refuser un
+    /// encaissement tardif : voir <see cref="PaymentIntent.ExpiresAt"/>.
     /// </summary>
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
 
@@ -50,9 +50,10 @@ public sealed class CreatePaymentIntentHandler(
 
         EnsureCallerMayPayFor(command.PayerId);
 
-        // Rejeu explicite : la meme cle rend la meme intention, et donc la meme
-        // adresse de paiement. Le client qui reessaie ne se voit pas facturer
-        // deux fois.
+        // Rejeu explicite : la meme cle rend la meme intention, et AUCUNE
+        // seconde transaction n'est ouverte chez le fournisseur. Le client qui
+        // reessaie retombe sur la meme page de paiement, et ne se voit donc pas
+        // facturer deux fois la meme mission.
         if (!string.IsNullOrWhiteSpace(command.IdempotencyKey))
         {
             var known = await idempotency
@@ -68,10 +69,15 @@ public sealed class CreatePaymentIntentHandler(
             }
         }
 
-        // Filet de securite quand l'appelant n'a pas fourni de cle : une
-        // livraison n'a qu'une intention vivante. Sans ce garde-fou, deux
-        // appels concurrents ouvriraient deux transactions payables.
-        var active = await intents.FindActiveByDeliveryAsync(command.DeliveryId, cancellationToken)
+        // Filet de securite quand l'appelant n'a pas fourni de cle : une mission
+        // n'a qu'une intention vivante. Sans ce garde-fou, deux appels concurrents
+        // ouvriraient deux transactions payables.
+        var active = await intents
+            .FindActiveByReferenceAsync(
+                command.ServiceType,
+                command.ReferenceId,
+                PaymentPurpose.Mission,
+                cancellationToken)
             .ConfigureAwait(false);
 
         if (active is not null)
@@ -83,7 +89,8 @@ public sealed class CreatePaymentIntentHandler(
 
         var intent = PaymentIntent.Create(
             Guid.CreateVersion7(),
-            command.DeliveryId,
+            command.ServiceType,
+            command.ReferenceId,
             command.PayerId,
             command.PayerPhone,
             MoneyXof.FromPositive(command.Amount),
@@ -91,19 +98,13 @@ public sealed class CreatePaymentIntentHandler(
             now,
             Lifetime);
 
-        // L'APPEL SORTANT PRECEDE LE COMMIT, ET CE N'EST PAS ANODIN. Si
-        // l'enregistrement echoue ensuite, une transaction reste ouverte chez le
-        // fournisseur sans intention en face. C'est le moindre mal : l'inverse —
-        // enregistrer d'abord — laisserait une intention sans adresse de
-        // paiement, donc un client bloque devant un ecran vide. Une transaction
-        // orpheline, elle, n'est jamais payee et se solde d'elle-meme.
         var checkout = await provider
             .OpenCheckoutAsync(
                 intent.Id,
-                command.DeliveryId,
+                command.ServiceType,
+                command.ReferenceId,
                 intent.Amount,
                 command.PayerPhone,
-                command.ReturnUrl,
                 cancellationToken)
             .ConfigureAwait(false);
 

@@ -1,0 +1,81 @@
+# Déploiement du service ride. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne dépend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possède pas. Les réseaux sont
+# EXTERNES — la pile d'infrastructure les crée une fois — et tout ce qui change
+# d'un environnement à l'autre passe par le .env posé à côté.
+#
+#   cd src/Services/Ride && docker compose up -d
+#
+# Sur un serveur qui n'a pas les sources :
+#   docker compose pull && docker compose up -d --no-build
+
+name: hba-ride
+
+services:
+  ride:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-ride:${HBA_TAG:-latest}
+
+    # `build` sert au poste de développement et à la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Services/Ride/Hba.Ride.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte un
+      # mot de passe de developpement. La forme :? fait REFUSER le demarrage par
+      # Compose, avant tout conteneur — sans elle, une variable absente devient
+      # la chaine vide et la base partirait ouverte a hba/hba.
+      ConnectionStrings__RideDb: ${RIDEDB_CONNECTION:?RIDEDB_CONNECTION absent - renseignez-le dans le .env du service}
+
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # LE PRIX NE SE CALCULE PAS ICI. Ride consomme un devis chez Pricing et en
+      # fige le montant : sans cette adresse, aucune course ne peut etre
+      # commandee. Le port 8081 porte le gRPC, le 8080 le REST.
+      Services__Pricing: ${PRICING_GRPC:-http://pricing:8081}
+
+      # LE PAIEMENT PRECEDE LA RECHERCHE D'UN CHAUFFEUR (point 35) : sans cette
+      # adresse, aucune course ne peut etre payee, donc aucune ne part.
+      Services__Payment: ${PAYMENT_GRPC:-http://payment:8081}
+
+      # FUSEAU METIER (ADR 0019). Les instants circulent en UTC ; c'est ici que
+      # le service apprend dans quel calendrier decouper les journees.
+      Time__ZoneId: ${HBA_TIMEZONE:-Africa/Porto-Novo}
+
+      # IDENTITE DU SERVICE (ADR 0018). Ride appelle Pricing et Payment depuis
+      # des travaux de fond — la consommation du devis, la cloture, le
+      # remboursement — ou aucun jeton utilisateur n'existe a reporter. Sans ces
+      # trois lignes, Hba.Ride.Infrastructure refuse de demarrer : c'est ce qui
+      # a tenu le service a terre depuis sa creation, et le message le disait.
+      #
+      # LA FORME :? EST CELLE DE DELIVERY ET DISPATCH, pas celle de Directory et
+      # Notification. Un secret absent ferait demarrer un service qui accepte
+      # des courses et ne peut en payer aucune : mieux vaut qu'il refuse de
+      # partir.
+      #
+      # LA MEME VALEUR EST ATTENDUE COTE IDENTITY, sous
+      # « ServiceClients__Clients__ride ». Les deux se lisent dans le .env de
+      # leur service respectif, et doivent porter le meme secret.
+      ServiceToken__IdentityAddress: ${IDENTITY_GRPC:-http://identity:8081}
+      ServiceToken__ClientId: ride
+      ServiceToken__ClientSecret: ${SERVICE_SECRET_RIDE:?SERVICE_SECRET_RIDE absent - doit valoir la meme chose que cote Identity}
+
+      Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command: ${EF_SQL_LEVEL:-Warning}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

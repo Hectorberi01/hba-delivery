@@ -51,20 +51,21 @@ public sealed class LoopbackPaymentProvider(
 
     public Task<ProviderCheckout> OpenCheckoutAsync(
         Guid paymentIntentId,
-        Guid deliveryId,
+        ServiceType serviceType,
+        Guid referenceId,
         MoneyXof amount,
         string payerPhone,
-        string? returnUrl,
         CancellationToken cancellationToken)
     {
         var reference = $"LOOPBACK-{paymentIntentId:N}"[..18].ToUpperInvariant();
         _connues[reference] = 0;
 
         logger.LogWarning(
-            "PAIEMENT FACTICE {Reference} pour la livraison {DeliveryId} : {Amount} XOF, denouement « {Outcome} » "
-            + "dans {Delai} s. Aucun argent ne circule.",
+            "PAIEMENT FACTICE {Reference} pour la mission {Nature} {ReferenceId} : {Amount} XOF, "
+            + "denouement « {Outcome} » dans {Delai} s. Aucun argent ne circule.",
             reference,
-            deliveryId,
+            serviceType,
+            referenceId,
             amount.Amount,
             _options.Outcome,
             Delai.TotalSeconds);
@@ -73,12 +74,14 @@ public sealed class LoopbackPaymentProvider(
         // l'ecriture aboutit toujours et ne bloque pas l'appel en cours.
         _aDenouer.Writer.TryWrite(reference);
 
-        // Pas de page a ouvrir : il n'y a pas de fournisseur. On renvoie
-        // l'adresse de retour quand l'appelant en fournit une, pour que
-        // l'application ait quelque chose de valide a lancer.
+        // L'ADRESSE RENDUE NE MENE NULLE PART, ET C'EST VOLONTAIRE. Elle doit
+        // traverser toute la chaine — Payment, Ride ou Delivery, la passerelle,
+        // l'application — pour qu'un chainon qui la perdrait se voie en
+        // developpement et non le jour ou le vrai fournisseur est branche. Le
+        // denouement, lui, vient de la file, pas de cette page.
         return Task.FromResult(new ProviderCheckout(
             reference,
-            returnUrl ?? "https://loopback.hba.invalid/paiement-factice"));
+            $"https://loopback.hba.local/paiement/{reference}"));
     }
 
     public Task<ProviderPayment> GetPaymentAsync(string providerReference, CancellationToken cancellationToken)

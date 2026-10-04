@@ -29,7 +29,7 @@ export function ChoixPeriode({
     <div
       role="group"
       aria-label="Période"
-      className="creux inline-flex rounded-2xl p-1.5"
+      className="creux inline-flex rounded-xl p-1"
     >
       {PERIODES.map((periode) => (
         <button
@@ -37,13 +37,14 @@ export function ChoixPeriode({
           type="button"
           onClick={() => onChange(periode.cle)}
           aria-pressed={valeur === periode.cle}
-          // CREUX AUTOUR, RELIEF DEDANS. Le groupe est enfonce dans la
-          // page et le segment choisi ressort : c'est la seule combinaison
-          // ou l'oeil lit « un parmi plusieurs » sans avoir besoin d'une
-          // couleur de marque en plus.
-          className={`rounded-xl px-3.5 py-1.5 text-sm font-medium transition ${
+          // LE SEGMENT CHOISI EST UN APLAT DE MARQUE, et c'est un changement
+          // de signal assume (2 octobre 2026). L'ancien style posait un groupe
+          // creuse et faisait ressortir le segment en relief ; un style plat n'a
+          // ni l'un ni l'autre. Reste la couleur — la seule chose qui, sans
+          // relief, dise « un parmi plusieurs » d'un coup d'oeil.
+          className={`rounded-lg px-3.5 py-1.5 text-sm font-medium transition ${
             valeur === periode.cle
-              ? 'relief-doux text-marque'
+              ? 'bg-marque text-white'
               : 'text-encre-2 hover:text-encre'
           }`}
         >

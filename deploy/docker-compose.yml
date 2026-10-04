@@ -149,12 +149,19 @@ services:
       timeout: 5s
       retries: 12
 
-  # Distances et durées. Le fichier .osm.pbf du Bénin doit être placé dans
-  # deploy/.data/osrm/ avant le premier démarrage (voir deploy/README.md).
+  # Distances et durées. La carte doit être préparée dans deploy/.data/osrm/
+  # avant le premier démarrage : « make carte » s'en charge (voir deploy/README.md).
+  #
+  # LA CARTE CHARGÉE EST UNE VARIABLE, PAS UNE CONSTANTE. L'application est
+  # testée en France avant d'être déployée au Bénin : une carte en dur aurait
+  # obligé à modifier ce fichier à chaque bascule, et à le remodifier en sens
+  # inverse au déploiement. « make carte REGION=… » écrit OSRM_CARTE dans
+  # deploy/.env, que Compose lit tout seul ; les deux cartes peuvent coexister
+  # dans .data/osrm, chacune préparée une seule fois.
   osrm:
     networks: [hba-internal]
     image: ghcr.io/project-osrm/osrm-backend:latest
-    command: ["osrm-routed", "--algorithm", "mld", "/data/benin-latest.osrm"]
+    command: ["osrm-routed", "--algorithm", "mld", "/data/${OSRM_CARTE:-benin-latest}.osrm"]
     ports:
       - "5000:5000"
     volumes:

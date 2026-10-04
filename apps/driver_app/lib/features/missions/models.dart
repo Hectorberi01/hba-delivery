@@ -45,6 +45,30 @@ DateTime? _time(Object? value) {
 
 String _text(Object? value) => value is String ? value : '';
 
+/// Une enumeration du contrat, dans l'etat ou la passerelle la rend.
+///
+/// ELLE PEUT ARRIVER EN ENTIER, ET C'EST UN PIEGE CONNU DU DEPOT. Les routes
+/// qui relaient le message protobuf tel quel laissent System.Text.Json
+/// serialiser les enumerations en NOMBRES ; celles qui mettent en forme a la
+/// main rendent des noms. L'offre passe par la premiere. Rendre la valeur
+/// brute en chaine laisse chaque appelant la comparer comme il veut, sans
+/// qu'un « 2 » soit confondu avec une absence.
+String _enumere(Object? value) => switch (value) {
+      final String s => s,
+      final int n => '$n',
+      _ => '',
+    };
+
+/// Le nom canonique d'une nature de mission.
+///
+/// TROIS ORTHOGRAPHES CIRCULENT : le nombre du contrat (2), le nom C# de
+/// l'enumeration (« Ride ») et le mot francais des routes de la passerelle
+/// (« course »). Les trois disent la meme chose.
+String _nature(String brut) => switch (brut.trim().toLowerCase()) {
+      '2' || 'ride' || 'course' || 'service_type_ride' => 'course',
+      _ => 'livraison',
+    };
+
 /// Une coordonnee d'un hba.common.v1.GeoPoint imbrique, ou zero.
 double _coordonnee(Object? point, String champ) =>
     point is Map ? (point[champ] as num?)?.toDouble() ?? 0 : 0;
@@ -177,7 +201,9 @@ class Place {
 class Offer {
   const Offer({
     required this.id,
-    required this.deliveryId,
+    required this.referenceId,
+    required this.nature,
+    required this.vehiculeAttendu,
     required this.expiresAt,
     required this.pickupLandmark,
     required this.distanceToPickupMeters,
@@ -188,7 +214,40 @@ class Offer {
   });
 
   final String id;
-  final String deliveryId;
+  /// La mission que cette offre propose.
+  ///
+  /// « referenceId » ET NON « deliveryId », ET CE N'EST PAS COSMETIQUE. La
+  /// passerelle rend le message protobuf tel quel, dont le champ s'appelle
+  /// « reference_id » : l'ancien nom lisait une cle absente et valait donc
+  /// TOUJOURS la chaine vide. Rien ne cassait pour une seule raison — aucun
+  /// ecran ne s'en servait encore.
+  ///
+  /// ELLE NE SE LIT JAMAIS SEULE. Le couple (nature, reference) remplace partout
+  /// l'ancien identifiant de livraison : le type dit a qui appartient
+  /// l'identifiant, et c'est lui qui evite qu'un ecran de livraison agisse sur
+  /// une course. La nature est juste a cote : voir [nature].
+  final String referenceId;
+
+  /// La nature de la mission : « livraison » ou « course ».
+  ///
+  /// ELLE CHANGE CE QUE LE LIVREUR LIT. « Colis a collecter » et « Passager a
+  /// prendre » ne demandent pas les memes gestes : sans elle, l'application
+  /// afficherait un libelle de colis pour une personne qui attend au bord de la
+  /// route. Le contrat la porte depuis le 1er octobre 2026 ; l'application ne la
+  /// lisait pas, et c'etait le dernier obstacle a une offre de course lisible.
+  ///
+  /// VIDE SI LE SERVEUR NE LA REND PAS, et le reste de l'application traite
+  /// alors l'offre comme une livraison — ce qu'elle etait avant que les courses
+  /// existent.
+  final String nature;
+
+  /// Le vehicule exige par la mission. RENDU POUR MEMOIRE : le filtrage a eu
+  /// lieu avant que l'offre ne parte. Il sert au livreur qui possede deux
+  /// vehicules et doit savoir lequel est attendu.
+  final String vehiculeAttendu;
+
+  bool get estUneCourse => _nature(nature) == 'course';
+  bool get estUneLivraison => !estUneCourse;
   final DateTime expiresAt;
   final String pickupLandmark;
   final int distanceToPickupMeters;
@@ -215,7 +274,9 @@ class Offer {
 
     return Offer(
       id: id,
-      deliveryId: _text(json['deliveryId']),
+      referenceId: _text(json['referenceId']),
+      nature: _enumere(json['serviceType']),
+      vehiculeAttendu: _enumere(json['vehicleType']),
       // Le compte a rebours vient du serveur : la duree d'une vague n'est pas
       // une constante de l'application.
       expiresAt: _time(json['expiresAt']) ?? DateTime.now(),

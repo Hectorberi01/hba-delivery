@@ -25,6 +25,11 @@ builder.Services.AddDispatchInfrastructure(builder.Configuration);
 
 // « DeliveryConfirmed » ouvre la recherche ; le planificateur la fait avancer.
 builder.Services.AddHostedService<DeliveryEventsConsumer>();
+
+// LES COURSES DE PERSONNES ENTRENT PAR LEUR PROPRE TOPIC. Deux consommateurs
+// plutot qu'un : les deux topics portent des contrats differents, et un seul
+// lirait deux formes de messages sans que rien ne dise laquelle arrive.
+builder.Services.AddHostedService<RideEventsConsumer>();
 builder.Services.AddHostedService<DispatchScheduler>();
 
 var app = builder.Build();

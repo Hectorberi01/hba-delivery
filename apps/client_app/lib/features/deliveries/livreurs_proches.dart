@@ -31,13 +31,56 @@ final _typesSignales = <String>{};
 /// se repere. Le prix a ete pese avant d'etre paye ; ne pas l'elargir sans
 /// rouvrir le point.
 class LivreurProche {
-  const LivreurProche({required this.position, required this.vehicule});
+  const LivreurProche({
+    required this.position,
+    required this.vehicule,
+    required this.disponible,
+  });
 
   final LatLng position;
+
+  /// Peut-il prendre une mission maintenant ?
+  ///
+  /// IL DECIDE DU DESSIN, PAS DE LA PRESENCE. Depuis le 3 octobre 2026 la carte
+  /// montre TOUS les livreurs du rayon : celui-ci passe en relief, celui-la
+  /// eteint. Les cacher etait un choix de la passerelle, jamais une regle du
+  /// point 24 — qui n'a jamais dit que « les livreurs autour de lui ».
+  ///
+  /// IL NE DIT PAS POURQUOI. « Indisponible » couvre la mission en cours, la
+  /// deconnexion recente et le dossier redevenu invalide : le serveur rend une
+  /// difference, pas une raison.
+  final bool disponible;
 
   /// Le nom du contrat, tel que la passerelle le rend : « Motorcycle »,
   /// « Bicycle »... Vide quand un service plus ancien ne le donne pas.
   final String vehicule;
+}
+
+/// Ce que la carte sait du secteur : qui est libre, et combien ne le sont pas.
+///
+/// LA CARTE A CESSE DE CACHER LES INDISPONIBLES LE 3 OCTOBRE 2026, par une
+/// troisieme revision du point 24. Elle ne montrait que les offrables, et le
+/// client lisait « aucun livreur dans ce secteur » au-dessus d'un quartier
+/// couvert ou tout le monde etait en course. Les deux situations appellent des
+/// conduites opposees — renoncer, ou attendre cinq minutes.
+///
+/// TOUT LE MONDE EST DANS LA MEME LISTE, et c'est « disponible » qui les
+/// separe. Un decompte separe a existe une demi-journee ; la liste le porte
+/// mieux, puisqu'elle place chacun sur la carte.
+@immutable
+class LivreursAlentour {
+  const LivreursAlentour(this.tous);
+
+  /// Tous les livreurs du rayon, dans l'ordre rendu par le serveur.
+  final List<LivreurProche> tous;
+
+  /// Ceux que le client peut avoir maintenant.
+  Iterable<LivreurProche> get disponibles => tous.where((l) => l.disponible);
+
+  int get nombreDisponibles => disponibles.length;
+
+  /// Le secteur est-il desert, ou seulement occupe ?
+  bool get desert => tous.isEmpty;
 }
 
 class LivreursProchesRepository {
@@ -45,14 +88,14 @@ class LivreursProchesRepository {
 
   final ApiClient _api;
 
-  Future<List<LivreurProche>> autour(LatLng centre) async {
+  Future<LivreursAlentour> autour(LatLng centre) async {
     final data = await _api.get('/drivers/nearby', query: {
       'lat': centre.latitude.toString(),
       'lng': centre.longitude.toString(),
     });
 
     final brut = data['positions'];
-    if (brut is! List) return const [];
+    if (brut is! List) return const LivreursAlentour([]);
 
     final points = <LivreurProche>[];
     for (final item in brut) {
@@ -83,10 +126,20 @@ class LivreursProchesRepository {
         return true;
       }());
 
-      points.add(LivreurProche(position: LatLng(lat, lng), vehicule: vehicule));
+      // ABSENT D'UNE PASSERELLE PLUS ANCIENNE : on suppose disponible. C'est ce
+      // qu'elle rendait avant le champ — elle ne montrait QUE des disponibles —
+      // donc une passerelle non reconstruite dessine exactement ce qu'elle
+      // dessinait hier, au lieu d'eteindre toute la carte.
+      final disponible = item['disponible'] as bool? ?? true;
+
+      points.add(LivreurProche(
+        position: LatLng(lat, lng),
+        vehicule: vehicule,
+        disponible: disponible,
+      ));
     }
 
-    return points;
+    return LivreursAlentour(points);
   }
 }
 
@@ -112,6 +165,6 @@ final livreursProchesRepositoryProvider = Provider<LivreursProchesRepository>(
 /// en accumule des dizaines, dont aucun ne resservira. Avec autoDispose, celui
 /// qu'aucun ecran ne regarde disparait.
 final livreursProchesProvider =
-    FutureProvider.autoDispose.family<List<LivreurProche>, LatLng>((ref, centre) {
+    FutureProvider.autoDispose.family<LivreursAlentour, LatLng>((ref, centre) {
   return ref.watch(livreursProchesRepositoryProvider).autour(centre);
 });

@@ -8,7 +8,19 @@ namespace Hba.Dispatch.Application.Common.Views;
 /// </summary>
 public sealed record OfferView(
     Guid Id,
-    Guid DeliveryId,
+
+    /// <summary>
+    /// La mission : une livraison, ou une course. SON TYPE EST JUSTE A COTE, et
+    /// les deux ne se lisent jamais l'un sans l'autre.
+    /// </summary>
+    Guid ReferenceId,
+    ServiceType ServiceType,
+
+    /// <summary>
+    /// Le vehicule attendu. UTILE AU CHAUFFEUR QUI EN POSSEDE DEUX : il doit
+    /// savoir lequel la mission demande.
+    /// </summary>
+    VehicleType VehicleType,
     string DriverId,
     OfferStatus Status,
     int WaveNumber,
@@ -28,7 +40,9 @@ public sealed record OfferView(
 
         return new OfferView(
             offer.Id,
-            dispatch.DeliveryId,
+            dispatch.ReferenceId,
+            dispatch.ServiceType,
+            dispatch.VehicleType,
             offer.DriverId,
             offer.Status,
             offer.WaveNumber,

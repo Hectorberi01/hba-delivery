@@ -27,7 +27,8 @@ n'est ajouté qui n'y figure ; ce qui y manque est listé dans
 | Delivery | Agrégat livraison, machine à états, preuve de remise | **implémenté** |
 | Pricing | Zones PostGIS, grilles, devis. Seule autorité sur le prix | coquille |
 | Dispatch | Offres par vagues, verrou Redis, expiration | coquille |
-| Driver | Profils, KYC (MinIO), positions (Redis GEO) | coquille |
+| Driver | Profils, KYC (MinIO). **Plus de positions depuis le 01/10/2026** | coquille |
+| Location | Position courante des chauffeurs (Redis GEO) : cap, vitesse, précision, fraîcheur, proximité. Aucune base relationnelle | **implémenté** |
 | Payment | Intentions et remboursements, adaptateur FedaPay | coquille |
 | Notification | SMS, WhatsApp, push. Presque uniquement des consommateurs | **implémenté** |
 
@@ -42,14 +43,28 @@ unique est documenté dans l'[ADR 0009](../adr/0009-un-seul-service-directory.md
 
 C'est la confusion la plus coûteuse à laisser s'installer :
 
-| | Identity | Directory | Driver |
-|---|---|---|---|
-| Compte, mot de passe, jetons | oui | non | non |
-| Rôles et claims | oui | non | non |
-| Nom, téléphone | référence | copie de travail | copie de travail |
-| Adresses favorites | non | oui | non |
-| Commerçant, points de collecte | rattachement seulement | oui | non |
-| Documents KYC, véhicule, position | non | non | oui |
+| | Identity | Directory | Driver | Location |
+|---|---|---|---|---|
+| Compte, mot de passe, jetons | oui | non | non | non |
+| Rôles et claims | oui | non | non | non |
+| Nom, téléphone | référence | copie de travail | copie de travail | **non** |
+| Adresses favorites | non | oui | non | non |
+| Commerçant, points de collecte | rattachement seulement | oui | non | non |
+| Documents KYC, véhicule | non | non | oui | non |
+| Statut opérationnel (présence **déclarée**) | non | non | oui | non |
+| Position courante, fraîcheur (présence **technique**) | non | non | **non** | oui |
+
+**La colonne Location est surtout faite de « non », et c'est son intérêt.** Il tient
+des points et ne sait pas à qui ils appartiennent : ni nom, ni téléphone, ni véhicule,
+ni dossier. C'est ce qui permet de garder la trace de l'endroit où se tiennent des
+gens sans constituer un fichier de personnes.
+
+**Deux présences, et il ne faut pas les confondre.** « Je me déclare disponible » est
+un état métier : il se décide, il s'audite, il survit à un téléphone éteint — il vit
+dans Driver. « Mon téléphone émet » est un fait technique qui s'évapore tout seul au
+bout de la fenêtre de fraîcheur — il vit dans Location. Pour une vague de dispatch,
+« disponible » est la **conjonction des deux**, et c'est l'appelant qui croise :
+Location dit qui est proche, Driver dit qui est éligible.
 
 Identity publie `AccountRegistered` ; Directory en crée le profil. Un compte et
 un profil sont deux choses distinctes, et le destinataire d'un colis n'a ni

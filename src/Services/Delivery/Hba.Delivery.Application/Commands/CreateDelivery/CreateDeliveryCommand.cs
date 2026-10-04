@@ -1,4 +1,5 @@
 using Hba.BuildingBlocks.Application.Messaging;
+using Hba.Delivery.Application.Ports;
 using Hba.Delivery.Application.Views;
 using Hba.Delivery.Domain.Deliveries;
 
@@ -34,6 +35,20 @@ public sealed record CreateDeliveryCommand : ICommand<CreateDeliveryResult>
     public string? PackageDescription { get; init; }
 
     public int PackageWeightGrams { get; init; }
+
+    /// <summary>
+    /// Le numéro qui paie, facultatif.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// VIDE, C'EST CELUI DU JETON QUI SERT. Il ne fait que préremplir la page du
+    /// fournisseur, où le client peut en saisir un autre — et c'est celui-là qui
+    /// sera débité. Le champ existe parce qu'on s'inscrit avec le téléphone
+    /// qu'on porte et qu'on paie avec celui qui a de l'argent dessus. Vide aussi
+    /// pour une livraison de partenaire, qui ne passe pas par FedaPay : c'est le
+    /// compte prépayé qui est débité.
+    /// </remarks>
+    public string? PayerPhone { get; init; }
 }
 
 public sealed record LocationInput(

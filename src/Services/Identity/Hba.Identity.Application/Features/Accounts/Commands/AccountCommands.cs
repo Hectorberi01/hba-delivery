@@ -22,6 +22,13 @@ public sealed record SetAccountRolesCommand(
     IReadOnlyList<string> Roles,
     string Reason) : ICommand<AccountView>;
 
+/// <summary>
+/// Le titulaire change son nom affiché. AUCUN IDENTIFIANT DANS LA COMMANDE :
+/// le compte visé est le sujet du jeton, comme pour la suppression de compte.
+/// On ne renomme que soi-même.
+/// </summary>
+public sealed record UpdateOwnProfileCommand(string DisplayName) : ICommand<AccountView>;
+
 public sealed record SuspendAccountCommand(Guid AccountId, string Reason) : ICommand<AccountView>;
 
 public sealed record ReactivateAccountCommand(Guid AccountId, string Reason) : ICommand<AccountView>;

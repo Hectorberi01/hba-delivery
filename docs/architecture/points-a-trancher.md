@@ -109,23 +109,46 @@ immédiatement plutôt que six mois plus tard.
 
 ---
 
-## 3. Politique d'annulation — TRANCHÉ EN PARTIE
+## 3. Politique d'annulation — TRANCHÉ
 
 **Tranché le 29 septembre 2026 : gratuit avant l'attribution d'un livreur,
 frais fixes après.** Tant qu'aucun livreur n'a accepté, le client récupère tout.
 Dès `DRIVER_ASSIGNED`, une retenue fixe couvre le déplacement engagé et le reste
 est remboursé.
 
-**Ce que cela ne dit pas, et qui reste à trancher :**
+### Tranché le 2 octobre 2026 — un pourcentage du devis, entièrement au livreur
 
-1. **Le montant de la retenue.** Il doit être affiché AVANT que le client ne
-   confirme son annulation — l'écran promet aujourd'hui que « les conditions de
-   remboursement vous seront confirmées par le service », ce que personne ne
-   tient.
-2. **Sa répartition entre HBA et le livreur.** Une retenue qui n'irait pas au
-   livreur ne couvre pas ce qu'elle prétend couvrir : c'est lui qui s'est
-   déplacé.
-3. **Le remboursement lui-même n'existe pas, ET IL NE PEUT PAS ÊTRE AUTOMATISÉ
+**La retenue est un POURCENTAGE DU PRIX DU DEVIS.** Ni un montant fixe, ni le
+plancher de la grille : elle suit l'engagement réel, et une course de banlieue
+retient davantage qu'une course de quartier. Écarté en connaissance de cause :
+un client qui annule une longue course tôt paie cher un livreur à peine parti —
+c'est le défaut assumé de cette option, et le taux est l'endroit où on le
+corrige.
+
+**Le taux vit sur la grille tarifaire**, dans un champ
+`CancellationFeeBasisPoints` à côté de `SurgeBasisPoints` et
+`DriverShareBasisPoints`. Trois raisons, et ce sont elles qui ont écarté une
+option de configuration du service :
+
+- il se règle **par zone, par nature et par véhicule** depuis l'écran des
+  grilles, sans redéploiement ;
+- il suit le **versionnage des grilles** (ADR 0004) : un devis émis hier garde le
+  taux de SA grille, et une grille close reste lisible avec le taux qu'elle
+  portait. Une option globale changerait rétroactivement ce qu'on retient sur les
+  courses en cours, sans qu'aucune trace ne dise lequel s'appliquait ;
+- il est **affichable avant la confirmation**, puisque la livraison porte le
+  devis consommé, et le devis sa version de grille.
+
+**La retenue va intégralement au livreur.** HBA ne prélève rien sur une course
+qui n'a pas eu lieu : la retenue couvre exactement ce qu'elle prétend couvrir, le
+déplacement engagé. `DriverShareBasisPoints` NE S'APPLIQUE PAS à ce montant —
+c'est la seule écriture du système où la part du livreur vaut 100 %, et c'est
+voulu. Le grand livre le crédite comme sur une course réussie.
+
+**Ce que cela ne dit toujours pas**, et qui ne dépend pas d'une décision de notre
+côté :
+
+1. **Le remboursement lui-même n'existe pas, ET IL NE PEUT PAS ÊTRE AUTOMATISÉ
    AUJOURD'HUI.** Aucun code ne rend d'argent.
 
    **Cette ligne disait « FedaPay a une API de remboursement, elle n'est pas
@@ -1334,7 +1357,7 @@ qu'elle survivra au jour où l'écart grandira.
 permettrait d'afficher la vraie durée de recherche. Tant que ce n'est pas fait,
 le libellé reste celui de la commande.
 
-## 24 — Le client voit les livreurs autour de lui — TRANCHÉ (révisé le 30/09/2026)
+## 24 — Le client voit les livreurs autour de lui — TRANCHÉ (révisé le 30/09/2026, puis deux fois le 03/10/2026)
 
 **Demandé le 28 septembre 2026** : une carte d'accueil dans l'application
 cliente, montrant les livreurs alentour comme la carte de l'application
@@ -1414,6 +1437,104 @@ livreurs à moto restent indistinguables, et rien ne relie une position du jour
 **La politique de confidentialité de l'application livreur doit le dire.** Elle
 devait déjà annoncer à qui la position est envoyée (conséquence 1 ci-dessus,
 toujours ouverte) ; elle doit maintenant dire que le véhicule part avec.
+
+### Le décompte des livreurs indisponibles — ajouté le 3 octobre 2026
+
+#### Le fait qui a forcé la question
+
+Un client à Aubervilliers, un livreur validé à **2 006 mètres**, position
+fraîche, dans le rayon de trois kilomètres. L'application affichait « Aucun
+livreur dans ce secteur pour le moment ». Elle disait vrai sur la lettre — la
+route ne rend que les disponibles, et celui-là était en course — et faux sur le
+fond : le secteur était couvert.
+
+**Le bandeau recouvrait deux situations opposées sous une seule phrase.**
+Personne autour : attendre ne sert à rien. Tout le monde en course : attendre
+quelques minutes marche très bien. Le client ne pouvait pas distinguer les deux,
+et la phrase le poussait vers la mauvaise conclusion dans le second cas.
+
+#### Décidé : la route rend le NOMBRE de livreurs à proximité mais indisponibles
+
+Un entier, à côté de la liste des positions. Rien d'autre : ni position, ni
+véhicule, ni raison d'indisponibilité pour ceux-là.
+
+**« Indisponible » et non « en course »**, et la nuance est tenue. Le décompte
+est la différence entre ce que Location a trouvé dans le rayon et ce que Driver
+a jugé éligible. Il mélange donc le livreur en mission, celui qui vient de se
+déconnecter sans que sa position ait expiré, et celui dont le dossier n'est plus
+valide. Les nommer « en course » serait une affirmation que la passerelle n'est
+pas en mesure de faire : il faudrait que Driver rende une raison par livreur, ce
+qui en dirait bien davantage sur chacun.
+
+#### Ce que cela coûte, et qui a été pesé avant d'écrire
+
+**Le client apprend la densité de livreurs non disponibles de son quartier**, ce
+qu'il ne savait pas. C'est une information sur l'activité collective, pas sur
+une personne.
+
+**C'est strictement moins identifiant que ce que le point rend déjà.** Une
+position et un type de véhicule singularisent ; un entier agrégé ne singularise
+personne. Deux livreurs indisponibles et deux cents rendent le même genre de
+donnée, à l'échelle près.
+
+**Le décompte est plafonné comme la liste.** Au-delà de quinze, la route rend
+quinze : sans ce plafond, une requête par quartier dessinerait la carte de la
+flotte, disponible ou non — exactement ce que les plafonds de rayon et de nombre
+empêchent pour les positions.
+
+**Ce que cela NE rend pas, et qui borne tout le reste :** aucun identifiant,
+aucune position, aucun véhicule pour les indisponibles. Un client ne peut pas
+savoir OÙ ils sont, ni si celui de ce matin est celui de ce soir.
+
+### Tous les livreurs, pas seulement les disponibles — 3 octobre 2026, après-midi
+
+#### Ce que le décompte avait laissé en travers
+
+Le matin même, la route rendait un NOMBRE de livreurs indisponibles pour que le
+bandeau cesse de confondre « quartier désert » et « quartier occupé ». La carte,
+elle, restait vide : le client lisait « 1 livreur dans le secteur, mais il n'est
+pas disponible » au-dessus d'une carte sans personne dessus.
+
+**Le filtre de disponibilité n'a jamais été une décision de ce point.** Il a
+toujours dit « les livreurs autour de lui » et « les positions réelles ». Ne
+montrer que les offrables était un choix de la passerelle, jamais écrit ici.
+
+#### Décidé : la carte montre TOUS les livreurs du rayon, disponibles ou non
+
+Chaque position part avec son type de véhicule, comme avant, et avec **un
+booléen de disponibilité**. L'application distingue les deux à l'œil — relief
+pour qui peut prendre la mission, éteint pour qui ne le peut pas — exactement
+comme la carte de l'application livreur distingue déjà en ligne et hors ligne.
+
+**Le décompte séparé disparaît**, devenu redondant : la liste le porte.
+
+#### Ce que cela coûte, et qui a été pesé avant d'écrire
+
+**La position d'un livreur EN MISSION devient visible à tout client du
+quartier.** C'est le vrai élargissement, et il faut le nommer : jusqu'ici, un
+livreur affecté n'était vu que du client qu'il servait (point 37, « rien avant,
+rien après »). Il est désormais aussi un point anonyme sur la carte des autres.
+
+**Ce qui borne le risque est inchangé, et c'est ce qui a permis de dire oui :**
+aucun identifiant, aucun nom, aucune plaque. Le point 37 accorde au client servi
+un livreur NOMMÉ qu'il suit du début à la fin ; ici personne n'est nommé, et
+rien ne relie un point d'aujourd'hui à un point d'hier.
+
+**Le type de véhicule reste semi-identifiant, et l'exposition augmente.** Un
+tricycle au milieu des motos se repérait déjà ; il se repère maintenant même
+quand il travaille. Le prix avait été pesé le 30 septembre, il grandit
+aujourd'hui sans changer de nature.
+
+**La politique de confidentialité du livreur doit le dire, et elle ne le dit
+toujours pas.** C'était déjà une conséquence ouverte le 28 septembre ; elle
+devient plus lourde : la position part aux clients **y compris pendant une
+mission pour quelqu'un d'autre**.
+
+#### Ce que cela ne change pas
+
+Le plafond de quinze et le rayon de trois kilomètres tiennent. La
+sur-interrogation de Location disparaît : elle compensait ce que Driver écartait,
+et Driver n'écarte plus personne de cette liste.
 
 ### Ce qui reste ouvert
 
@@ -2009,7 +2130,7 @@ face, Delivery n'a aucune trace d'un débit dont la course n'a jamais été écr
 Aucune de ces trois options n'est implémentée. La première est la seule qui ne
 demande rien à personne d'autre que du temps d'écriture.
 
-## 34 — La liste des motifs d'incident du livreur — NON TRANCHÉ
+## 34 — La liste des motifs d'incident du livreur — TRANCHÉ EN PARTIE
 
 **Décidé le 30 septembre 2026** : le livreur peut déclarer un incident quand la
 remise est impossible. La course part en `FAILED` avec un motif et il est libéré.
@@ -2033,16 +2154,764 @@ d'énumération en base se corrigent mal : renommer un motif oblige à migrer
 l'historique, et en retirer un le rend illisible. Tant que la liste n'est pas
 sûre, le texte libre coûte une statistique moins propre et rien d'autre.
 
+### Tranché le 2 octobre 2026 — le texte libre reste, et le livreur est dédommagé
+
+**La liste ne se fige pas.** L'écran garde ses quatre formulations plus
+« Autre », le service continue d'enregistrer un texte libre, et RIEN n'entre dans
+le contrat ni dans une colonne d'énumération. Ce que les livreurs écrivent
+pendant le pilote dira quels motifs manquent ; une énumération posée maintenant
+serait une liste pesée par personne, et qu'un renommage obligerait à migrer dans
+tout l'historique. Le coût assumé est une statistique moins propre pendant
+quelques semaines.
+
+**Le livreur d'une course en `FAILED` est dédommagé comme à une annulation après
+affectation** (point 3) : il touche le même pourcentage du devis, intégralement.
+Une seule règle de dédommagement à expliquer aux livreurs, et elle découle du
+point 3 sans rien inventer.
+
+**CE QUE CELA OUVRE, ET QU'IL FAUT SURVEILLER.** C'est le livreur qui décide de
+déclarer l'incident, et déclarer rapporte désormais quelque chose. Tant que la
+retenue reste une fraction du devis, abandonner paie strictement moins que
+livrer — c'est ce qui tient la règle. Si un taux était un jour porté près de
+100 %, l'incitation s'inverserait. À relire ici avant de monter un taux.
+
 ### Ce qui reste à trancher
 
-1. **La liste elle-même**, et si elle doit devenir une énumération du contrat.
-2. **Le sort du colis.** L'écran dit au livreur que « HBA revient vers vous pour
+1. **Le sort du colis.** L'écran dit au livreur que « HBA revient vers vous pour
    le colis ». Rien dans le code ne décrit ce retour : ni dépôt, ni délai, ni
    décharge de responsabilité.
-3. **Le remboursement du client.** Une course en `FAILED` a été payée, et le
-   colis n'est pas arrivé. C'est le point 3, et il est bloqué par le point 3 du
+2. **Le remboursement du client.** Une course en `FAILED` a été payée, et le
+   colis n'est pas arrivé. C'est le point 3, et il est bloqué par le
    fournisseur : FedaPay ne rembourse que depuis son tableau de bord, et
    seulement sur MTN.
-4. **La part du livreur.** Il s'est déplacé et a porté le colis. Le grand livre ne
-   lui crédite rien sur une course en `FAILED` ; personne n'a décidé si c'est
-   juste.
+
+---
+
+## 35 — Le passage à la mobilité : transport de personnes — TRANCHÉ
+
+Ouvert le 1er octobre 2026, par la décision de faire évoluer HBA Delivery en
+plateforme de mobilité : le transport de personnes s'ajoute à l'envoi de colis,
+sur les mêmes livreurs et la même flotte. L'analyse préalable complète est dans
+[mobilite-analyse-prealable.md](mobilite-analyse-prealable.md).
+
+Six questions bloquaient l'écriture du moindre fichier ; une septième est née de
+l'écriture elle-même. Toutes sont tranchées.
+
+### Ce qui est tranché
+
+**Un client est un passager — le rôle `customer` ne bouge pas.** Il n'y a pas
+d'acteur `passenger`, ni dans `HbaRoles`, ni dans les claims, ni dans la
+documentation. Le même compte envoie un colis et prend une course, ce qui est la
+lecture directe de « ne pas dupliquer les services existants ». L'agrégat porte
+donc `CustomerId`, pas `PassengerId`.
+
+CE QUE CELA ÉVITE, ET QUI N'EST PAS ANODIN : un second rôle aurait demandé une
+ligne dans le référentiel, une dans la matrice de visibilité, un claim de plus,
+et une décision sur ce qu'un passager voit d'un compte qui est aussi expéditeur.
+Tout cela pour distinguer deux usages d'une même personne.
+
+**Les topics gardent leur forme actuelle.** Un flux par service, le type précis
+dans l'enveloppe : le transport de personnes émet dans
+`hba.ride.events.v1`, et les neuf types d'événements voyagent dans
+`EventEnvelope.event_type`. Un topic par type d'événement aurait multiplié les
+topics et n'aurait rien apporté que l'enveloppe ne porte déjà.
+
+**`causation_id` n'est pas ajouté à l'enveloppe.** Le chaînage reste
+`correlation_id` seul. La question pourra se reposer le jour où une chaîne
+d'événements devient assez longue pour qu'on s'y perde ; ce jour-là, protobuf
+permettra de l'ajouter sans casse, en champ 13.
+
+**Les montants restent `MoneyXof`, et il n'y a pas de multi-devise.** L'ADR 0006
+tient : entiers, franc CFA, aucune décimale. `Ride` ne porte donc AUCUN champ
+`Currency` — un champ qui ne peut prendre qu'une valeur est une promesse de
+souplesse que rien ne tient, et il faudrait le remplir partout pour rien.
+
+### Le paiement d'une course — TRANCHÉ : prix ferme à la commande
+
+Le flux naturel du transport de personnes est « j'autorise au départ, je capture
+au prix final à l'arrivée ». IL N'EST PAS IMPLÉMENTABLE, et ce n'est pas une
+question de calendrier :
+
+- `PaymentStatus` ne connaît ni `Authorized` ni `Captured` ;
+- FedaPay (ADR 0017) est un agrégateur de paiement mobile : il encaisse, il ne
+  pré-autorise pas ;
+- FedaPay N'A PAS D'API DE REMBOURSEMENT — vérifié dans sa documentation le
+  30 septembre 2026. Les remboursements se font à la main depuis le tableau de
+  bord marchand, et uniquement sur MTN Mobile Money.
+
+**Retenu : le prix estimé est encaissé avant le dispatch, et il est le prix
+final.** C'est exactement le chemin du colis, déjà éprouvé. Aucune capture,
+aucune compensation, aucun remboursement automatique à écrire — donc aucune
+promesse que le fournisseur ne permettrait pas de tenir.
+
+CE QUE CELA COÛTE, ET QU'IL FAUT ASSUMER : le prix ne suit pas le trajet réel.
+Un détour, un embouteillage ou un changement de destination en cours de route ne
+changent pas ce qui est payé. C'est le prix à payer pour que la course ne
+dépende pas d'un encaissement qui pourrait échouer alors que le service est
+déjà rendu.
+
+CE QUE CELA REND OBLIGATOIRE : l'estimation doit être bonne. Tant que Pricing
+calcule sur une distance à vol d'oiseau (voir l'analyse préalable, §C.3), un
+prix ferme est un prix ferme et FAUX. Brancher Routing n'est donc pas une
+amélioration parmi d'autres : c'est la condition de ce choix.
+
+La vraie autorisation reste la cible, et c'est une décision commerciale — un
+changement de fournisseur —, pas une évolution de ce service.
+
+### La gestion d'erreur — TRANCHÉ : `Result` dans Ride seulement
+
+Ride utilisera `Result<T>` pour son flux métier, là où les dix autres services
+lèvent une `DomainException` traduite en frontière.
+
+CETTE COHABITATION N'EST TENABLE QU'À UNE CONDITION, et elle est stricte : **le
+dehors ne doit rien voir de la différence.** Un refus de Ride doit produire
+exactement le même code, le même statut HTTP et le même statut gRPC qu'un refus
+de Delivery. La frontière de Ride — endpoints et service gRPC — traduit donc
+`Result` en refus, en réutilisant les mêmes règles que `ExceptionInterceptor` et
+`TraduireLesRefus` : NotFound → 404/NotFound, Forbidden → 403/PermissionDenied,
+`VALIDATION_FAILED` → 400/InvalidArgument, le reste → 409/FailedPrecondition.
+
+LA LIGNE DE PARTAGE EST LE PROJET, PAS LE GOÛT DU MOMENT. Dans
+`Hba.Ride.Domain` et `Hba.Ride.Application`, le flux métier normal rend un
+`Result` et ne lève pas. Partout ailleurs dans le dépôt, la convention reste
+l'exception. Un développeur qui ouvre un fichier sait où il est en lisant le
+nom du projet — c'est la seule règle qui tienne sans mémoire.
+
+CE QUI RESTE UNE EXCEPTION, MÊME DANS RIDE : ce qui n'est pas du flux métier —
+un invariant violé, un état impossible, une programmation fautive. `Result` sert
+à dire « non, et voici pourquoi », pas à masquer un bug.
+
+### Plusieurs courses ouvertes par client — TRANCHÉ : autorisé
+
+Tranché par Hector le 1er octobre 2026, en revenant sur la limite d'une course à
+la fois que la couche Application avait d'abord posée.
+
+**Un client peut avoir plusieurs courses en cours simultanément.** Le cas n'est
+pas théorique : on commande une course pour un proche en même temps que la
+sienne, ou deux véhicules pour un groupe qui ne tient pas dans un seul. Rien
+dans le domaine ne justifiait de l'interdire — ce n'est pas le passager qui est
+unique, c'est le véhicule.
+
+CE QUE CELA ENLÈVE, ET QU'IL FAUT COMPENSER : la limite servait aussi, sans le
+dire, de protection contre le double appui sur « commander ». Plus rien ne
+distingue deux demandes identiques d'un client pressé de deux courses voulues.
+**La clé d'idempotence devient la seule protection, et elle doit être générée
+par écran de commande — pas une fois pour la session.** Une clé réutilisée
+rendrait la première course au lieu d'en créer une seconde ; une clé par session
+rendrait la seconde course impossible.
+
+CE QUE CELA IMPOSE AUX APPLICATIONS CLIENTES : l'écran d'accueil ne peut plus
+afficher « la » course en cours. La requête rend une liste, la plus récente
+d'abord, et l'application doit mémoriser celle qu'elle suit sur la carte — sinon
+la course affichée changerait sous les doigts du passager dès qu'il en commande
+une autre.
+
+CE QUI NE CHANGE PAS : un chauffeur n'a qu'une course à la fois. Il ne conduit
+qu'un véhicule, et le port garde donc le singulier de son côté.
+
+CE QUI RESTE À REGARDER : le dispatch envoie désormais des offres pour deux
+courses d'un même client, éventuellement au même chauffeur. Rien ne l'interdit
+et rien ne l'organise ; à revoir en phase 5.
+
+---
+
+## 36 — Un prix ferme calculé sur une mesure dégradée — TRANCHÉ (option B)
+
+Ouvert le 1er octobre 2026, en branchant Pricing sur le service Routing.
+
+**Ce qui est en place.** Routing interroge OSRM et, s'il ne répond pas, mesure à
+vol d'oiseau en marquant sa réponse `from_fallback`. Pricing reçoit ce drapeau,
+**le journalise, et calcule le devis quand même**.
+
+**Pourquoi c'est un problème maintenant et pas avant.** Jusqu'au 1er octobre
+2026, TOUTES les mesures étaient à vol d'oiseau : la dégradation était l'état
+normal, et le tarif au kilomètre avait été choisi en conséquence. Deux choses
+ont changé le même jour : la mesure routière devient la référence, et le prix
+d'une course de personnes est FERME à la commande (point 35). Un devis figé sur
+une mesure de repli sous-facture donc d'environ un tiers en ville, davantage
+quand le trajet contourne la lagune — et rien, sur la facture, ne distingue ce
+devis-là d'un autre.
+
+**Ce qui a été écarté d'office.** Refuser le devis quand la mesure est dégradée :
+cela arrêterait toute la vente dès qu'OSRM tousse, y compris pour les colis, qui
+n'ont jamais eu besoin d'OSRM pour fonctionner.
+
+### Les options
+
+**A — Ne rien changer.** Le journal signale, personne ne lit le journal. Honnête
+sur le plan technique, silencieux sur le plan commercial.
+
+**B — Marquer le devis.** `Quote` porte un indicateur « mesure dégradée »,
+persisté. Le prix est le même, mais l'exploitation peut retrouver les courses
+concernées et décider après coup. Coût : une colonne, une migration.
+
+**C — Majorer la mesure de repli.** Appliquer un coefficient connu — de l'ordre
+de 1,3 en ville — pour compenser ce que la ligne droite ignore. Le prix cesse
+d'être sous-estimé, au risque de surfacturer un trajet qui se trouvait être
+rectiligne.
+
+**D — Repli sur le prix au plancher.** Facturer le minimum de la grille tant que
+la mesure est dégradée. Simple, prudent pour le client, coûteux pour la
+plateforme sur les longues courses.
+
+### Tranché le 2 octobre 2026 — option B, le devis porte la marque
+
+**Le prix ne change pas ; le devis dit comment il a été mesuré.**
+`RouteMeasurement` porte un troisième composant, persisté avec le devis : vrai
+quand la distance vient d'un repli à vol d'oiseau, faux quand elle vient du
+réseau routier.
+
+**Pourquoi B plutôt que C.** Majorer de 1,3 aurait corrigé la moyenne et faussé
+chaque cas : un trajet qui se trouvait rectiligne aurait été surfacturé, et
+personne n'aurait pu le savoir après coup. B ne corrige rien et rend tout
+retrouvable — c'est le contraire d'un choix définitif, et c'est l'intérêt : avec
+quelques semaines de devis marqués, on connaîtra le vrai écart entre la ligne
+droite et la route à Cotonou, et C deviendra une décision chiffrée au lieu d'un
+coefficient repris d'ailleurs.
+
+**Le repli est compté dans les DEUX cas, et c'est important.** Routing peut
+replier en interne (OSRM muet, drapeau `from_fallback` dans sa réponse), et
+Routing lui-même peut être injoignable — Pricing mesure alors localement avec
+`HaversineRouteEngine`. Le second cas est le plus dégradé des deux et c'est celui
+qu'on risquait d'oublier : il ne traverse aucune réponse gRPC, donc aucun
+drapeau. Les deux marquent le devis.
+
+**Ce que cela ne tranche pas.** Que faire des devis marqués une fois qu'on les
+voit : les refacturer, les exclure des statistiques, alerter au-delà d'un seuil.
+Rien de cela n'est décidé, et c'est délibéré — la décision suivante a besoin des
+chiffres que celle-ci produit.
+
+---
+
+## 37 — Le suivi en direct du livreur affecté — TRANCHÉ
+
+**Posé et tranché le 1er octobre 2026, avant la première ligne de la phase 8.**
+
+### Le silence qu'on a trouvé
+
+La matrice de visibilité disait deux choses voisines et ne disait pas la
+troisième :
+
+- quand le client voit le **téléphone** du livreur affecté — pendant la mission ;
+- ce qu'il voit des livreurs **non affectés** — une position anonyme et un type
+  de véhicule, sans identifiant, point 24 ;
+- **rien** sur la position du livreur **affecté**.
+
+Ce n'était pas un oubli de rédaction : avant la phase 8, personne ne pouvait la
+lui montrer. L'écran de suivi affichait un statut, un nom, une plaque, un code de
+remise — et aucune carte. Le sondage de dix secondes relisait la mission, pas une
+position. La question ne s'était donc jamais posée.
+
+Elle se pose au moment où le temps réel arrive, parce que la première chose qu'on
+veut diffuser à un client est exactement celle-là : le point qui bouge.
+
+### Ce qui a été tranché
+
+**Le client voit la position en direct du livreur affecté à sa mission, de
+l'affectation à la clôture. Rien avant, rien après, et rien d'autre que la
+position.**
+
+| | Avant `DRIVER_ASSIGNED` | Pendant la mission | Après la clôture |
+| --- | --- | --- | --- |
+| position | *il n'y en a pas* | **oui, en direct** | **non** |
+| cap, vitesse, précision GPS | *il n'y en a pas* | **non** | non |
+| historique du trajet | *rien n'est conservé* | **non** | **non** |
+
+### Pourquoi
+
+**La position en direct n'ouvre pas une identité : elle est déjà ouverte.** Le
+client voit le nom, le téléphone, la plaque et le véhicule de cette personne
+précise dès l'affectation. Ce que la position ajoute, c'est le **déplacement**
+d'un homme déjà nommé — ce qui reste une divulgation réelle, et c'est pourquoi
+elle est bornée des deux côtés.
+
+**Ce que le client gagne est concret.** Savoir si le livreur arrive dans deux
+minutes ou dans vingt, sans appeler. C'est la question qu'il pose au téléphone
+quand il n'a pas la carte, et chaque appel évité est un appel que le livreur ne
+prend pas en roulant.
+
+**La borne de fin est la plus importante.** La position s'éteint à la clôture, en
+même temps que le téléphone du livreur. Sans elle, un client qui garde l'écran
+ouvert suivrait le livreur chez son client suivant, puis chez lui. C'est la
+dérive que le point 24 refuse pour les livreurs non affectés, et elle serait pire
+ici : la personne est nommée.
+
+**Ni le cap, ni la vitesse, ni la précision.** Ils ne répondent à aucune question
+du client — « où est-il » suffit à décider d'attendre — et la vitesse d'un homme
+au travail est une donnée de surveillance. L'exploitation les voit, parce qu'elle
+doit comprendre pourquoi une course traîne ; le client n'a pas à savoir si le
+livreur roule à 15 ou à 45 km/h.
+
+**Aucun historique.** Le flux est un instant, pas une piste. Rien n'est conservé
+au-delà de la dernière position connue — la phase 9 a écarté l'historique de
+déplacement précisément pour ne pas avoir à répondre à cette question, et ce
+point ne la rouvre pas.
+
+### Qui n'y a pas droit, et pourquoi
+
+**Le destinataire.** Il reçoit son OTP et le téléphone du livreur par SMS ; il
+n'a pas de compte, pas d'écran, et suivre quelqu'un sur une carte demande d'être
+identifié.
+
+**Le commerçant.** Il remet un colis, il ne l'escorte pas. Il voit déjà le
+téléphone du livreur pendant la mission, ce qui suffit à régler un retrait qui
+traîne.
+
+**Le partenaire.** Son API rend des statuts de livraison. Un partenaire qui
+suivrait les positions de livreurs mission après mission reconstituerait le
+maillage et les horaires de la flotte, qui sont une information commerciale.
+
+### Où c'est appliqué
+
+`CustomerHub`, dans le service `Hba.Realtime`. Un client ne reçoit le flux d'une
+mission qu'après vérification auprès du **service propriétaire** — Ride ou
+Delivery — que la mission est la sienne ET qu'un livreur y est affecté.
+L'abonnement n'est jamais accordé sur la parole du client, et il est révoqué
+quand la mission se clôt.
+
+### Ce que ce point ne tranche pas
+
+**L'ETA affiché au client.** Montrer un point qui bouge et annoncer « 4 minutes »
+sont deux promesses différentes, et la seconde demande Routing sur chaque
+battement. Rien n'est décidé : voir le point 36, qui pose déjà la question d'une
+mesure dégradée affichée comme ferme.
+
+**Le temps réel dans la console d'exploitation.** Les deux applications mobiles
+sont passées au temps réel le 1er octobre 2026 ; la console, non, et ce n'est pas
+un oubli. SignalR depuis un navigateur exige le jeton **en JavaScript** — un
+WebSocket ne porte pas d'en-tête Authorization — alors que le jeton de la console
+ne quitte jamais le serveur : cookie httpOnly, procuration Next.js, précisément
+pour qu'un script injecté ne puisse pas le recopier. Le lui donner mettrait un
+jeton d'**administration** valable quinze minutes à portée de n'importe quelle
+injection, pour gagner quinze secondes sur une carte qui ne peut pas être plus
+fraîche que les points qu'elle affiche — un toutes les vingt secondes.
+
+La bonne réponse, le jour où l'instantané comptera : **un jeton court émis par
+Identity, d'audience restreinte au hub** — soixante secondes, utilisable seulement
+sur `/hubs/ops`. Le navigateur n'obtiendrait jamais le jeton d'administration, et
+un jeton volé n'ouvrirait qu'un flux de positions pendant une minute. C'est une
+fonctionnalité nouvelle d'Identity, une validation nouvelle dans Realtime, et une
+décision de référentiel : **non tranchée**.
+
+---
+
+## 38 — Qui déclare les habilitations d'un livreur — TRANCHÉ
+
+**Tranché le 1er octobre 2026 : le livreur déclare, ops valide par le KYC.** Une
+seule route neuve, côté livreur. Le livreur coche ses habilitations dans son
+dossier, avant soumission ; l'examen d'ops est le KYC qui existe déjà, et il
+porte sur le dossier entier — pièces, véhicule et habilitations ensemble. Aucune
+route back-office d'habilitations n'est ouverte, et le domaine ne change pas.
+
+**La contrainte qui a commandé la décision.** `DeclareCapabilities` passe par
+`ExigerDossierModifiable`, et `DossierModifiable` ne vaut que
+`PendingVerification` ou `Rejected`. Les habilitations ne se déclarent donc
+**que sur un dossier qui n'est pas encore validé** — exactement comme les pièces
+et le véhicule. Après validation, plus personne ne les change, ops comprise,
+sans suspendre le dossier d'abord. Cette contrainte n'a pas été écrite pour les
+habilitations : c'est la règle « un dossier validé se fige » du 30 septembre, qui
+existe pour qu'on ne valide pas une personne et n'en laisse pas travailler une
+autre. Elle s'applique telle quelle.
+
+**Le service, lui, ne change pas.** `DeclareCapabilitiesHandler` autorise déjà
+`EnsureSelfOrBackOffice` : un jeton d'exploitation est accepté côté service, et
+il doit le rester — l'autorisation se vérifie côté service, jamais seulement à la
+passerelle (ADR 0007). La décision ne porte que sur les routes **exposées**. Le
+jour où une route back-office devient nécessaire, elle n'aura rien à changer au
+domaine ni au handler.
+
+**Ce que le contrat gagne.** `DriverApplication` ne portait pas les
+habilitations : l'application n'avait aucun moyen de les lire, donc aucun moyen
+d'afficher ce que le livreur a déclaré. Deux champs sont ajoutés —
+`capabilities`, ce qu'il a déclaré, et `allowed_capabilities`, ce que son véhicule
+permet. Le second est **calculé par le service**, pour la même raison que
+`required_documents` et `can_submit` : la table véhicule → habilitations est une
+règle métier, et chaque client qui la recalculerait finirait par en avoir sa
+propre version. Une application qui l'aurait codée en dur afficherait
+« transport de personnes » à un cycliste, et le refus ne viendrait qu'à
+l'enregistrement.
+
+**Le colis ne se coche pas.** Il est le socle : `Habilite` le rend vrai sans
+déclaration, et un dossier vide n'est pas un livreur sans métier. L'écran
+n'affiche donc que les habilitations qui s'ajoutent au socle — restauration,
+transport de personnes — et dit que le colis est inclus. `allowed_capabilities`
+le contient malgré tout, parce que le service répond à « que permet ce
+véhicule », pas à « que faut-il afficher » : le filtrage est une décision
+d'interface, et elle reste dans l'interface.
+
+### Les options écartées
+
+**Ops seule déclare.** Une route back-office, pas de route livreur. Écartée : ops
+devrait saisir pour chaque livreur, sur un dossier qu'elle n'a pas encore
+examiné, et le livreur n'aurait aucun moyen de dire ce qu'il veut exercer. C'est
+le contraire du sens de l'habilitation, qui appartient à la personne.
+
+**Les deux routes.** Le livreur propose, ops corrige avant de valider. Écartée
+pour le pilote : deux fois la surface à écrire et à tester, pour un gain réel
+seulement si ops corrige souvent — ce qu'on ne saura qu'après la mise en service.
+Le handler l'accepte déjà, donc rien n'est fermé.
+
+**Rendre les habilitations révisables après validation.** Soit un état
+demande/accord dans l'agrégat, soit l'autorisation pour ops de modifier un
+dossier figé. Écartée ici parce que ce n'est pas une route : c'est un changement
+du domaine et de la matrice de visibilité, et la question se posera pour les
+pièces en même temps que pour les habilitations. **Non tranché**, et à poser
+comme point à part entière le jour où un livreur voudra ajouter la restauration
+six mois après sa validation — ce qui arrivera.
+
+---
+
+## 39 — « Course » veut dire deux choses dans l'application cliente — TRANCHÉ (option C)
+
+Depuis le 1er octobre 2026, le mot **course** désigne officiellement le
+transport de personnes : c'est le mot du référentiel, celui de la passerelle
+(`nature: "course"`), celui du hub de temps réel, et celui des modèles des deux
+applications.
+
+**Mais l'application cliente l'emploie déjà pour autre chose.** Son deuxième
+onglet s'appelle « Courses » et liste des **livraisons de colis** ;
+`courses_screen.dart`, `CarteCourse` et `annulerLaCourse` parlent tous de colis.
+Le mot y a le sens familier de « commande en cours », antérieur au transport de
+personnes.
+
+**Ce que ça produit aujourd'hui.** L'écran de suivi d'un passager s'appelle
+« Ma course » et vit à `/course/:id` ; l'onglet « Courses » n'en montre aucune.
+Un client qui cherche sa course de personnes dans l'onglet « Courses » ne la
+trouvera pas — il la trouve sur l'accueil, par la carte qui s'y affiche.
+
+### Les options
+
+**A — Renommer l'onglet et le vocabulaire des colis.** « Courses » devient
+« Livraisons » ou « Mes envois », et `course` ne désigne plus qu'un passager
+partout. C'est le plus cohérent et le plus cher : une dizaine de fichiers de
+l'application cliente, leurs tests, et des chaînes affichées que les clients du
+pilote connaissent déjà.
+
+**B — Donner un autre mot au transport de personnes dans l'interface.**
+« Trajet » côté client, en gardant `Course` dans le code pour coller au
+contrat. Le moins cher, et le pire pour qui lit le code en pensant à l'écran :
+deux mots pour une chose, un troisième pour l'autre.
+
+**C — Fusionner les deux listes.** L'onglet montre les colis ET les courses,
+chacun avec sa pastille de nature. Le mot « Courses » redevient juste au sens
+large, et le client a enfin un historique de ses courses de personnes — qui
+n'existe pas encore. C'est aussi le plus de travail d'écran.
+
+### Tranché le 2 octobre 2026 — option C, l'onglet montre les deux
+
+**L'onglet liste les colis ET les courses de personnes**, chacun avec une
+pastille de nature. Le mot « Courses » reprend son sens large de « mes commandes
+en cours », celui qu'il a déjà pour les clients du pilote, et `course` garde dans
+le code le sens du référentiel — le transport de personnes.
+
+**Ce qui a emporté la décision n'est pas le vocabulaire.** C'est qu'un client n'a
+aujourd'hui AUCUN historique de ses courses de personnes : la course active
+s'affiche sur l'accueil, et disparaît en se terminant. A et B laissaient ce trou
+intact ; C le comble, et c'est pour cela qu'il coûte le plus d'écran.
+
+**Ce que cela écarte, et qu'il faut assumer.** L'ambiguïté du mot ne disparaît
+pas : elle devient supportable parce que l'onglet contient enfin les deux choses
+qu'il nomme. Quelqu'un qui lit `courses_screen.dart` en pensant « transport de
+personnes » se trompera encore — c'est le prix de n'avoir pas renommé une dizaine
+de fichiers et des libellés que les clients connaissent.
+
+**Ce que cela ne tranche pas.** L'ordre de la liste (une seule série
+chronologique, ou les colis et les courses séparés par section), et si un filtre
+par nature est utile dès le pilote. Ce sont des choix d'écran, à faire en le
+construisant.
+
+---
+
+## 40 — Les zones deviennent de vrais polygones — TRANCHÉ
+
+**Tranché le 1er octobre 2026 : polygones PostGIS, dessinés sur la carte de la
+console.** Et, séparément : **la console démultiplie** au lieu d'introduire une
+grille générique.
+
+### L'état d'où l'on part
+
+L'agrégat `Zone` existait depuis le début — code, nom, priorité, actif — la table
+`pricing.zones` aussi, et **elle était vide**. Aucune colonne de géométrie, aucune
+commande, aucun RPC, aucune route : l'agrégat n'était atteignable par rien.
+`ConfiguredZoneLocator` ne lisait aucun polygone et rendait la zone de repli
+configurée **pour tout point du globe**. Le zonage tarifaire était donc fictif :
+une seule grille s'appliquait partout, et les filtres par zone de l'écran des
+grilles filtraient un champ que personne ne pouvait faire varier.
+
+L'image Postgres est `postgis/postgis:16-3.4` depuis le début, inutilisée.
+
+### Ce que la décision pose
+
+**Le polygone reste hors du domaine**, comme l'agrégat le dit depuis sa première
+ligne : il vit dans une colonne `geography(Polygon,4326)` et **seule la requête le
+manipule** (`ST_Contains`, départagé par priorité décroissante). Le domaine ne
+fait pas de géométrie, et les tests d'architecture lui interdisent la dépendance
+qui le permettrait. La validation se partage donc : la couche applicative vérifie
+ce qui est de l'arithmétique (au moins trois sommets, coordonnées dans les
+bornes), et PostGIS vérifie ce qu'il est seul à savoir (`ST_IsValid` : un contour
+qui se recoupe est refusé).
+
+**Une zone se remplace, elle ne se versionne pas.** C'est la différence avec une
+grille, et elle est volontaire : une grille porte de l'argent et un devis émis
+hier s'en réclame (ADR 0004), alors qu'une zone porte une forme. Redessiner
+Cotonou-centre ne change aucun prix déjà facturé — les devis gardent le **code**
+de zone qu'ils ont capté, pas sa forme.
+
+**Qui écrit : `admin` seulement. Qui lit : tout le back-office.** Le référentiel
+confie la configuration complète à `admin` ; dessiner une zone en est. La lecture
+est plus large parce que la carte des zones est de la supervision, et qu'ops en a
+besoin pour comprendre un dispatch.
+
+**IL FAUT VOIR CE QUE CELA OUVRE, ET C'EST ÉCRIT ICI POUR QU'ON LE SACHE.**
+Redessiner une zone **déplace des prix sans toucher à une seule grille** : un
+point qui passe de « périphérie » à « centre » change de barème. C'est la même
+surface de fraude qu'une grille, par un autre chemin. L'écriture est donc plus
+étroite que celle des grilles — `admin` seul, là où une grille admet `admin` ou
+`finance` : la finance fixe les prix dans une géographie que l'administration
+définit. Si cela se révèle impraticable, c'est une ligne à élargir, et une
+décision à reprendre ici.
+
+### La grille générique, écartée
+
+**La console démultiplie.** Cocher « toutes les natures » et « tous les
+véhicules » crée les grilles correspondantes en une fois — jusqu'à dix. Chacune
+existe en base, se lit, se clôt et se modifie séparément, et **un prix reste
+toujours attribuable à une grille nommée**.
+
+**Ce qui a été écarté : une grille dont la nature et le véhicule sont
+facultatifs**, avec une résolution « le plus précis d'abord, le générique
+ensuite ». Elle aurait tenu en une ligne de table, et elle demandait de renverser
+une règle écrite dans le contrat — à la création, `UNSPECIFIED` est un **refus**,
+précisément pour qu'un barème de colis ne s'écrive pas sous le nom d'une course.
+Surtout, elle change la résolution du prix, qui est le chemin le plus sensible du
+système : c'est ainsi qu'on se retrouve avec un prix dont personne ne sait de
+quelle règle il vient. **Non tranchée**, et à reprendre si dix lignes par zone
+deviennent ingérables.
+
+### Ce que cela ne tranche pas
+
+**Les cercles.** Une zone « centre et rayon » aurait suffi à une tarification
+concentrique, sans PostGIS. Écartée parce qu'elle ne suit ni une côte ni une
+limite de quartier — mais rien n'empêche d'en ajouter la saisie plus tard : un
+cercle se convertit en polygone à l'enregistrement, et la base ne verrait pas la
+différence.
+
+**Le découpage de Cotonou lui-même.** Combien de zones, où passent leurs limites,
+et quels prix dans chacune : ce sont des décisions commerciales, pas
+d'architecture. Elles se prennent dans la console, maintenant que l'écran existe.
+
+---
+
+## 41 — Le client note le livreur — TRANCHÉ
+
+**Demandé le 3 octobre 2026**, en même temps que le pourboire (point 42). Les
+deux sont séparés ici parce qu'ils n'ont ni le même coût, ni les mêmes risques :
+la notation ne touche pas à l'argent, le pourboire ne fait que cela.
+
+### Ce que le référentiel disait déjà
+
+`Rating` y figure depuis le premier jour parmi les services **« plus tard »**,
+aux côtés de Tracking, Support, Settlement et Reporting. La décision ne crée
+donc pas un service de plus : elle avance celui qui était prévu.
+
+### Décidé : un service Rating à part, une seule direction, jamais bloquant
+
+**UN SERVICE, ET PAS UN CHAMP DANS Driver.** Le raccourci était tentant — la
+note est un attribut du livreur, l'agrégat pourrait la porter — et il ferme deux
+portes d'un coup. Driver deviendrait juge et partie de sa propre réputation, et
+le jour où HBA Food notera des COMMERÇANTS, rien n'aurait sa place dans un
+service qui ne connaît que des livreurs.
+
+**LE CLIENT NOTE LE LIVREUR. PAS L'INVERSE, PAS ENCORE.** La réciprocité est
+utile contre les comportements difficiles, mais elle double le travail et ouvre
+une question qui n'a pas de bonne réponse rapide : ce qu'un client a le droit de
+savoir de sa propre note.
+
+**PROPOSÉE À LA FIN, JAMAIS EXIGÉE.** Réclamer la note de la course précédente
+avant d'en commander une autre remplirait la base et ferait fuir les gens
+pressés — ceux-là mêmes qui commandent le plus.
+
+### Ce que cela coûte, et qu'il faut assumer
+
+**UNE NOTE EST UNE DONNÉE SUR UN TRAVAILLEUR INDÉPENDANT.** Elle décide à terme
+de qui reçoit des courses. Trois conséquences, dont aucune n'est tranchée ici :
+
+1. **Le livreur doit pouvoir voir sa note et ce qu'on lui reproche.** Une
+   moyenne sans détail est une sanction sans motif.
+2. **Une note basse ne doit pas désactiver quelqu'un toute seule.** Tant
+   qu'aucune règle n'est écrite, Rating observe et ne décide pas : le dispatch
+   ne lit pas les notes.
+3. **Dix courses ne font pas une moyenne.** Afficher 2,0 sur un seul avis est
+   plus faux que de n'afficher rien.
+
+### Ce qui est branché, et comment la proposition apparaît
+
+**UNE SECONDE PAGE, PROPOSÉE DEPUIS L'ACCUEIL AU REPOS.** L'application cliente
+lit `GET /reviews/pending` et ouvre l'écran de notation une fois, quand plus
+rien n'attend — pas pendant le radar, pas par-dessus une commande en cours de
+saisie. Une boîte de dialogue posée sur la fin de course se balaie d'un geste
+réflexe ; une page se referme par un bouton qui s'appelle « Passer ».
+
+**PASSER NE FERME RIEN CÔTÉ SERVICE**, et c'est voulu : la mission reste
+notable. Ce qui évite la boucle est une mémoire LOCALE à l'application, qui ne
+survit pas à sa fermeture — passer veut dire « pas maintenant », pas
+« jamais ». Le client reverra la proposition au prochain démarrage, une fois.
+Conséquence assumée : une mission notable ne se retrouve aujourd'hui **que** par
+cette proposition. Aucune liste de l'application ne mène aux avis en attente.
+
+**LE LIVREUR LIT SA NOTE SUR SON PROFIL**, et le détail derrière : une carte
+« Mes avis » qui mène à la liste, avec les étoiles, la nature de la mission, la
+date, et le mot du client quand il y en a un. Aucun identifiant de client n'y
+figure — le livreur apprend ce qu'on lui reproche, pas qui le lui reproche — et
+l'écran dit en toutes lettres qu'une note basse ne désactive pas le compte et
+n'influence pas l'attribution. Sans cette phrase, un livreur à deux étoiles
+croit son compte menacé et s'arrête de lui-même.
+
+### Ce qui reste ouvert
+
+1. **Le client voit-il la note du livreur avant l'affectation ?** C'est une
+   question de la matrice de visibilité, pas de ce point, et elle n'a pas été
+   posée. Par défaut : non — aucune route cliente ne rend la note d'un livreur.
+2. **Le texte libre.** Une étoile seule ne dit pas pourquoi. Un commentaire
+   libre demande une modération, que personne ne fait au MVP.
+3. **La fenêtre.** Combien de temps après la course peut-on encore noter ?
+   Aujourd'hui : sans limite, et la proposition revient à chaque démarrage tant
+   que la note n'est pas posée.
+4. **Un chemin vers les avis en attente.** Tant qu'il n'existe pas, un client
+   qui passe cinq fois de suite ne note jamais, et rien ne le lui rappelle
+   autrement qu'au démarrage.
+
+---
+
+## 42 — Le pourboire au livreur — TRANCHÉ
+
+### La contrainte qui a décidé de la forme, et qui vient du jour même
+
+**AUCUN DÉBIT N'EST POSSIBLE SANS LE CLIENT**, et depuis le 3 octobre 2026 on
+sait qu'il n'y a même plus de voie discrète : FedaPay refuse la sollicitation
+directe sur ce compte — `400 Opération non autorisée` — et la page hébergée est
+redevenue le seul chemin d'encaissement.
+
+Un pourboire décidé APRÈS la course est donc **une seconde transaction, donc une
+seconde page de paiement**, avec son opérateur à choisir et son code PIN à
+taper.
+
+### Décidé : seconde page après la course, commission zéro
+
+**APRÈS, ET PAS AVANT.** L'alternative — un pourboire choisi sur l'écran de
+commande, inclus dans le montant unique — n'aurait coûté aucun écran et aucun
+abandon. Elle a été écartée parce qu'elle demande de récompenser un service
+avant de l'avoir reçu, ce qui n'est plus un pourboire mais un supplément.
+
+**LE TAUX D'ABANDON EST LE PRIX, ET IL EST ACCEPTÉ.** Un passager qui vient de
+descendre et à qui on ouvre un second écran de paiement pour deux cents francs
+renoncera souvent. Le pourboire sera donc rare ; il doit être agréable quand il
+arrive, et jamais insistant.
+
+**COMMISSION ZÉRO : LE LIVREUR TOUCHE TOUT.** En prélever sur un don se sait
+vite et se raconte mal. HBA assume les frais de l'agrégateur sur cette
+transaction — ils existent, et ils sont le vrai coût de cette décision.
+
+**UNE NATURE DE LIGNE À PART AU GRAND LIVRE.** Le compte du livreur connaît le
+gain, le versement et le dédommagement. Un pourboire n'est aucun des trois : le
+ranger dans le gain rendrait impossible de répondre à « combien les livreurs
+touchent-ils en plus de la grille », qui est exactement la question qu'on se
+posera.
+
+### Ce que cela ne dit pas
+
+**Le remboursement d'un pourboire.** FedaPay n'a pas d'API de remboursement
+(vérifié le 30 septembre 2026) : un pourboire versé par erreur se reprend à la
+main, depuis le tableau de bord marchand, et seulement sur MTN.
+
+**Le pourboire d'une livraison de colis.** La décision est écrite pour une
+course de personnes, où le passager a vu son chauffeur. Rien n'empêche de
+l'ouvrir aux colis ; personne ne l'a demandé. L'application suit la décision à
+la lettre : le bloc « pourboire » de l'écran de notation **n'apparaît pas** pour
+une livraison, parce que la route `POST /rides/{id}/tip` n'a pas d'équivalent
+colis — montrer le geste et échouer à ouvrir la page serait pire que de ne rien
+proposer.
+
+---
+
+## 43 — L'itinéraire et l'ETA montrés au client — TRANCHÉ
+
+**Posé et tranché le 4 octobre 2026.** Il ferme la question que le point 37
+avait laissée ouverte — « l'ETA affiché au client : rien n'est décidé, voir le
+point 36 » — et il la ferme dans le sens que le point 36 avait préparé.
+
+### Ce qui a été tranché
+
+**Pendant la mission, le client voit la position du livreur, l'itinéraire vers la
+destination courante, et la durée estimée d'arrivée.** Mêmes bornes que le point
+37 : rien avant l'affectation, rien après la clôture.
+
+| | Avant `DRIVER_ASSIGNED` | Pendant la mission | Après la clôture |
+| --- | --- | --- | --- |
+| position | *il n'y en a pas* | **oui, en direct** | **non** |
+| itinéraire et durée | *il n'y en a pas* | **oui** | **non** |
+| itinéraires successifs conservés | — | **non** | **non** |
+
+### Pourquoi l'itinéraire n'ouvre rien de neuf sur le livreur
+
+Il relie un point que le client voit déjà légitimement — la position, point 37 —
+à un point qu'il a **fourni lui-même**. Ce n'est pas une mesure sur le livreur,
+c'est une projection entre deux points connus. Il ne dit rien de son passé et
+rien de ce qu'il fera après la clôture.
+
+Et l'ETA répond à la question que le point 37 cite lui-même comme le gain du
+client : « savoir si le livreur arrive dans deux minutes ou dans vingt, sans
+appeler ».
+
+### La borne qui compte : un itinéraire n'est pas une piste
+
+**Rien ne conserve les itinéraires successifs.** Une route recalculée toutes les
+vingt secondes et accumulée — en base, en cache long, ou dans l'application —
+reconstitue exactement le trajet que le point 37 refuse : « le flux est un
+instant, pas une piste ». Donc :
+
+- le service ne garde que la DERNIÈRE route, et il la recalcule à la lecture ;
+- l'application REMPLACE la route qu'elle affiche, elle n'empile pas ;
+- la route s'éteint à la clôture, en même temps que la position et le téléphone.
+
+### Ce qui est assumé, et qui n'est pas rien
+
+**Une distance et une durée donnent une vitesse moyenne.** Le point 37 refuse la
+vitesse comme donnée de surveillance. La dérivation est faible — c'est
+l'estimation d'un moteur d'itinéraire, pas la vitesse mesurée du livreur, et elle
+porte sur le trajet restant et non sur ce qu'il vient de faire — mais elle
+existe. Elle est acceptée en connaissance de cause ; elle ne l'est pas pour le
+cap ni pour la précision GPS, qui restent refusés.
+
+### La règle du chiffre dégradé, héritée du point 36
+
+**Une durée venue du repli à vol d'oiseau n'est jamais affichée en minutes.**
+Elle est sous-estimée d'environ un tiers en ville ; annoncée au client, elle
+devient une promesse que la course ne tiendra pas. `Route.from_fallback` remonte
+jusqu'à l'application, qui montre alors la DISTANCE à la place — « à 1,2 km » et
+non « dans 4 min ». C'est la même exigence que le point 36 pose pour le prix,
+appliquée à l'affichage.
+
+### Par quel tuyau, et pourquoi pas une trame
+
+**L'itinéraire et l'ETA voyagent sur la lecture REST de la mission**, jamais dans
+une trame SignalR. Ce n'est pas un choix de confort : c'est la doctrine de
+`Trames.cs`. Les trames d'état sont des SIGNAUX et ne portent pas de contenu
+« parce que la matrice de visibilité est appliquée dans les services et à la
+passerelle, à des endroits précis et éprouvés » — y mettre du contenu
+obligerait Realtime à rejouer la règle « qui voit quoi », et deux
+implémentations d'une règle de confidentialité finissent par diverger.
+
+La position continue donc d'arriver en direct par le hub, et le marqueur se
+déplace sur l'itinéraire déjà affiché entre deux recalculs. Le point 37 n'est
+pas rouvert.
+
+### Où c'est appliqué
+
+Delivery, à la lecture d'une livraison : il choisit la destination courante selon
+l'état — le point de collecte avant `PICKED_UP`, le destinataire après — demande
+la position à Location et la mesure à Routing, et rend le tout avec son drapeau
+de repli. La visibilité se greffe sur celle qui existe déjà : réservé au donneur
+d'ordre et au back-office, vide pour le livreur, qui a sa propre navigation.
+
+Ride suivra la même infrastructure, sans second moteur.

@@ -55,10 +55,17 @@ async function relayer(
   const typeDeContenu = requete.headers.get('content-type');
   if (typeDeContenu) entetes.set('content-type', typeDeContenu);
 
-  // L'en-tete d'idempotence vient de l'appelant et doit traverser tel quel :
-  // c'est lui qui evite qu'un double clic cree deux fois la meme chose.
-  const idempotence = requete.headers.get('hba-idempotency-key');
-  if (idempotence) entetes.set('hba-idempotency-key', idempotence);
+  // L'en-tete d'idempotence vient de l'appelant et doit traverser : c'est lui
+  // qui evite qu'un double clic cree deux fois la meme chose.
+  //
+  // LA PASSERELLE LIT « Idempotency-Key ». L'ancien code ne relayait que
+  // « hba-idempotency-key » — le nom de la metadonnee gRPC interne — et la
+  // passerelle ne le lisait nulle part : la cle partait, n'arrivait pas, et la
+  // creation d'une grille tarifaire repondait « en-tete obligatoire ». Les deux
+  // orthographes sont acceptees en entree, une seule sort.
+  const idempotence = requete.headers.get('idempotency-key')
+    ?? requete.headers.get('hba-idempotency-key');
+  if (idempotence) entetes.set('Idempotency-Key', idempotence);
 
   let reponse = await appelerPasserelle(cible, {
     method: requete.method,

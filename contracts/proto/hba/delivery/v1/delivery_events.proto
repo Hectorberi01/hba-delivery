@@ -91,6 +91,17 @@ message DeliveryCompleted {
   // UUID serait illisible pour le livreur comme pour la finance. La référence
   // ne change jamais, la recopier ne crée aucune divergence.
   string reference = 5;
+
+  // QUI A COMMANDÉ. Ajouté le 3 octobre 2026 pour Rating, et pour exactement la
+  // raison qui a fait voyager la référence juste au-dessus : le consommateur ne
+  // peut pas aller le chercher. Rating ouvre une notation à la fin d'une
+  // mission, et sans ce champ il saurait QUI a livré sans savoir À QUI — donc
+  // sans pouvoir dire qui a le droit de noter.
+  //
+  // VIDE POUR UNE LIVRAISON DE PARTENAIRE OU DE COMMERÇANT, qui n'a pas de
+  // client au sens du référentiel. Aucune notation ne s'ouvre alors, et c'est
+  // juste : personne n'a été servi en son nom propre.
+  string customer_id = 6;
 }
 
 // livraison annulé
@@ -109,6 +120,23 @@ message DeliveryCancelled {
   // livreur l'avait acceptée le laissait ON_MISSION pour toujours : plus
   // aucune offre, et pas même le droit de se mettre hors ligne.
   string driver_id = 7;
+
+  // Retenue due au livreur, ZÉRO QUAND AUCUN LIVREUR N'ÉTAIT AFFECTÉ.
+  //
+  // ELLE EST ICI PARCE QUE PAYMENT NE PEUT PAS LA CALCULER. Le montant est figé
+  // dans le devis au taux de la grille du jour (point 3, tranché le 2 octobre
+  // 2026) ; Payment n'a ni le devis, ni le droit de lire la base de Delivery, ni
+  // la moindre grille tarifaire. Sans ce champ, la règle serait inapplicable.
+  //
+  // ELLE SERT DEUX FOIS : à créditer le livreur de son déplacement, et à déduire
+  // d'autant le remboursement recommandé au client. Les deux dans Payment, à
+  // partir de ce seul chiffre.
+  hba.common.v1.Money cancellation_fee = 8;
+
+  // Reference lisible de la livraison. Elle sert au RELEVE DU LIVREUR : sans
+  // elle, un dedommagement s'y afficherait sous un UUID la ou une remise
+  // s'affiche sous « HBA-00742 », pour deux lignes voisines du meme releve.
+  string reference = 9;
 }
 
 message DeliveryFailed {
@@ -118,6 +146,21 @@ message DeliveryFailed {
 
   // Même raison que pour l'annulation : libérer le livreur affecté.
   string driver_id = 4;
+
+  // Retenue due au livreur, ZÉRO QUAND AUCUN LIVREUR N'ÉTAIT AFFECTÉ.
+  //
+  // ELLE EST ICI PARCE QUE PAYMENT NE PEUT PAS LA CALCULER. Le montant est figé
+  // dans le devis au taux de la grille du jour (point 3, tranché le 2 octobre
+  // 2026) ; Payment n'a ni le devis, ni le droit de lire la base de Delivery, ni
+  // la moindre grille tarifaire. Sans ce champ, la règle serait inapplicable.
+  //
+  // ELLE SERT DEUX FOIS : à créditer le livreur de son déplacement, et à déduire
+  // d'autant le remboursement recommandé au client. Les deux dans Payment, à
+  // partir de ce seul chiffre.
+  hba.common.v1.Money cancellation_fee = 5;
+
+  // Meme raison que pour l'annulation : le releve du livreur.
+  string reference = 6;
 }
 
 message NoDriverFound {

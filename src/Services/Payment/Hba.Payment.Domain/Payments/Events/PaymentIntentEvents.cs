@@ -10,14 +10,16 @@ namespace Hba.Payment.Domain.Payments.Events;
 /// </summary>
 public sealed record PaymentIntentSucceeded(
     Guid PaymentIntentId,
-    Guid DeliveryId,
+    ServiceType ServiceType,
+    Guid ReferenceId,
     MoneyXof Amount,
     Actor Actor,
     DateTimeOffset OccurredAt) : DomainEvent(Actor, OccurredAt);
 
 public sealed record PaymentIntentFailed(
     Guid PaymentIntentId,
-    Guid DeliveryId,
+    ServiceType ServiceType,
+    Guid ReferenceId,
     string Reason,
     Actor Actor,
     DateTimeOffset OccurredAt) : DomainEvent(Actor, OccurredAt);
@@ -42,7 +44,8 @@ public sealed record PaymentIntentFailed(
 /// </remarks>
 public sealed record PaymentIntentRefunded(
     Guid PaymentIntentId,
-    Guid DeliveryId,
+    ServiceType ServiceType,
+    Guid ReferenceId,
     MoneyXof Amount,
     bool Partiel,
     Actor Actor,

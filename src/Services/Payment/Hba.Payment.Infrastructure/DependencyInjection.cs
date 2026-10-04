@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddScoped<IIdempotencyStore>(sp => new EfIdempotencyStore(sp.GetRequiredService<PaymentDbContext>()));
 
         services.AddScoped<IPaymentIntentRepository, PaymentIntentRepository>();
+        services.AddScoped<IRefundDueRepository, RefundDueRepository>();
         services.AddScoped<IDriverLedgerRepository, DriverLedgerRepository>();
         services.AddScoped<IPayoutRequestRepository, PayoutRequestRepository>();
 

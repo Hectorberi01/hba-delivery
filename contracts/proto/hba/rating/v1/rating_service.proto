@@ -1,0 +1,135 @@
+syntax = "proto3";
+
+package hba.rating.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
+
+option csharp_namespace = "Hba.Contracts.Rating.V1";
+
+// Les avis des clients sur les livreurs. Point 41, tranché le 3 octobre 2026.
+//
+// UN SERVICE À PART, ET LE RÉFÉRENTIEL LE PRÉVOYAIT DEPUIS LE PREMIER JOUR :
+// « Rating » y figure parmi les services à venir, aux côtés de Tracking, Support,
+// Settlement et Reporting. Le ranger dans Driver aurait été plus court et aurait
+// fermé deux portes — Driver serait devenu juge et partie de sa propre
+// réputation, et noter un COMMERÇANT n'aurait jamais eu sa place dans un service
+// qui ne connaît que des livreurs.
+//
+// IL N'OUVRE RIEN TOUT SEUL. Une note basse ne désactive personne : tant
+// qu'aucune règle n'est écrite, Rating observe et ne décide pas. Le dispatch ne
+// lit pas les notes, et c'est écrit au point 41 pour qu'on sache que c'est un
+// choix et non un oubli.
+service RatingService {
+  // Ce que ce client peut encore noter.
+  //
+  // IL NE REND QUE LES SIENNES, et le service le vérifie sur le jeton : un
+  // identifiant de mission dans la requête ne dit pas qui la commandée.
+  rpc ListPendingReviews(ListPendingReviewsRequest) returns (ListPendingReviewsResponse);
+
+  // Noter une mission terminée.
+  //
+  // LE LIVREUR N'EST PAS DANS LA REQUÊTE, ET C'EST VOLONTAIRE. Il est écrit
+  // au moment où la mission s'achève, depuis l'événement du service concerné.
+  // Le laisser au client, c'est le laisser noter quelqu'un qui ne l'a pas servi.
+  rpc SubmitReview(SubmitReviewRequest) returns (Review);
+
+  // La note moyenne d'un livreur, pour son application.
+  rpc GetDriverRating(GetDriverRatingRequest) returns (DriverRating);
+
+  // Ses avis, un par un.
+  //
+  // UNE MOYENNE SANS DÉTAIL EST UNE SANCTION SANS MOTIF : le point 41 pose que
+  // le livreur doit pouvoir voir ce qu'on lui reproche, pas seulement combien.
+  rpc ListDriverReviews(ListDriverReviewsRequest) returns (ListDriverReviewsResponse);
+
+  // Ouvre une notation. RÉSERVÉ AUX SERVICES, jamais exposé à une application.
+  //
+  // ELLE EXISTE POUR LE RATTRAPAGE, pas pour le chemin normal : celui-ci passe
+  // par les événements de fin de mission. Une mission close pendant que Rating
+  // était arrêté ne doit pas rester à jamais innotable.
+  rpc OpenReview(OpenReviewRequest) returns (Review);
+}
+
+// Une note portée sur une mission terminée.
+message Review {
+  string id = 1;
+
+  hba.common.v1.ServiceType service_type = 2;
+  string reference_id = 3;
+
+  string customer_id = 4;
+  string driver_id = 5;
+
+  // De 1 à 5. ZÉRO VEUT DIRE « PAS ENCORE NOTÉE », pas « zéro étoile » : le
+  // barème commence à une étoile, et une note nulle n'existe pas.
+  int32 stars = 6;
+
+  // Vide tant que personne n'a écrit, et souvent vide ensuite.
+  //
+  // AUCUNE MODÉRATION N'EXISTE AU MVP. Ce champ est rendu au livreur concerné
+  // et au back-office, à personne d'autre.
+  string comment = 7;
+
+  google.protobuf.Timestamp mission_completed_at = 8;
+  google.protobuf.Timestamp submitted_at = 9;
+}
+
+message ListPendingReviewsRequest {
+  // Omis, le service prend le sujet du jeton. Un back-office peut le préciser.
+  string customer_id = 1;
+  int32 limit = 2;
+}
+
+message ListPendingReviewsResponse {
+  repeated Review reviews = 1;
+}
+
+message SubmitReviewRequest {
+  hba.common.v1.ServiceType service_type = 1;
+  string reference_id = 2;
+
+  // De 1 à 5. Hors bornes, le service refuse plutôt que de ramener dans l'écart.
+  int32 stars = 3;
+
+  string comment = 4;
+}
+
+message GetDriverRatingRequest {
+  string driver_id = 1;
+}
+
+// La réputation d'un livreur, telle qu'elle peut être montrée.
+message DriverRating {
+  string driver_id = 1;
+
+  // Moyenne sur 5, à deux décimales. ZÉRO QUAND IL N'Y A AUCUN AVIS.
+  double average = 2;
+
+  int32 count = 3;
+
+  // La moyenne est-elle assez fournie pour être montrée ?
+  //
+  // DIX COURSES NE FONT PAS UNE MOYENNE, et afficher 2,0 sur un seul avis est
+  // plus faux que de n'afficher rien. C'est le service qui tranche, pas chaque
+  // application : trois écrans avec trois seuils finiraient par se contredire.
+  bool enough = 4;
+}
+
+message ListDriverReviewsRequest {
+  // Omis, le service prend le sujet du jeton quand l'appelant est un livreur.
+  string driver_id = 1;
+  int32 limit = 2;
+}
+
+message ListDriverReviewsResponse {
+  repeated Review reviews = 1;
+}
+
+message OpenReviewRequest {
+  hba.common.v1.ServiceType service_type = 1;
+  string reference_id = 2;
+  string customer_id = 3;
+  string driver_id = 4;
+  google.protobuf.Timestamp completed_at = 5;
+}

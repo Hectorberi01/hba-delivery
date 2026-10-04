@@ -14,5 +14,19 @@ public interface IPartnerClientRepository
 
     Task<PartnerClient?> GetByClientIdAsync(string clientId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Tous les clients partenaires, triés par nom.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LES DESACTIVES EN FONT PARTIE. Un partenaire coupé existe toujours, et
+    /// c'est justement de lui qu'on vient vérifier l'état.
+    ///
+    /// LE PLAFOND EST DANS LA SIGNATURE, comme partout ailleurs ici : une
+    /// méthode sans limite finit toujours par être appelée sur une table qui a
+    /// grossi.
+    /// </remarks>
+    Task<IReadOnlyList<PartnerClient>> ListAsync(int limit, CancellationToken cancellationToken);
+
     void Add(PartnerClient client);
 }

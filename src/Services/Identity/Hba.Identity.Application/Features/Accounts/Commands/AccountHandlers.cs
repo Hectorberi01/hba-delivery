@@ -159,6 +159,55 @@ public sealed class SetAccountRolesHandler(
     }
 }
 
+/// <summary>
+/// Le titulaire se renomme lui-même.
+/// </summary>
+///
+/// <remarks>
+/// RESERVE AU BACK-OFFICE, ET CE N'EST PAS UNE QUESTION DE PRIVILEGE MAIS DE
+/// SOURCE. Le nom d'un client vit dans Directory, celui d'un livreur dans son
+/// dossier chez Driver, celui d'un commerçant dans sa fiche : les renommer ici
+/// ferait diverger deux copies, et c'est celle qui ne bouge pas que les écrans
+/// affichent. Un compte de back-office, lui, n'est recopié nulle part — la
+/// console lit Identity.
+///
+/// LE SUJET DU JETON, JAMAIS UN IDENTIFIANT RECU. Accepter un accountId
+/// transformerait ce geste en administration, et ouvrirait à ops le droit de
+/// renommer un administrateur.
+/// </remarks>
+public sealed class UpdateOwnProfileHandler(
+    IAccountRepository accounts,
+    ICallerContext caller,
+    IUnitOfWork unitOfWork,
+    IClock clock) : ICommandHandler<UpdateOwnProfileCommand, AccountView>
+{
+    public async Task<AccountView> HandleAsync(
+        UpdateOwnProfileCommand command,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        AccountGuard.EnsureBackOffice(caller);
+
+        if (!Guid.TryParse(caller.SubjectId, out var id))
+        {
+            throw new ForbiddenException("Jeton sans sujet exploitable.");
+        }
+
+        var account = await accounts.GetByIdAsync(id, cancellationToken).ConfigureAwait(false)
+            ?? throw new NotFoundException("Compte", id.ToString());
+
+        account.Rename(command.DisplayName, caller.ToActor(), clock.UtcNow);
+
+        await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // LE JETON EN COURS PORTE ENCORE L'ANCIEN NOM, et il le portera jusqu'à
+        // son renouvellement : un claim ne se réécrit pas à distance. La console
+        // affiche le nom rendu ici, pas celui du jeton, ce qui suffit à ne pas
+        // montrer deux noms à la même personne.
+        return AccountViewMapper.ToView(account);
+    }
+}
+
 public sealed class SuspendAccountHandler(
     IAccountRepository accounts,
     IRefreshTokenRepository refreshTokens,

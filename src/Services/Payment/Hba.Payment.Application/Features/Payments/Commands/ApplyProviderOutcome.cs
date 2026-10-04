@@ -2,6 +2,7 @@ using Hba.BuildingBlocks.Application.Abstractions;
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Domain;
 using Hba.Payment.Application.Common.Interfaces;
+using Hba.Payment.Domain.Earnings;
 using Hba.Payment.Domain.Payments;
 using Microsoft.Extensions.Logging;
 
@@ -42,6 +43,7 @@ public sealed record ApplyProviderOutcomeCommand(string ProviderReference) : ICo
 
 public sealed class ApplyProviderOutcomeHandler(
     IPaymentIntentRepository intents,
+    IDriverLedgerRepository ledger,
     IPaymentProvider provider,
     IUnitOfWork unitOfWork,
     IClock clock,
@@ -81,6 +83,7 @@ public sealed class ApplyProviderOutcomeHandler(
         {
             case PaymentStatus.Succeeded:
                 intent.MarkSucceeded(actor, now);
+                await CrediterLePourboireAsync(intent, now, cancellationToken).ConfigureAwait(false);
                 break;
 
             case PaymentStatus.Failed:
@@ -133,5 +136,64 @@ public sealed class ApplyProviderOutcomeHandler(
             PaymentStatus.Refunded or PaymentStatus.PartiallyRefunded => ProviderOutcome.Refunded,
             _ => ProviderOutcome.Failed,
         };
+    }
+
+    /// <summary>
+    /// Inscrit le pourboire au compte du livreur, dans la meme transaction.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ICI, ET PAS DANS UN CONSOMMATEUR D'EVENEMENT. La remuneration d'une
+    /// mission arrive par Kafka parce qu'elle vient d'un autre service ; un
+    /// pourboire, lui, naquit dans Payment et s'y acheve. Le faire sortir pour
+    /// revenir ajouterait un topic, un consommateur et une fenetre pendant
+    /// laquelle l'argent est encaisse sans etre credite.
+    ///
+    /// RIEN POUR UNE MISSION : son prix est credite par l'evenement de fin de
+    /// mission, qui porte deja la part du chauffeur. Crediter ici en plus
+    /// paierait la course deux fois.
+    ///
+    /// LE MONTANT EST VERSE EN ENTIER. Point 42 : commission zero, HBA assume
+    /// les frais de l'agregateur.
+    ///
+    /// LE REJEU NE CREDITE PAS DEUX FOIS. MarkSucceeded est idempotent et le
+    /// webhook se rejoue jusqu'a neuf fois ; la ligne deja ecrite est donc
+    /// cherchee avant, par le meme garde-fou que la remuneration.
+    /// </remarks>
+    private async Task CrediterLePourboireAsync(
+        PaymentIntent intent,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (intent.Purpose != PaymentPurpose.Tip || string.IsNullOrWhiteSpace(intent.DriverId))
+        {
+            return;
+        }
+
+        var deja = await ledger
+            .FindMissionEntryAsync(
+                LedgerEntryKind.Tip,
+                intent.ServiceType,
+                intent.ReferenceId,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (deja is not null)
+        {
+            return;
+        }
+
+        ledger.Add(DriverLedgerEntry.ForTip(
+            Guid.CreateVersion7(),
+            intent.DriverId,
+            intent.Amount.Amount,
+            intent.ServiceType,
+            intent.ReferenceId,
+
+            // AUCUNE REFERENCE LISIBLE : une course n'en porte pas, et celle d'un
+            // colis vit chez Delivery. Le releve retombe sur l'identifiant de la
+            // mission — moins lisible, mais vrai.
+            null,
+            now));
     }
 }

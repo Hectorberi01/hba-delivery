@@ -10,7 +10,7 @@ Tu es un architecte logiciel et analyste métier expert en plateformes de livrai
 - **Marché** : Bénin (Cotonou en pilote), zone UEMOA. Monnaie : **XOF (FCFA), montants entiers sans décimales**. Adressage formel peu fiable : une adresse est un point GPS + un repère écrit + un téléphone.
 - **Paiement** : FedaPay (Mobile Money et carte), derrière une interface `IPaymentProvider`.
 - **Architecture** : microservices .NET 9 — Identity, Delivery, Pricing, Dispatch, Driver, Payment, Notification (MVP) ; Tracking, Support, Rating, Settlement, Reporting (plus tard). gRPC en interne pour le synchrone, Kafka (Outbox/Inbox) pour l'asynchrone. Les applications passent par des BFF en REST/JSON derrière Traefik.
-- **Stockage** : PostgreSQL + PostGIS (une base par service), Redis (positions GEO, verrous, cache), MinIO (preuves, documents KYC), OSRM (distance, ETA).
+- **Stockage** : PostgreSQL + PostGIS (une base par service), Redis (positions GEO dans **Location**, verrous de Dispatch, cache), MinIO (preuves, documents KYC), OSRM (distance, ETA).
 
 ---
 
@@ -57,7 +57,7 @@ Tu es un architecte logiciel et analyste métier expert en plateformes de livrai
 
 - **Application** : App livreur Flutter, via Driver BFF. Doit fonctionner avec une connexion instable : actions mises en file, horodatage client, Idempotency-Key.
 - **Authentification** : téléphone + OTP, JWT. Rôle `driver`, actif seulement après validation KYC.
-- **Données clés** : identité, documents KYC (CNI, permis, carte grise, photo — dans MinIO), véhicule (type, immatriculation, capacité), statut de vérification, statut opérationnel, position courante (Redis GEO, jamais chaque point en base relationnelle), gains.
+- **Données clés** : identité, documents KYC (CNI, permis, carte grise, photo — dans MinIO), véhicule (type, immatriculation, capacité), statut de vérification, statut opérationnel, gains. **La position courante a quitté Driver le 01/10/2026** : elle vit dans le service **Location** (Redis GEO, jamais chaque point en base relationnelle), avec son cap, sa vitesse, sa précision GPS et sa fenêtre de fraîcheur.
 - **Statuts de vérification** : `PENDING_VERIFICATION` → `VERIFIED` | `REJECTED` | `SUSPENDED`.
 - **Statuts opérationnels** : `OFFLINE` → `AVAILABLE` → `RESERVED` (offre en cours) → `ON_MISSION` → `AVAILABLE`.
 - **Actions** : s'inscrire ; passer en ligne ou hors ligne ; recevoir une offre (délai de réponse limité, 30 s par défaut) ; accepter ou refuser ; signaler l'arrivée au point de collecte ; confirmer la collecte ; confirmer la remise avec l'OTP ; consulter ses gains ; déclarer un incident (hors MVP).
@@ -66,7 +66,8 @@ Tu es un architecte logiciel et analyste métier expert en plateformes de livrai
   - Il ne voit l'adresse exacte de destination qu'après acceptation.
   - Il ne peut pas marquer une livraison `DELIVERED` sans OTP valide.
   - Il ne fixe jamais le prix.
-- **Service propriétaire** : Driver (profil, statut, position) ; Dispatch (offres) ; Settlement (gains, hors MVP — reversements manuels au lancement).
+- **Service propriétaire** : Driver (profil, statut déclaré) ; **Location (position courante, depuis le 01/10/2026)** ; Dispatch (offres) ; Settlement (gains, hors MVP — reversements manuels au lancement).
+- **Deux présences, et elles ne vivent pas au même endroit.** « Je me déclare disponible » est un état métier qui s'audite et survit à un téléphone éteint : il est dans Driver. « Mon téléphone émet » est un fait technique qui s'évapore au bout de la fenêtre de fraîcheur : il est dans Location. Pour une vague de dispatch, **« disponible » est la conjonction des deux**, et c'est l'appelant qui croise — Location dit qui est proche, Driver dit qui est éligible. Aucun des deux services ne peut répondre seul, et c'est voulu : Location ne connaît ni les noms, ni les téléphones, ni les véhicules, ni les dossiers.
 
 ### 4. Commerçant
 
@@ -167,6 +168,7 @@ autre service le lui a demandé. L'identifiant enregistré est son nom de client
 |---|---|---|---|---|---|---|
 | Prix et détail du devis | Oui | Non | Sa rémunération seulement | Si donneur d'ordre | Oui | Oui |
 | Téléphone du livreur | Pendant la mission | Par SMS pendant la mission | — | Pendant la mission | Non | Oui |
+| Position du livreur affecté, en direct | Pendant la mission (point 37) | Non | — | Non | Non | Oui |
 | Adresse de destination | Oui | Oui | Après acceptation | Oui | Oui | Oui |
 | OTP de remise | Oui | Oui | Non (il le saisit) | Non | Non | Non |
 | Documents KYC livreur | Non | Non | Les siens | Non | Non | Oui (URL signée) |

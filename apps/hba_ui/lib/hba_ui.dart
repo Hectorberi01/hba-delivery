@@ -19,6 +19,14 @@ export 'src/tokens.dart';
 export 'src/widgets/hba_arc_nav.dart';
 export 'src/widgets/hba_button.dart';
 export 'src/widgets/hba_card.dart';
+
+// LA MARQUE ZEDJO, DESSINEE EN CODE. Nette a toutes les tailles, et elle suit
+// la palette au lieu de la figer dans une image exportee.
+export 'src/widgets/zedjo_logo.dart';
+
+// LE PAVE NUMERIQUE DE L'APPLICATION, a la place de celui du systeme : sa
+// hauteur est connue a la construction, donc l'ecran ne saute pas quand on tape.
+export 'src/widgets/clavier_numerique.dart';
 export 'src/widgets/hba_chip.dart';
 export 'src/widgets/hba_glissiere.dart';
 export 'src/widgets/hba_relief.dart';

@@ -263,6 +263,20 @@ public sealed class IdentityGrpcService(IDispatcher dispatcher) : IdentityServic
         return consent;
     }
 
+    public override async Task<ProtoAccount> UpdateOwnProfile(
+        UpdateOwnProfileRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new UpdateOwnProfileCommand(request.DisplayName),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return IdentityProtoMapper.ToProto(view);
+    }
+
     public override async Task<ProtoAccount> CreateBackOfficeAccount(
         CreateBackOfficeAccountRequest request,
         ServerCallContext context)
@@ -343,6 +357,25 @@ public sealed class IdentityGrpcService(IDispatcher dispatcher) : IdentityServic
         return IdentityProtoMapper.ToProto(view);
     }
 
+    public override async Task<ListBackOfficeAccountsResponse> ListBackOfficeAccounts(
+        ListBackOfficeAccountsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var vues = await dispatcher.QueryAsync(
+            new ListBackOfficeAccountsQuery(request.Limit),
+            context.CancellationToken).ConfigureAwait(false);
+
+        var reponse = new ListBackOfficeAccountsResponse();
+        // LAMBDA PLUTOT QUE GROUPE DE METHODES : « ToProto » est surchargé cinq
+        // fois, et l'inférence de Select n'a alors rien pour choisir.
+        reponse.Accounts.AddRange(vues.Select(vue => IdentityProtoMapper.ToProto(vue)));
+
+        return reponse;
+    }
+
     // ------------------------------------------------------ Partenaires ---
 
     public override async Task<PartnerClientCreated> CreatePartnerClient(
@@ -362,6 +395,26 @@ public sealed class IdentityGrpcService(IDispatcher dispatcher) : IdentityServic
             context.CancellationToken).ConfigureAwait(false);
 
         return IdentityProtoMapper.ToProto(view);
+    }
+
+    public override async Task<ListPartnerClientsResponse> ListPartnerClients(
+        ListPartnerClientsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var vues = await dispatcher.QueryAsync(
+            new ListPartnerClientsQuery(request.Limit),
+            context.CancellationToken).ConfigureAwait(false);
+
+        var reponse = new ListPartnerClientsResponse();
+
+        // LAMBDA PLUTOT QUE GROUPE DE METHODES : « ToProto » est surchargé, et
+        // l'inférence de Select n'aurait rien pour choisir.
+        reponse.Partners.AddRange(vues.Select(vue => IdentityProtoMapper.ToProto(vue)));
+
+        return reponse;
     }
 
     public override async Task<PartnerClientCreated> RotatePartnerSecret(

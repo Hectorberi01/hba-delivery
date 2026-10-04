@@ -17,4 +17,10 @@ public sealed record QuoteAmounts(
     MoneyXof BaseFare,
     MoneyXof VariableFare,
     MoneyXof SurgeFare,
-    MoneyXof DriverEarning);
+    MoneyXof DriverEarning,
+
+    /// <summary>
+    /// Retenue due si le client annule APRÈS l'affectation d'un livreur, figée
+    /// ici au moment du devis. Zéro quand la grille ne prévoit rien.
+    /// </summary>
+    MoneyXof CancellationFee);

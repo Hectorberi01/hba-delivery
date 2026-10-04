@@ -1,8 +1,20 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { APPAREIL, appelerPasserelle, type PaireDeJetons } from '@/lib/serveur/passerelle';
 import { poserSession } from '@/lib/serveur/session';
+import { accueilDe } from '@/lib/accueil';
 
-const ROLES_BACK_OFFICE = ['admin', 'ops', 'support', 'finance'];
+const ROLES_ACCEPTES = [
+  'admin',
+  'ops',
+  'support',
+  'finance',
+  // LE PORTAIL COMMERCANT VIT DANS LA MEME APPLICATION depuis le 2 octobre
+  // 2026. Cette route refusait tout compte hors back-office : un commercant
+  // muni d'un compte valide se voyait repondre « pas d'acces », ce qui etait
+  // vrai de la console et faux de son portail.
+  'merchant_owner',
+  'merchant_staff',
+];
 
 export async function POST(requete: NextRequest): Promise<NextResponse> {
   const { login, motDePasse } = (await requete.json()) as {
@@ -31,21 +43,23 @@ export async function POST(requete: NextRequest): Promise<NextResponse> {
   const paire = (await reponse.json()) as PaireDeJetons;
   const roles = paire.principal?.roles ?? [];
 
-  // CETTE VERIFICATION NE PROTEGE RIEN, ELLE EXPLIQUE. Un commercant a un
-  // compte valide : sans ce message, il se connecterait a une console dont
-  // chaque ecran lui renverrait un refus sans dire pourquoi. Les services,
+  // CETTE VERIFICATION NE PROTEGE RIEN, ELLE EXPLIQUE. Un client ou un livreur
+  // a un compte valide : sans ce message, il se connecterait a une application
+  // dont chaque ecran lui renverrait un refus sans dire pourquoi. Les services,
   // eux, refusent de toute facon (ADR 0007).
-  if (!roles.some((role) => ROLES_BACK_OFFICE.includes(role))) {
+  if (!roles.some((role) => ROLES_ACCEPTES.includes(role))) {
     return NextResponse.json(
       {
-        code: 'HORS_BACK_OFFICE',
-        message: "Ce compte n'a pas acces au back-office.",
+        code: 'HORS_PERIMETRE',
+        message: "Ce compte n'a acces ni au back-office ni au portail commercant.",
       },
       { status: 403 },
     );
   }
 
-  const succes = NextResponse.json({ principal: paire.principal });
+  // L'ACCUEIL EST DECIDE ICI, OU LES ROLES SONT CONNUS. Le formulaire ne les
+  // lit pas : le cookie de principal n'est pose qu'avec la reponse.
+  const succes = NextResponse.json({ principal: paire.principal, accueil: accueilDe(roles) });
   poserSession(succes, paire);
   return succes;
 }

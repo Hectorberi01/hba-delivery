@@ -49,6 +49,17 @@ services:
       # rien ne le signale.
       Time__ZoneId: ${HBA_TIMEZONE:-Africa/Porto-Novo}
 
+      # LES PROPRIETAIRES DE LA PLATEFORME : identifiants de compte separes par
+      # des virgules, et rien d'autre. Ce n'est PAS un role — le referentiel
+      # acteurs n'en connait pas de « super admin », et Identity refuse un role
+      # inconnu. C'est une liste de deploiement, comme les clients de service
+      # (ADR 0018) : y ajouter quelqu'un demande de redeployer la passerelle,
+      # et c'est exactement la propriete recherchee.
+      #
+      # VIDE = PORTE FERMEE POUR TOUT LE MONDE, y compris les administrateurs.
+      # Une page de supervision ouverte par defaut serait l'inverse du but.
+      Plateforme__Proprietaires: ${HBA_PROPRIETAIRES:-}
+
     # LES QUATRE NOMS D'HOTE POINTENT SUR LE MEME CONTENEUR, ET LES CHEMINS LES
     # DISTINGUENT. Les garder separes n'est pas decoratif : les applications
     # deja installees connaissent api.hba.delivery, les partenaires ont signe

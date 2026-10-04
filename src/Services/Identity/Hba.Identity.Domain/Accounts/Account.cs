@@ -266,6 +266,41 @@ public sealed class Account : AggregateRoot
         Raise(new AccountLinkedToDriver(Id, driverId, actor, now));
     }
 
+    /// <summary>
+    /// Le titulaire change le nom sous lequel il apparaît.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LE NOM N'EST PAS UNE IDENTITE DE CONNEXION. On ne se connecte ni par son
+    /// nom ni par rien de ce que cette méthode touche : l'e-mail, le téléphone
+    /// et les rôles restent hors de portée du titulaire. C'est ce qui permet de
+    /// lui ouvrir ce geste sans ouvrir les autres.
+    ///
+    /// LE MEME NOM NE LEVE PAS, ET NE PRODUIT RIEN. Un formulaire renvoyé sans
+    /// modification ne doit pas inscrire un événement de plus.
+    /// </remarks>
+    public void Rename(string displayName, Actor actor, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        var net = (displayName ?? string.Empty).Trim();
+
+        if (net.Length == 0 || net.Length > 120)
+        {
+            throw new DomainException(
+                IdentityErrorCodes.InvalidDisplayName,
+                "Le nom affiché doit tenir entre 1 et 120 caractères.");
+        }
+
+        if (string.Equals(DisplayName, net, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        DisplayName = net;
+        Raise(new AccountProfileChanged(Id, net, actor, now));
+    }
+
     public void SetRoles(IEnumerable<string> roles, string reason, Actor actor, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);

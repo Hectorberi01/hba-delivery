@@ -21,15 +21,42 @@ message NotificationCommand {
 }
 
 message SendSms {
+  // Le numéro, quand celui qui publie le connaît : Identity envoie un code à un
+  // téléphone qu'il détient, Delivery un code de remise au destinataire d'un
+  // colis, dont le numéro est dans la course.
+  //
+  // VIDE QUAND LE DESTINATAIRE EST UN TITULAIRE DE COMPTE. Renseignez alors
+  // subject_id, et Notification demande le numéro à Directory.
   string to_phone = 1;
   string template_id = 2;
   map<string, string> variables = 3;
+
+  // Le compte destinataire, quand son numéro n'est pas connu de l'émetteur.
+  //
+  // CE CHAMP MANQUAIT, ET SON ABSENCE A LAISSÉ DEUX MODÈLES MORTS.
+  // « delivery_assigned » et « delivery_completed » existent dans le catalogue
+  // depuis l'origine et n'ont JAMAIS eu de producteur : Delivery ne connaît que
+  // le CustomerId de son client, et SendSms exigeait un numéro. Aucun client
+  // n'a donc jamais été prévenu qu'un livreur avait pris son colis.
+  //
+  // LA FORME EST CELLE DE SendEmail ET DE SendPush, pour la raison que leur
+  // commentaire donne déjà : Notification résout l'adresse au moment d'envoyer,
+  // parce que la faire chercher par le service métier mettrait un appel réseau
+  // dans la transaction qui clôt une course.
+  //
+  // L'UN OU L'AUTRE, PAS LES DEUX. Si to_phone est renseigné, il gagne : c'est
+  // le seul moyen d'écrire à quelqu'un qui n'a pas de compte.
+  string subject_id = 4;
 }
 
 message SendWhatsApp {
   string to_phone = 1;
   string template_id = 2;
   map<string, string> variables = 3;
+
+  // Même raison que pour SendSms. Attention : WhatsApp exige l'opt-in du
+  // titulaire, ce qu'un compte HBA porte — mais pas un destinataire de colis.
+  string subject_id = 4;
 }
 
 message SendPush {

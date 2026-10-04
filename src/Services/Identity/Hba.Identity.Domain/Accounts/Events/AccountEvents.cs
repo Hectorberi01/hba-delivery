@@ -31,6 +31,20 @@ public sealed record AccountStatusChanged(
     Actor Actor,
     DateTimeOffset OccurredAt) : AccountDomainEvent(AccountId, Actor, OccurredAt);
 
+/// <summary>
+/// Le titulaire a change son nom affiche.
+///
+/// IL N'EST PUBLIE NULLE PART, ET C'EST VOULU. Aucun autre service ne detient
+/// le nom d'un compte de back-office : la console lit Identity directement.
+/// Le nom d'un client, lui, vit dans Directory et ne passe pas par ici — voir
+/// le garde de UpdateOwnProfileHandler.
+/// </summary>
+public sealed record AccountProfileChanged(
+    Guid AccountId,
+    string DisplayName,
+    Actor Actor,
+    DateTimeOffset OccurredAt) : AccountDomainEvent(AccountId, Actor, OccurredAt);
+
 public sealed record AccountPasswordChanged(
     Guid AccountId,
     Actor Actor,

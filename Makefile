@@ -1,7 +1,7 @@
 # Raccourcis du quotidien. `make` seul affiche l'aide.
 
 .DEFAULT_GOAL := help
-.PHONY: chaines repartir trace fiche fedapay webhook rebuild terrain offre clients versements carte dossier test-media test-identity garage-secrets garage-init kyc etape7 help net up down logs migrate identity-key tunnel tunnel-stop topics build services-up test test-domain test-billing test-billing-integration test-arch test-e2e migrations migration adresses relancer lint-accents lint-proto lint-compose infra-up prod-up prod-service clean
+.PHONY: chaines repartir trace fiche fedapay webhook rebuild terrain offre clients versements carte dossier test-media test-identity garage-secrets garage-init kyc etape7 help net up down logs migrate identity-key tunnel tunnel-stop topics build services-up test test-domain test-billing test-billing-integration test-arch test-e2e migrations migration adresses relancer lint-accents lint-proto lint-compose infra-up prod-up prod-service clean bases rattacher fantomes chrono
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -36,7 +36,8 @@ SERVICE_DIRS := \
 	src/Services/Identity src/Services/Directory src/Services/Delivery \
 	src/Services/Pricing src/Services/Dispatch src/Services/Driver \
 	src/Services/Payment src/Services/Notification src/Services/Media \
-	src/Services/Billing \
+	src/Services/Billing src/Services/Routing src/Services/Ride \
+	src/Services/Location src/Services/Realtime src/Services/Rating \
 	src/Gateways/Hba.Gateway
 
 lint-compose: ## Valide chaque compose, infrastructure comprise
@@ -95,6 +96,53 @@ relancer: net ## Reconstruit ET recree TOUS les services (make relancer)
 	@echo "Tous les services sont reconstruits et recrees."
 	@echo "Verifiez qu'aucun ne boucle :  docker compose ls"
 
+chrono: ## Ou passe le temps entre « je paie » et « ma commande est la » : make chrono R=<id>
+# « L'APPLICATION MET DU TEMPS » RECOUVRE QUATRE ATTENTES, dont deux ne sont pas
+# de nous : le client sur la page du fournisseur, notre boite d'envoi, Kafka, et
+# le traitement. Sans les dater separement, on optimise au hasard. Sans R, la
+# cible se contente de l'etat des files d'envoi de tous les services.
+	./scripts/chrono-de-la-commande.sh $(R)
+
+fantomes: ## Retire du reseau les branchements d anciens conteneurs
+# POUR « endpoint with name <conteneur> already exists in network hba-internal ».
+# Le registre du reseau garde l entree d un conteneur disparu sans se detacher,
+# et compose ne peut plus en creer un du meme nom. Un conteneur vivant n est
+# jamais touche : seuls les branchements sans conteneur en cours partent.
+	./scripts/nettoyer-endpoints-fantomes.sh
+
+rattacher: net ## Recree les services SANS reconstruire : les rattache a hba-internal
+# POUR LA PANNE OU TOUT A L'AIR NORMAL ET RIEN NE SE PARLE.
+#
+# Un conteneur retient l'IDENTIFIANT du reseau qu'il a rejoint a sa creation,
+# pas son nom. Si hba-internal a ete supprime — « docker system prune » emporte
+# les reseaux inutilises — puis recree par « make net », les conteneurs deja
+# lances gardent un rattachement mort : « docker ps » les montre vivants,
+# « docker network ls » montre le reseau, et pourtant plus aucun nom ne se
+# resout. Le symptome est « Failed to resolve 'kafka:9094' », qui fait chercher
+# du cote de Kafka alors que Kafka va bien.
+#
+# UN REDEMARRAGE NE SUFFIT PAS : il faut RECREER le conteneur.
+#
+# SANS « --build », ET C'EST TOUT L'INTERET DE CETTE CIBLE A COTE DE
+# « relancer ». Le code n'a pas change — seul le reseau a bouge — donc il n'y a
+# rien a reconstruire : on repart de l'image deja presente. Aucune couche n'est
+# ecrite, aucune image n'est rendue orpheline, et le disque de Docker ne bouge
+# pas d'un octet. C'est ce qui la rend utilisable quand il est plein.
+#
+# L'ABSENCE D'IMAGE N'ARRETE PAS LA BOUCLE : un service jamais construit — un
+# service neuf — est signale et les autres passent quand meme.
+	@for d in $(SERVICE_DIRS); do \
+		printf '%-34s ' "$$d"; \
+		if docker compose -f $$d/docker-compose.yml up -d --force-recreate --no-build >/dev/null 2>&1; then \
+			echo "rattache"; \
+		else \
+			echo "ECHEC — image absente ? construisez-le : make rebuild D=$$d"; \
+		fi; \
+	done
+	@echo
+	@echo "Verifiez qu'un service resout Kafka :"
+	@echo "  ./scripts/pourquoi-kafka-injoignable.sh"
+
 prod-service: net ## Démarre un seul service : make prod-service D=src/Services/Identity
 	@test -n "$(D)" || (echo "Indiquez le dossier : make prod-service D=src/Services/Identity" && exit 1)
 	docker compose -f $(D)/docker-compose.yml up -d
@@ -148,6 +196,19 @@ test-identity: ## Tests du domaine Identity : comptes, roles, jetons
 test-pricing: ## Tests du domaine Pricing : le devis ne paie que le trajet chiffre
 	dotnet test src/Services/Pricing/tests/Hba.Pricing.Domain.Tests/Hba.Pricing.Domain.Tests.csproj
 
+test-ride: ## Tests du domaine Ride : ce que l'annulation laisse au chauffeur
+# LES PREMIERS TESTS DE RIDE, le 2 octobre 2026. Le service portait depuis le
+# 1er octobre le prix FERME de toutes les courses de personnes, sans un seul
+# filet. La machine a etats et le deroule de la course restent a couvrir.
+	dotnet test src/Services/Ride/tests/Hba.Ride.Domain.Tests/Hba.Ride.Domain.Tests.csproj
+
+test-payment: ## Tests du domaine Payment : ce que touche un livreur quand rien n'aboutit
+# LES PREMIERS TESTS DE PAYMENT, le 2 octobre 2026. Le service tenait deja tout
+# l'argent de la plateforme sans un seul filet. Ils commencent par le
+# dedommagement parce que c'est la regle qui venait d'etre ecrite : PaymentIntent,
+# le rejeu de webhook, PayoutRequest et RefundDue restent a couvrir.
+	dotnet test src/Services/Payment/tests/Hba.Payment.Domain.Tests/Hba.Payment.Domain.Tests.csproj
+
 test-delivery-integration: ## Verrou du code de remise de Delivery (Docker requis)
 # UNE VRAIE BASE, PARCE QUE C'EST LE RECHARGEMENT QUI EST TESTE. Le verrou des
 # cinq tentatives etait couvert par un test de domaine vert et ne fonctionnait
@@ -160,6 +221,23 @@ test-arch: ## Règles de dépendance entre couches
 
 test-e2e: ## Parcours d'inscription de bout en bout (Docker requis)
 	dotnet test tests/EndToEnd.Tests/EndToEnd.Tests.csproj
+
+carte: ## Prepare la carte OSRM et bascule Routing dessus : make carte REGION=ile-de-france
+# TANT QUE CETTE CIBLE N'A PAS TOURNE, Routing mesure a vol d'oiseau : les devis
+# fermes de Pricing sous-facturent d'environ un tiers en ville, et Dispatch
+# compare des ETA qui ignorent les ponts. Le script est reprenable : chaque
+# passe deja faite est sautee.
+#
+# LA REGION SE CHOISIT, parce que l'essai se fait en France et le deploiement au
+# Benin : « ile-de-france » pour le banc, « benin » pour le terrain (defaut). Les
+# deux cartes coexistent ; rebasculer ne retelecharge rien.
+	./scripts/preparer-la-carte-osrm.sh $(or $(REGION),benin)
+
+bases: ## Cree les bases manquantes dans un Postgres deja initialise
+# init-databases.sh n'est joue QU'A LA CREATION du volume : une base ajoutee
+# apres coup — un nouveau service — n'existe nulle part, et « make migrate »
+# echoue sur « 3D000: database does not exist » sans designer la cause.
+	./scripts/creer-bases-manquantes.sh
 
 migrate: ## Applique les migrations à la base de développement
 # En Production, Database:AutoMigrate vaut false : un service ne touche pas au

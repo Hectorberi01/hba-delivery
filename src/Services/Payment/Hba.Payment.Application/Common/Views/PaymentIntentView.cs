@@ -8,13 +8,17 @@ namespace Hba.Payment.Application.Common.Views;
 /// </summary>
 public sealed record PaymentIntentView(
     Guid Id,
-    Guid DeliveryId,
+    ServiceType ServiceType,
+    Guid ReferenceId,
     string PayerId,
     long Amount,
     PaymentStatus Status,
     PaymentMethod Method,
     string ProviderReference,
+
+    // Vide tant que le fournisseur n'a pas rendu d'adresse.
     string RedirectUrl,
+
     DateTimeOffset CreatedAt,
     DateTimeOffset? SucceededAt,
     DateTimeOffset ExpiresAt)
@@ -25,7 +29,8 @@ public sealed record PaymentIntentView(
 
         return new PaymentIntentView(
             intent.Id,
-            intent.DeliveryId,
+            intent.ServiceType,
+            intent.ReferenceId,
             intent.PayerId,
             intent.Amount.Amount,
             intent.Status,

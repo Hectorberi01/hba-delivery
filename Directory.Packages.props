@@ -18,6 +18,14 @@
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="9.0.0" />
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="10.2.3" />
     <PackageVersion Include="Yarp.ReverseProxy" Version="2.3.0" />
+
+    <!-- LE BACKPLANE SIGNALR, ET IL N'EST PAS FACULTATIF POUR Hba.Realtime.
+         Sans lui, un evenement Kafka n'atteint que les clients connectes a
+         l'instance qui a consomme le message : avec deux repliques, la moitie des
+         clients ne voit jamais rien, sans aucune erreur nulle part. C'est la panne
+         invisible qu'on refuse, donc le paquet est une dependance, pas une option.
+         Il suit la version d'ASP.NET Core, comme les autres de ce groupe. -->
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="9.0.0" />
   </ItemGroup>
   <ItemGroup Label="Persistance">
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />

@@ -9,7 +9,17 @@ public static class PaymentErrorCodes
 {
     public const string InvalidAmount = "INVALID_AMOUNT";
 
-    public const string MissingDeliveryId = "MISSING_DELIVERY_ID";
+    /// <summary>
+    /// Un paiement sans mission, ou sans nature de mission.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// IL S'APPELAIT MISSING_DELIVERY_ID, et le nom etait devenu faux : depuis le
+    /// 1er octobre 2026 un paiement regle une livraison OU une course. Le code
+    /// visible du dehors change donc aussi — il ne voyage que dans les journaux et
+    /// les refus internes, aucune application ne branche dessus.
+    /// </remarks>
+    public const string MissingReference = "MISSING_REFERENCE";
 
     public const string MissingPayer = "MISSING_PAYER";
 

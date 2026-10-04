@@ -45,7 +45,11 @@ public sealed class AcceptOfferHandler(
             ?? throw new NotFoundException("Offre", command.OfferId.ToString());
 
         var jeton = await locks
-            .TryAcquireAsync(dispatch.DeliveryId, TimeSpan.FromSeconds(_options.AcceptanceLockSeconds), cancellationToken)
+            .TryAcquireAsync(
+                dispatch.ServiceType,
+                dispatch.ReferenceId,
+                TimeSpan.FromSeconds(_options.AcceptanceLockSeconds),
+                cancellationToken)
             .ConfigureAwait(false);
 
         if (jeton is null)
@@ -78,7 +82,9 @@ public sealed class AcceptOfferHandler(
         }
         finally
         {
-            await locks.ReleaseAsync(dispatch.DeliveryId, jeton, cancellationToken).ConfigureAwait(false);
+            await locks
+                .ReleaseAsync(dispatch.ServiceType, dispatch.ReferenceId, jeton, cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 }

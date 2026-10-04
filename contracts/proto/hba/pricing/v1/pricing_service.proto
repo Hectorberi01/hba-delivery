@@ -17,6 +17,45 @@ service PricingService {
   // Consomme un devis au moment de la création de la livraison : il ne peut
   // plus servir ensuite. Renvoie le snapshot figé.
   rpc ConsumeQuote(ConsumeQuoteRequest) returns (Quote);
+
+  // ---- Administration des grilles ------------------------------------------
+  //
+  // POURQUOI CES TROIS APPELS EXISTENT. Jusqu'au 1er octobre 2026, la seule
+  // grille du système était semée au démarrage par InitialTariffSeeder, depuis
+  // la configuration, pour UN couple (zone, véhicule). Toute course sur un
+  // autre véhicule échouait sur NO_TARIFF — un vélo, un tricycle ou une voiture
+  // ne pouvaient pas être facturés, donc pas commandés. Ce n'était pas une
+  // limite de produit : c'était un trou dans l'administration.
+  //
+  // RÉSERVÉ À admin ET finance. Une grille est de l'argent : elle décide de ce
+  // que paie le client et de ce que touche le livreur. Le service le vérifie
+  // lui-même (ADR 0007), il ne fait pas confiance à la passerelle.
+  rpc CreateTariff(CreateTariffRequest) returns (Tariff);
+  rpc CloseTariff(CloseTariffRequest) returns (Tariff);
+  rpc ListTariffs(ListTariffsRequest) returns (ListTariffsResponse);
+
+  // ---- Administration des zones (point 40) ---------------------------------
+  //
+  // POURQUOI ELLES ARRIVENT SI TARD. L'agrégat Zone existait depuis le début, la
+  // table aussi, et elle était VIDE : aucune colonne de géométrie, aucune
+  // commande, aucun appel. ConfiguredZoneLocator rendait la zone de repli
+  // configurée pour TOUT point du globe, donc une seule grille s'appliquait
+  // partout et le filtre par zone de l'écran des grilles filtrait un champ que
+  // personne ne pouvait faire varier.
+  //
+  // UNE ZONE SE REMPLACE, ELLE NE SE VERSIONNE PAS, et c'est la différence avec
+  // une grille. Une grille porte de l'argent et un devis émis hier s'en réclame
+  // (ADR 0004) ; une zone porte une forme. Redessiner un quartier ne change
+  // aucun prix déjà facturé : les devis gardent le CODE de zone qu'ils ont
+  // capté, pas sa forme.
+  //
+  // ÉCRITURE RÉSERVÉE À admin, LECTURE OUVERTE AU BACK-OFFICE. Redessiner une
+  // zone déplace des prix sans toucher à une seule grille — la finance fixe les
+  // prix dans une géographie que l'administration définit. Le service le vérifie
+  // lui-même (ADR 0007).
+  rpc ListZones(ListZonesRequest) returns (ListZonesResponse);
+  rpc SaveZone(SaveZoneRequest) returns (Zone);
+  rpc SetZoneActive(SetZoneActiveRequest) returns (Zone);
 }
 
 message GetQuoteRequest {
@@ -25,8 +64,20 @@ message GetQuoteRequest {
   hba.common.v1.VehicleType vehicle_type = 3;
   hba.common.v1.Source source = 4;
   string partner_id = 5;
+
+  // Le poids du colis, en grammes. IL EST ENFIN LU : jusqu'au 1er octobre 2026 ce
+  // champ existait et PricingGrpcService le jetait, si bien qu'un colis de trente
+  // kilos coûtait le prix d'une enveloppe. Il ne compte que pour une livraison —
+  // voir DeliveryPricingStrategy — et une course le laisse à zéro.
   int32 package_weight_grams = 6;
   google.protobuf.Timestamp scheduled_for = 7;
+
+  // La nature de la prestation. ABSENTE, ELLE VAUT SERVICE_TYPE_DELIVERY, et c'est
+  // le seul endroit du contrat où ce repli est admis : les applications et les
+  // partenaires déjà déployés demandent des devis de colis sans connaître ce champ,
+  // et les refuser aurait arrêté les livraisons le jour de la mise en service. Une
+  // course, elle, le remplit — Ride est né après.
+  hba.common.v1.ServiceType service_type = 8;
 }
 
 message GetQuoteByIdRequest {
@@ -35,12 +86,22 @@ message GetQuoteByIdRequest {
 
 message ConsumeQuoteRequest {
   string quote_id = 1;
+  // L'identifiant de la mission qui consomme le devis : une livraison ou une
+  // course, selon service_type. Le nom du champ est resté celui des colis parce
+  // que le renommer n'aurait rien ajouté sur le fil et aurait cassé tous les
+  // appelants pour une question de vocabulaire.
   string delivery_id = 2;
   // Le trajet de la livraison en cours de creation. Pricing REFUSE de consommer
   // un devis pour un autre trajet que celui qu'il a chiffre : sans ces deux
   // champs, un devis court servait a payer une course longue.
   hba.common.v1.GeoPoint pickup = 3;
   hba.common.v1.GeoPoint dropoff = 4;
+
+  // LA NATURE EST VÉRIFIÉE, PAS ENREGISTRÉE. Pricing refuse de consommer un devis
+  // de colis pour une course : les deux grilles n'ont ni le même plancher ni la
+  // même part du chauffeur, et la confusion ne se verrait qu'au versement. Absente,
+  // elle vaut SERVICE_TYPE_DELIVERY, pour la même raison que dans GetQuoteRequest.
+  hba.common.v1.ServiceType service_type = 5;
 }
 
 message Quote {
@@ -58,4 +119,202 @@ message Quote {
   google.protobuf.Timestamp created_at = 11;
   google.protobuf.Timestamp expires_at = 12;
   bool consumed = 13;
+  // La nature pour laquelle ce devis a été établi. C'est elle que ConsumeQuote
+  // vérifiera : l'appelant la relit ici plutôt que de se souvenir de sa demande.
+  hba.common.v1.ServiceType service_type = 14;
+
+  // Retenue due si le client annule APRÈS l'affectation d'un livreur, FIGÉE AU
+  // TAUX DE LA GRILLE AU MOMENT DU DEVIS. Zéro vaut annulation gratuite.
+  //
+  // ELLE EST ICI POUR ÊTRE AFFICHÉE AVANT LA CONFIRMATION. La relire au moment
+  // de l'annulation ferait dépendre le montant d'un taux changé entre-temps, et
+  // l'écran promettrait autre chose que ce qui sera prélevé.
+  //
+  // ELLE REVIENT EN ENTIER AU LIVREUR : driver_earning ne s'y applique pas.
+  hba.common.v1.Money cancellation_fee = 15;
+}
+
+// ---- Grilles tarifaires -----------------------------------------------------
+
+message Tariff {
+  string id = 1;
+  string tariff_version = 2;
+  string zone_code = 3;
+  hba.common.v1.VehicleType vehicle_type = 4;
+  hba.common.v1.Money base_fare = 5;
+  hba.common.v1.Money per_kilometer = 6;
+  hba.common.v1.Money per_minute = 7;
+  hba.common.v1.Money minimum_fare = 8;
+  // En points de base : 10000 vaut 1,00. Le plancher est 10000 — une majoration
+  // ne peut pas réduire un prix.
+  int32 surge_basis_points = 9;
+  // Part du livreur, en points de base du total.
+  int32 driver_share_basis_points = 10;
+  google.protobuf.Timestamp valid_from = 11;
+  // Absent tant que la grille est en vigueur.
+  google.protobuf.Timestamp valid_until = 12;
+
+  // La nature tarifée. Elle fait partie de la CLÉ de la grille, avec la zone, le
+  // véhicule et la plage horaire.
+  hba.common.v1.ServiceType service_type = 13;
+
+  // Plage horaire d'application, en MINUTES DEPUIS MINUIT, HEURE LOCALE DE COTONOU
+  // (ADR 0019), bornes [début, fin[. La journée entière s'écrit 0 → 1440, et c'est
+  // la plage de toutes les grilles antérieures au 1er octobre 2026. Une plage qui
+  // enjambe minuit s'écrit avec un début supérieur à sa fin : 1320 → 360 pour
+  // 22 h → 6 h.
+  int32 band_from_minute = 14;
+  int32 band_to_minute = 15;
+
+  // Prix du kilogramme au-delà du poids inclus, et poids inclus en grammes. NE
+  // CONCERNENT QUE LES COLIS : une grille de course les refuse à la création, parce
+  // qu'un passager ne se pèse pas. Le kilo entamé est dû.
+  hba.common.v1.Money per_kilogram = 16;
+  int32 included_weight_grams = 17;
+
+  // Retenue prélevée quand le client annule APRÈS l'affectation d'un livreur, en
+  // points de base du prix du devis : 2000 vaut 20 %, zéro vaut gratuit.
+  //
+  // ELLE VA INTÉGRALEMENT AU LIVREUR : driver_share_basis_points ne s'y applique
+  // pas. HBA ne prélève rien sur une course qui n'a pas eu lieu.
+  int32 cancellation_fee_basis_points = 18;
+}
+
+message CreateTariffRequest {
+  string tariff_version = 1;
+  string zone_code = 2;
+  hba.common.v1.VehicleType vehicle_type = 3;
+  hba.common.v1.Money base_fare = 4;
+  hba.common.v1.Money per_kilometer = 5;
+  hba.common.v1.Money per_minute = 6;
+  hba.common.v1.Money minimum_fare = 7;
+  int32 surge_basis_points = 8;
+  int32 driver_share_basis_points = 9;
+
+  // Absent vaut « maintenant ». Une date future permet de préparer un
+  // changement de prix sans qu'il prenne effet le jour où on le saisit.
+  google.protobuf.Timestamp valid_from = 10;
+
+  // CLÉ D'IDEMPOTENCE, ET ELLE N'EST PAS FACULTATIVE ICI. Un double appel —
+  // réseau nerveux, bouton appuyé deux fois — créerait deux grilles pour le
+  // même couple, dont la seconde clôturerait la première à la même seconde.
+  string idempotency_key = 11;
+
+  // La nature tarifée. ELLE EST EXIGÉE ICI, sans repli : une grille écrite sans
+  // nature serait choisie pour une course aussi bien que pour un paquet, et
+  // personne ne le verrait avant la première facture. C'est la même raison qui fait
+  // exiger le véhicule.
+  hba.common.v1.ServiceType service_type = 12;
+
+  // Plage horaire d'application, en minutes depuis minuit, heure locale. Deux
+  // bornes à zéro valent la journée entière — c'est le repli d'un appelant qui ne
+  // connaît pas ces champs. Deux bornes égales et non nulles sont refusées : la
+  // plage serait vide, donc la grille ne s'appliquerait jamais.
+  int32 band_from_minute = 13;
+  int32 band_to_minute = 14;
+
+  // Au-kilo et poids inclus. Absents valent « pas de supplément de poids ».
+  // REFUSÉS SUR UNE GRILLE DE COURSE.
+  hba.common.v1.Money per_kilogram = 15;
+  int32 included_weight_grams = 16;
+
+  // Retenue prélevée quand le client annule APRÈS l'affectation d'un livreur, en
+  // points de base du prix du devis : 2000 vaut 20 %, zéro vaut gratuit.
+  //
+  // ELLE VA INTÉGRALEMENT AU LIVREUR : driver_share_basis_points ne s'y applique
+  // pas. HBA ne prélève rien sur une course qui n'a pas eu lieu.
+  int32 cancellation_fee_basis_points = 17;
+  // ABSENT VAUT ZÉRO, DONC GRATUIT. C'est le repli d'un appelant qui ne connaît
+  // pas ce champ, et le seul repli qui ne prélève rien par surprise.
+}
+
+message CloseTariffRequest {
+  string tariff_id = 1;
+  // Absent vaut « maintenant ». Ne peut pas précéder la prise d'effet.
+  google.protobuf.Timestamp at = 2;
+}
+
+message ListTariffsRequest {
+  // Filtres facultatifs. Vides, ils rendent toutes les grilles connues.
+  string zone_code = 1;
+  hba.common.v1.VehicleType vehicle_type = 2;
+
+  // ICI, ET SEULEMENT ICI, SERVICE_TYPE_UNSPECIFIED VEUT DIRE « LES DEUX ». C'est
+  // un filtre de lecture : ne rien préciser rend toutes les natures, comme un
+  // véhicule non précisé rend tous les véhicules. Ailleurs dans ce fichier, la
+  // valeur zéro vaut soit « colis » (devis), soit un refus (création).
+  hba.common.v1.ServiceType service_type = 4;
+
+  // Faux par défaut : on ne rend que les grilles en vigueur à cet instant. Vrai
+  // rend aussi l'historique, qu'il ne faut jamais supprimer — un devis émis
+  // hier se réclame de la grille d'hier.
+  bool include_closed = 3;
+}
+
+message ListTariffsResponse {
+  repeated Tariff tariffs = 1;
+}
+
+
+// ------------------------------------------------ Zones tarifaires (point 40) -
+
+message Zone {
+  string id = 1;
+
+  // Identifiant lisible, repris tel quel dans le devis : « cotonou-centre ».
+  // C'EST LUI QUI LIE UNE ZONE A SES GRILLES, et non l'identifiant technique :
+  // une grille nomme sa zone par ce code.
+  string code = 2;
+
+  string name = 3;
+
+  // Départage les zones qui se chevauchent : la plus grande priorité gagne. Sans
+  // cela, un point situé dans deux polygones donnerait un prix qui dépend de
+  // l'ordre de lecture en base.
+  int32 priority = 4;
+
+  bool active = 5;
+
+  // Le contour, dans l'ordre du tracé. RENDU POUR ÊTRE DESSINÉ, pas pour être
+  // calculé : la géométrie se fait en base (ST_Contains), jamais chez un client.
+  //
+  // VIDE QUAND LA ZONE N'A PAS ENCORE DE FORME. C'est l'état des zones créées
+  // avant le 1er octobre 2026 — il n'y en a aucune, mais une zone sans contour ne
+  // contient aucun point et ne s'applique donc à personne, ce qui est le
+  // comportement sûr.
+  //
+  // LE PREMIER POINT N'EST PAS RÉPÉTÉ À LA FIN. La fermeture du contour est une
+  // affaire de représentation : la base la pose elle-même, et un client qui
+  // dessine ferme son tracé tout seul.
+  repeated hba.common.v1.GeoPoint ring = 6;
+}
+
+message ListZonesRequest {
+  // Les zones désactivées sont conservées : une zone qu'on retire d'une ville a
+  // des grilles et des devis qui la nomment.
+  bool include_inactive = 1;
+}
+
+message ListZonesResponse {
+  repeated Zone zones = 1;
+}
+
+// Crée la zone, ou remplace celle qui porte déjà ce code.
+//
+// UN SEUL APPEL POUR LES DEUX, ET C'EST VOULU : redessiner est le geste normal.
+// Une zone n'a pas d'historique de formes, donc « créer » et « redessiner » ne se
+// distinguent que par l'existence du code.
+message SaveZoneRequest {
+  string code = 1;
+  string name = 2;
+  int32 priority = 3;
+
+  // Au moins trois sommets. UN CONTOUR QUI SE RECOUPE EST REFUSÉ par la base
+  // (ST_IsValid), parce que c'est la seule qui sache le voir.
+  repeated hba.common.v1.GeoPoint ring = 4;
+}
+
+message SetZoneActiveRequest {
+  string code = 1;
+  bool active = 2;
 }

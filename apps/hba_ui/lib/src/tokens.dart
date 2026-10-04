@@ -4,120 +4,124 @@ import 'package:flutter/widgets.dart';
 /// ecrit en dur ailleurs : une valeur qui n'est pas ici est une valeur qui
 /// divergera entre les deux applications.
 ///
-/// TROIS SYSTEMES, ET UN ARBITRE
+/// LA MARQUE A CHANGE LE 4 OCTOBRE 2026 : ZEDJO, ET LES NOMS N'ONT PAS BOUGE.
 ///
-/// Le style de ces applications melange trois choses qui ne veulent pas tout a
-/// fait la meme chose :
+/// « ZEDJO — Livraison & Transport, Bougeons ensemble, plus loin » remplace
+/// l'identite HBA cote applications : vert a la place de la terre cuite, fond
+/// froid a la place de l'ivoire chaud. Les JETONS gardent leurs noms, donc les
+/// quatre-vingts appels a « HbaColors.primary » des deux applications suivent
+/// sans etre reecrits — c'est exactement ce qui avait permis le changement de
+/// style du 2 octobre.
 ///
-///  - le NEUMORPHISME donne la matiere : les blocs sont extrudes du fond par
-///    une double ombre, l'une claire en haut a gauche, l'autre sombre en bas a
-///    droite, et ce qu'on presse s'enfonce au lieu de changer de couleur ;
-///  - le SOFT UI garde du contraste entre le fond et les surfaces, la ou le
-///    neumorphisme pur les confond ;
-///  - MATERIAL DESIGN arbitre. C'est lui qui impose les seuils de contraste,
-///    les cibles tactiles de 48 dp et le fait qu'une action principale reste
-///    un aplat franc.
+/// REPEINDRE LE SOCLE REPEINT LES DEUX APPLICATIONS, et c'est assume : ZEDJO
+/// est la marque de la plateforme, pas celle du seul client. Garder le
+/// terracotta cote livreur demanderait une seconde palette resolue par le
+/// theme, donc de faire passer ces quatre-vingts appels par
+/// « Theme.of(context) » — un refactor, pas un reglage.
 ///
-/// L'ARBITRAGE EST TRANCHE PAR LE CONTEXTE D'USAGE, PAS PAR LE GOUT. Cette
-/// application se tient a bout de bras, en plein soleil de Cotonou, souvent
-/// par quelqu'un qui vient de descendre d'une moto et qui a trente secondes.
-/// Le neumorphisme pur — surfaces exactement de la couleur du fond, aucune
-/// bordure, tout le relief porte par l'ombre — s'effondre exactement dans ces
-/// conditions : sous une forte lumiere ambiante, l'ombre douce disparait la
-/// premiere. Les surfaces gardent donc une valeur propre, plus claire que le
-/// fond, et l'ombre ne fait qu'AJOUTER du relief a une separation qui tient
-/// deja sans elle.
+/// LE STYLE A CHANGE LE 2 OCTOBRE 2026, LES NOMS NON.
+///
+/// Les applications etaient en NEUMORPHISME : chaque bloc extrude du fond par
+/// une double ombre — claire en haut a gauche, sombre en bas a droite — et ce
+/// qu'on pressait s'enfoncait. Les maquettes retenues sont ailleurs : surfaces
+/// BLANCHES posees sur un fond ivoire, filet fin plutot qu'ombre, grands
+/// rayons, et une terre cuite qui remplace l'orange vif.
+///
+/// AUCUN NOM DE JETON NI DE COMPOSANT N'A BOUGE, et c'est ce qui permet a tous
+/// les ecrans de suivre sans etre reecrits : « HbaCard », « HbaCreux »,
+/// « HbaRelief », « HbaOmbres.relief » existent toujours et disent la meme
+/// chose — un bloc, un champ, une separation — avec un autre dessin. C'est
+/// exactement ce qui avait ete fait pour la console le meme jour.
+///
+/// CE QUE LE NOUVEAU STYLE GAGNE EN PLEIN SOLEIL. L'ancien commentaire de ce
+/// fichier disait le defaut du neumorphisme : sous une forte lumiere ambiante,
+/// l'ombre douce disparait la premiere, et avec elle toute separation. Le
+/// blanc sur ivoire ne depend d'aucune ombre : il tient par la valeur.
 abstract final class HbaColors {
-  /// Orange HBA, LA COULEUR D'IDENTITE. Reservee aux REMPLISSAGES : degrade de
-  /// la carte de solde, pouce de la bascule, pastilles. Jamais en couleur de
-  /// texte ni d'icone sur le fond clair — elle n'y tient que 2,6:1, sous le
-  /// seuil de 3:1 que Material demande deja pour un simple element
-  /// d'interface.
-  static const primary = Color(0xFFF2690F);
-
-  /// Orange de REMPLISSAGE SOUS DU TEXTE BLANC. C'est le fond du bouton
-  /// principal : le blanc y tient 4,51:1.
+  /// Vert ZEDJO. IL PORTE DU TEXTE BLANC, et c'est ce qui l'a choisi : 5,03:1,
+  /// au-dessus du seuil de 4,5:1.
   ///
-  /// L'ANCIENNE VERSION ECRIVAIT EN BLANC SUR #F2690F, soit 3,09:1 pour un
-  /// libelle de 16 px en gras — sous le seuil de 4,5:1, et sous celui de
-  /// « grand texte » qui commence a 18,66 px en gras. Le defaut existait
-  /// depuis le premier ecran et ne se voyait pas : en interieur, l'orange vif
-  /// parait lisible. En plein soleil, il ne l'est plus.
-  static const primaryDeep = Color(0xFFC4550C);
+  /// CE N'EST PAS LE VERT DE LA MAQUETTE, ET C'EST VOULU. Le vert vif des
+  /// images — autour de #16A34A — ne tient que 3,2:1 sous du blanc : un libelle
+  /// de bouton y devient illisible au soleil de Cotonou, qui est le seul
+  /// eclairage qui compte ici. Le meme arbitrage avait ete fait pour l'orange
+  /// #F2690F, ecarte au profit de la terre cuite pour la meme raison. Le vert
+  /// vif reste parfaitement utilisable la ou il ne porte pas de texte : le
+  /// logo, le halo du radar, une epingle.
+  static const primary = Color(0xFF138039);
 
-  /// Orange en TEXTE ou en ICONE. UNE SEULE VALEUR POUR LES TROIS SURFACES —
-  /// le fond, une surface en relief, un creux — parce qu'un jeton qui change
-  /// selon le support finit toujours par etre pose sur le mauvais. Elle tient
-  /// 4,55:1 sur la plus sombre des trois (le creux), donc davantage sur les
-  /// deux autres.
-  static const primaryInk = Color(0xFFA6480A);
+  /// Le meme, assombri : fond d'un bouton presse, et teinte que Material pose
+  /// sous du blanc. 6,38:1.
+  static const primaryDeep = Color(0xFF0F6B30);
 
-  /// Aplat tres clair, pour un fond de pastille ou un etat selectionne.
-  static const primarySoft = Color(0xFFFCEADC);
+  /// Vert en TEXTE ou en ICONE sur fond clair. Une seule valeur pour les trois
+  /// surfaces — un jeton qui change selon le support finit toujours par etre
+  /// pose sur le mauvais. 7,9:1 sur blanc.
+  static const primaryInk = Color(0xFF0B5F2B);
 
-  /// Encre : titres et texte courant. 14,6:1 sur le fond.
-  static const ink = Color(0xFF141B2D);
+  /// Aplat tres clair : fond d'une pastille, carte selectionnee, puce active.
+  /// C'est lui qui dit « choisi » dans les maquettes, avec le filet vert.
+  static const primarySoft = Color(0xFFE7F4EC);
 
-  /// Texte secondaire. 5,2:1 sur le fond, 5,7:1 sur une surface.
-  ///
-  /// ASSOMBRI DEPUIS #6B7488, qui tenait 4,45:1 — juste sous le seuil, et le
-  /// genre d'ecart qu'on ne voit jamais a l'oeil.
-  static const inkMuted = Color(0xFF5A6273);
+  /// Encre : titres et texte courant. 14,65:1 sur le fond, 17,38:1 sur blanc.
+  static const ink = Color(0xFF111A2C);
 
-  /// JAMAIS POUR DU TEXTE QU'IL FAUT LIRE. Reserve aux invites de saisie, aux
-  /// elements desactives et aux traits decoratifs — les seuls cas ou Material
-  /// dispense du seuil de contraste, parce qu'un element desactive doit
-  /// justement se lire comme indisponible.
-  static const inkFaint = Color(0xFF7C8494);
+  /// Texte secondaire. 4,80:1 sur le fond, 5,70:1 sur une surface blanche.
+  static const inkMuted = Color(0xFF5F6775);
 
-  /// LE FOND EST LA MATIERE. Tout est extrude de lui : c'est sa valeur qui
-  /// determine celle des deux ombres.
-  static const background = Color(0xFFF1ECE7);
+  /// JAMAIS POUR DU TEXTE QU'IL FAUT LIRE. Invites de saisie, elements
+  /// desactives, filets decoratifs — les seuls cas ou Material dispense du
+  /// seuil, parce qu'un element desactive doit se lire comme indisponible.
+  static const inkFaint = Color(0xFF8A9099);
 
-  /// La surface d'un bloc en relief. Plus claire que le fond, volontairement :
-  /// c'est ce qui fait tenir la separation quand l'ombre s'efface au soleil.
-  static const surface = Color(0xFFFAF7F4);
+  /// Le fond de l'application. IVOIRE CHAUD JUSQU'AU 4 OCTOBRE 2026, VERT
+  /// TRES PALE DEPUIS : un fond chaud sous une marque verte fait virer le vert
+  /// au kaki, et c'est le defaut que l'on voit le plus vite sur un telephone
+  /// bon marche. C'est la couleur que l'on voit AUTOUR des cartes, et derriere
+  /// la carte geographique.
+  static const background = Color(0xFFF1F5F2);
 
-  /// Le fond d'un creux : un champ de saisie, une pastille, un puits. Plus
-  /// sombre que le fond, comme si la matiere avait ete enfoncee.
-  static const surfaceSunken = Color(0xFFE7E1DA);
+  /// La surface d'une carte ou d'une feuille : BLANC FRANC. Dans l'ancien
+  /// style elle etait a peine plus claire que le fond, puisque l'ombre faisait
+  /// le travail ; ici c'est elle qui separe.
+  static const surface = Color(0xFFFFFFFF);
 
-  /// Filet. DEVENU RARE : le relief remplace la bordure presque partout. Il ne
-  /// reste que pour separer des lignes dans une liste dense, ou l'ombre
-  /// creerait un empilement de blocs illisible.
-  static const border = Color(0xFFE2DBD4);
+  /// Le fond d'un champ de saisie ou d'une pastille neutre. Plus sombre que la
+  /// surface, plus clair que le fond : un creux qui ne creuse plus rien, et
+  /// qui se lit quand meme comme une zone a remplir.
+  static const surfaceSunken = Color(0xFFEDF2EE);
 
-  /// L'ombre portee, en bas a droite. Le fond assombri, PAS DU NOIR TRANSPARENT :
-  /// du noir a faible opacite sur un fond chaud vire au gris sale et eteint
-  /// toute la chaleur de la palette.
-  static const ombre = Color(0xFFCFC7BF);
+  /// Filet. DEVENU LA REGLE, alors qu'il etait l'exception : c'est lui qui
+  /// borde les cartes, les champs et les pastilles non selectionnees.
+  static const border = Color(0xFFE2E8E4);
 
-  /// La lumiere, en haut a gauche. La source est en haut a gauche PARTOUT et
-  /// ne bouge jamais : deux sources de lumiere differentes sur un meme ecran
-  /// et le relief cesse d'etre lu comme du relief.
+  /// L'ombre portee, desormais UNIQUE et vers le bas. Le fond assombri, PAS DU
+  /// NOIR TRANSPARENT : du noir a faible opacite sur un fond chaud vire au
+  /// gris sale et eteint toute la chaleur de la palette.
+  static const ombre = Color(0xFFD5DED8);
+
+  /// CONSERVEE POUR LES APPELANTS, ET PLUS UTILISEE PAR LE RELIEF. Elle etait
+  /// la lumiere en haut a gauche du neumorphisme. La retirer casserait des
+  /// ecrans pour un gain nul ; la laisser sans l'employer est honnete tant que
+  /// le commentaire le dit.
   static const lumiere = Color(0xFFFFFFFF);
 
-  // LES TROIS COULEURS D'ETAT SUIVENT LA MEME REGLE QUE primaryInk : verifiees
-  // contre le creux, la plus sombre des trois surfaces. Elles tiennent 4,5:1
-  // dessus, 5,0:1 sur le fond et 5,5:1 sur une surface en relief.
-  //
-  // LES APLATS « SOFT », EUX, NE SE DISTINGUENT PAS DU FOND EN LUMINANCE — a
-  // peine 1,01:1. C'est voulu : ce n'est pas leur valeur qui les detache mais
-  // le creux qui les porte. Un aplat clair pose a plat sur cette matiere se
-  // lirait comme une tache.
+  // LES TROIS COULEURS D'ETAT SONT VERIFIEES CONTRE LE CHAMP, la plus sombre
+  // des trois surfaces : elles y tiennent plus de 5:1, donc davantage sur le
+  // fond et sur le blanc.
   static const success = Color(0xFF0B7442);
-  static const successSoft = Color(0xFFE2F1E9);
+  static const successSoft = Color(0xFFE6F1EA);
 
-  static const danger = Color(0xFFBB2F2A);
-  static const dangerSoft = Color(0xFFFAE8E7);
+  static const danger = Color(0xFFB3322B);
+  static const dangerSoft = Color(0xFFF9E9E7);
 
-  static const warning = Color(0xFF925600);
-  static const warningSoft = Color(0xFFFBEFDC);
+  static const warning = Color(0xFF8A5600);
+  static const warningSoft = Color(0xFFFAEFDF);
 
-  /// Degrade de la carte de solde. Il porte l'identite de la marque, et c'est
-  /// le seul endroit ou l'orange vif reste en grand aplat — le texte blanc y
-  /// est en 34 px gras, donc largement au-dela du seuil de « grand texte ».
-  static const balanceGradient = [Color(0xFFF2690F), Color(0xFFD03A2B)];
+  /// Degrade de la carte de solde, dans l'application livreur. Les deux
+  /// teintes suivent la terre cuite : le texte y est en 34 px gras, donc
+  /// au-dela du seuil de « grand texte ».
+  static const balanceGradient = [Color(0xFF17964A), Color(0xFF0C6230)];
 }
 
 abstract final class HbaSpacing {
@@ -137,11 +141,18 @@ abstract final class HbaSpacing {
   static const cible = 48.0;
 }
 
+/// LES RAYONS ONT GRANDI AVEC LE STYLE. Les maquettes posent des feuilles et
+/// des cartes nettement plus arrondies que l'ancien dessin ; le bouton, lui,
+/// est une gelule franche.
 abstract final class HbaRadius {
-  static const card = 20.0;
+  static const card = 22.0;
   static const field = 16.0;
-  static const button = 28.0;
+  static const button = 30.0;
   static const chip = 999.0;
+
+  /// La feuille qui monte par-dessus la carte geographique. Arrondie en haut
+  /// seulement : c'est ce coin-la qui dit qu'elle glisse.
+  static const feuille = 28.0;
 }
 
 abstract final class HbaDuration {
@@ -153,7 +164,7 @@ abstract final class HbaDuration {
 ///
 /// TROIS, PAS DIX. Une echelle d'elevation qui compte dix crans ne se
 /// distingue plus a l'oeil et se choisit au hasard. Celle-ci dit trois choses
-/// differentes : pose, saillant, et enfonce.
+/// differentes : pose, saillant, et ce qui flotte au-dessus de la carte.
 enum HbaElevation {
   /// A peine decolle du fond : une ligne de liste, une tuile secondaire.
   douce,
@@ -161,29 +172,38 @@ enum HbaElevation {
   /// Le cran normal d'une carte.
   normale,
 
-  /// Ce sur quoi l'oeil doit tomber en premier : la carte d'action du moment.
+  /// Ce sur quoi l'oeil doit tomber en premier, ou ce qui flotte au-dessus de
+  /// la carte geographique : feuille du bas, bandeau du haut.
   haute,
 }
 
-/// Les ombres, calculees a partir du fond.
+/// Les ombres.
+///
+/// UNE SEULE, ET VERS LE BAS. Le neumorphisme en posait deux, opposees, pour
+/// simuler une source de lumiere en haut a gauche. Le nouveau style ne simule
+/// rien : l'ombre ne fait que decoller legerement une surface BLANCHE d'un
+/// fond ivoire, et la separation tient deja sans elle.
+///
+/// ELLES RESTENT TRES DISCRETES. Dans les maquettes, seule la feuille posee
+/// sur la carte porte une ombre franche ; les cartes d'une liste n'en ont
+/// presque pas, c'est leur filet qui les detache.
 abstract final class HbaOmbres {
-  /// Le relief : lumiere en haut a gauche, ombre en bas a droite.
   static List<BoxShadow> relief(HbaElevation hauteur) => switch (hauteur) {
         HbaElevation.douce => const [
-            BoxShadow(color: HbaColors.ombre, offset: Offset(2, 2), blurRadius: 5),
-            BoxShadow(color: HbaColors.lumiere, offset: Offset(-2, -2), blurRadius: 5),
+            BoxShadow(color: HbaColors.ombre, offset: Offset(0, 1), blurRadius: 3),
           ],
         HbaElevation.normale => const [
-            BoxShadow(color: HbaColors.ombre, offset: Offset(5, 5), blurRadius: 12),
-            BoxShadow(color: HbaColors.lumiere, offset: Offset(-4, -4), blurRadius: 10),
+            BoxShadow(color: HbaColors.ombre, offset: Offset(0, 3), blurRadius: 10),
           ],
         HbaElevation.haute => const [
-            BoxShadow(color: HbaColors.ombre, offset: Offset(8, 9), blurRadius: 20),
-            BoxShadow(color: HbaColors.lumiere, offset: Offset(-6, -6), blurRadius: 14),
+            BoxShadow(color: HbaColors.ombre, offset: Offset(0, -2), blurRadius: 18),
+            BoxShadow(color: HbaColors.ombre, offset: Offset(0, 8), blurRadius: 24),
           ],
       };
 
-  /// Decalage et flou de l'ombre INTERIEURE d'un creux, pour le peintre.
+  /// CONSERVES POUR LE PEINTRE DU CREUX, qui ne s'en sert plus : le champ est
+  /// desormais un aplat borde. Les valeurs restent pour qu'aucun appelant ne
+  /// casse, et le peintre explique pourquoi il les ignore.
   static const decalageCreux = Offset(2.5, 2.5);
   static const flouCreux = 5.0;
 }

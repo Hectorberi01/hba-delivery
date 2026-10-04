@@ -40,7 +40,12 @@ internal sealed class HaversineRouteEngine(ILogger<HaversineRouteEngine> logger)
             "Trajet mesure a vol d'oiseau : {Distance} m. Aucun moteur de routage n'est branche.",
             distance);
 
-        return Task.FromResult(RouteMeasurement.Create(distance, durationSeconds: 0));
+        // CE MOTEUR EST LE REPLI, DONC SA MESURE EST TOUJOURS DEGRADEE. Il n'est
+        // plus enregistre comme IRouteEngine depuis le 1er octobre 2026 : il ne
+        // sert que lorsque le service Routing est injoignable. Marquer ici plutot
+        // qu'a l'appel couvre tous les appelants presents et futurs — c'est la
+        // propriete de la mesure, pas une decision de celui qui la demande.
+        return Task.FromResult(RouteMeasurement.Create(distance, durationSeconds: 0, isDegraded: true));
     }
 
     private static double DistanceMeters(GeoPoint from, GeoPoint to)

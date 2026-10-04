@@ -13,6 +13,12 @@ const LIBELLES: Record<string, string> = {
   VehiclePhoto: 'Photo du véhicule',
 };
 
+const ACTIVITES: Record<string, string> = {
+  PackageDelivery: 'Colis',
+  FoodDelivery: 'Restauration',
+  PassengerTransport: 'Transport de personnes',
+};
+
 const VEHICULES: Record<string, string> = {
   Motorcycle: 'Moto',
   Car: 'Voiture',
@@ -68,6 +74,31 @@ function Contenu({ dossier }: { dossier: DossierLivreur }) {
               ? `${VEHICULES[dossier.vehicle.type ?? ''] ?? dossier.vehicle.type} — ${dossier.vehicle.plate}`
               : 'Non déclaré'
           }
+        />
+
+        {/* LES PLACES NE S'AFFICHENT QUE S'IL Y EN A. Zéro ne veut pas dire
+            « inconnu » mais « aucune », et une ligne « 0 place » sur une moto de
+            livreur de colis n'apprend rien à personne. */}
+        {dossier.vehicle?.passengerCapacity ? (
+          <Ligne
+            terme="Places passagers"
+            valeur={`${dossier.vehicle.passengerCapacity}`}
+          />
+        ) : null}
+
+        {/* CE QUE LE LIVREUR DIT EXERCER, et ops le valide en validant le
+            dossier (point 38). C'est le seul moment où ces activités
+            s'examinent : un dossier validé se fige. LE COLIS EST TOUJOURS LÀ —
+            il est le socle et ne se déclare pas, donc une liste vide se lit
+            « colis seulement », jamais « rien ». */}
+        <Ligne
+          terme="Activités"
+          valeur={[
+            ACTIVITES.PackageDelivery,
+            ...(dossier.capabilities ?? [])
+              .filter((c) => c !== 'PackageDelivery')
+              .map((c) => ACTIVITES[c] ?? c),
+          ].join(', ')}
         />
         <Ligne
           terme="Envoyé le"

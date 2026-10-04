@@ -40,6 +40,11 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
       Jwt__RequireHttpsMetadata: "false"
 
+      # LE PORT GRPC DE ROUTING (8081), PAS SON PORT REST. Sans cette ligne,
+      # Pricing vise « http://routing:8081 » par defaut, ce qui est correct sur
+      # le reseau hba-internal — la variable ne sert qu'a pointer ailleurs.
+      Services__Routing: ${ROUTING_GRPC:-http://routing:8081}
+
       # ZONE DE REPLI. Vide, aucun point n'est couvert et Pricing repond
       # ZONE_NOT_COVERED : c'est le comportement voulu en production, ou les
       # zones seront de vrais polygones PostGIS. Une valeur non vide fait
@@ -54,6 +59,13 @@ services:
       Tariff__Initial__Version: ${PRICING_TARIFF_VERSION:-}
       Tariff__Initial__ZoneCode: ${PRICING_FALLBACK_ZONE:-}
       Tariff__Initial__VehicleType: ${PRICING_TARIFF_VEHICLE:-1}
+      # 1 = colis, 2 = course. Le semis ne pose QU'UNE grille : la grille de course se
+      # cree par POST /api/admin/v1/tariffs. Tant qu'elle n'existe pas, chaque devis de
+      # course echoue sur NO_TARIFF — c'est explicite, et c'est voulu : les prix du
+      # colis n'ont pas ete recopies sur la course.
+      Tariff__Initial__ServiceType: ${PRICING_TARIFF_SERVICE:-1}
+      Tariff__Initial__PerKilogram: ${PRICING_PER_KG:-0}
+      Tariff__Initial__IncludedWeightGrams: ${PRICING_INCLUDED_WEIGHT_G:-0}
       Tariff__Initial__BaseFare: ${PRICING_BASE_FARE:-0}
       Tariff__Initial__PerKilometer: ${PRICING_PER_KM:-0}
       Tariff__Initial__PerMinute: ${PRICING_PER_MINUTE:-0}

@@ -1,0 +1,62 @@
+# Deploiement du service location. IL SE DEPLOIE SEUL.
+#
+# CE SERVICE N'A PAS DE BASE DE DONNEES, comme Routing — mais pas pour la meme
+# raison. Routing calcule et oublie ; Location, lui, POSSEDE une donnee, la
+# derniere position connue de chaque chauffeur. Elle vit dans Redis parce qu'elle
+# est ecrasee toutes les quelques secondes et qu'aucune version precedente n'a de
+# valeur. Il n'y a donc ni chaine Postgres, ni migration, ni schema.
+#
+# REDIS EST OBLIGATOIRE ICI, contrairement a Routing ou il n'est qu'un cache :
+# sans lui le service n'a aucune donnee, et il refuse de demarrer plutot que de
+# rendre une carte vide.
+#
+#   cd src/Services/Location && docker compose up -d
+
+name: hba-location
+
+services:
+  location:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-location:${HBA_TAG:-latest}
+
+    build:
+      context: ../../..
+      dockerfile: src/Services/Location/Hba.Location.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # LA FORME REQUISE, ET NON UN DEFAUT. Un Redis absent ferait demarrer un
+      # service qui accepte les battements et rend une carte vide : exactement la
+      # panne invisible qu'on veut arreter au demarrage.
+      #
+      # LE MOT DE PASSE EST DANS LA CHAINE, comme il l'etait chez Driver : le Redis
+      # de l'infrastructure en exige un, et une chaine sans mot de passe echoue a la
+      # premiere commande — pas au demarrage, ce qui est pire.
+      ConnectionStrings__Redis: "redis:6379,password=${LOCATION_REDIS_PASSWORD:?LOCATION_REDIS_PASSWORD absent - les positions vivent dans Redis et nulle part ailleurs}"
+
+      # LA FENETRE DE FRAICHEUR. Elle doit couvrir PLUSIEURS battements de
+      # l'application chauffeur : un seul point perdu ne doit pas faire
+      # disparaitre quelqu'un de la carte. Trop courte, un chauffeur dans un
+      # tunnel s'efface ; trop longue, on propose des courses a des telephones
+      # eteints.
+      Location__FreshnessSeconds: ${LOCATION_FRESHNESS_SECONDS:-120}
+      Location__DefaultListLimit: ${LOCATION_LIST_LIMIT:-200}
+
+      # LE CANAL DES BATTEMENTS, lu par Hba.Realtime. LES DEUX SERVICES DOIVENT
+      # PORTER LE MEME NOM : s'ils divergent, la carte du client reste figee sans
+      # la moindre erreur nulle part. Vide, le temps reel est eteint.
+      Location__PositionChannel: ${LOCATION_POSITION_CHANNEL:-hba.location.positions}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

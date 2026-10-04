@@ -24,8 +24,19 @@ internal sealed class PaymentGrpcClient(PaymentService.PaymentServiceClient clie
                 new CreatePaymentIntentRequest
                 {
                     IdempotencyKey = idempotencyKey,
-                    DeliveryId = deliveryId.ToString(),
+                    ReferenceId = deliveryId.ToString(),
+
+                    // CE SERVICE NE PAIE QUE DES LIVRAISONS, et le dire est devenu
+                    // obligatoire : Payment regle aussi des courses de personnes
+                    // depuis le 1er octobre 2026, et il refuse une intention sans
+                    // nature plutot que de supposer le colis.
+                    ServiceType = Contracts.Common.V1.ServiceType.Delivery,
+
                     PayerId = payerId,
+
+                    // LE NUMERO NE FAIT QUE PREREMPLIR LA PAGE. Vide, Payment
+                    // reprend celui du jeton ; et de toute facon le client peut
+                    // en saisir un autre sur l'ecran du fournisseur.
                     PayerPhone = payerPhone,
                     Amount = new Contracts.Common.V1.Money
                     {

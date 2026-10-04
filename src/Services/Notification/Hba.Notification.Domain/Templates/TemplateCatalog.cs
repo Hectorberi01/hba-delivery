@@ -54,6 +54,38 @@ public static class TemplateCatalog
     /// </remarks>
     public const string DeliveryReceipt = "delivery_receipt";
 
+    // ---- Transport de personnes ---------------------------------------------
+    //
+    // SMS SEULEMENT, PAS DE WHATSAPP, ET C'EST UN CHOIX A REVOIR. Le passager est un
+    // titulaire de compte : son opt-in existe, WhatsApp serait donc ouvert et
+    // couterait cinq fois moins. On aligne pourtant sur « delivery_assigned », qui
+    // est en SMS seul, plutot que d'inventer une politique de canal differente pour
+    // les courses. Le jour ou WhatsApp s'ouvrira, ce sera pour les deux natures a la
+    // fois — et ce sera une decision, pas un detail de catalogue.
+
+    /// <summary>Un chauffeur vient chercher le passager.</summary>
+    public const string RideDriverAssigned = "ride_driver_assigned";
+
+    /// <summary>
+    /// Le chauffeur est sur place.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// C'EST LE MESSAGE LE PLUS UTILE DES CINQ. Le passager n'a pas forcement
+    /// l'application ouverte — il attend au bord d'une rue, telephone en poche — et
+    /// c'est le seul moment ou une seconde d'attente se paie en course perdue.
+    /// </remarks>
+    public const string RideDriverArrived = "ride_driver_arrived";
+
+    /// <summary>Le paiement n'a pas abouti : la course est close.</summary>
+    public const string RidePaymentFailed = "ride_payment_failed";
+
+    /// <summary>Aucun chauffeur n'a repondu.</summary>
+    public const string RideNoDriver = "ride_no_driver";
+
+    /// <summary>Le recapitulatif de la course, par courriel, une fois terminee.</summary>
+    public const string RideReceipt = "ride_receipt";
+
     private static readonly Dictionary<string, TemplateBinding> All = new(StringComparer.Ordinal)
     {
         // WHATSAPP D'ABORD, SMS EN REPLI. Le titulaire du compte donne son
@@ -129,6 +161,81 @@ public static class TemplateCatalog
 
                 Une question sur cette course ? Répondez à ce message en
                 gardant la référence dans l'objet.
+
+                HBA Delivery
+                """)),
+
+        // LE VEHICULE EST UNE SEULE VARIABLE, pas trois. « {vehicule} » vaut
+        // « Toyota Corolla blanche », « voiture blanche » ou « voiture » selon ce que
+        // le chauffeur a declare : c'est AssignedDriver.Vehicule qui le compose, parce
+        // que trois variables facultatives dans un modele ecriraient « en   ».
+        [RideDriverAssigned] = new(
+            RideDriverAssigned,
+            [NotificationChannel.Sms],
+            sms: new(
+                RideDriverAssigned,
+                NotificationChannel.Sms,
+                "HBA : {driver} vient vous chercher en {vehicule} ({plaque}). Appelez-le au {phone}.",
+                SmsMaxLength)),
+
+        [RideDriverArrived] = new(
+            RideDriverArrived,
+            [NotificationChannel.Sms],
+            sms: new(
+                RideDriverArrived,
+                NotificationChannel.Sms,
+                "HBA : {driver} est arrive au point de prise en charge, en {vehicule}.",
+                SmsMaxLength)),
+
+        // AUCUNE PROMESSE DE REMBOURSEMENT ICI, et c'est la difference avec le
+        // message suivant : un paiement qui echoue n'a rien preleve. Ecrire « vous
+        // serez rembourse » ferait attendre un virement qui n'a pas lieu d'etre.
+        [RidePaymentFailed] = new(
+            RidePaymentFailed,
+            [NotificationChannel.Sms],
+            sms: new(
+                RidePaymentFailed,
+                NotificationChannel.Sms,
+                "HBA : votre paiement n'a pas abouti, la course est annulee. Vous pouvez en commander une autre.",
+                SmsMaxLength)),
+
+        // CELUI-LA PROMET LE REMBOURSEMENT, ET LA PROMESSE EST TENABLE. L'argent a
+        // bien ete preleve avant la recherche (point 35), et la file des
+        // remboursements dus garantit que quelqu'un le rende — FedaPay n'ayant pas
+        // d'API de remboursement, c'est finance qui le fait depuis le tableau de bord.
+        // AUCUN DELAI N'EST ANNONCE : on ne promet pas ce qu'on ne mesure pas.
+        [RideNoDriver] = new(
+            RideNoDriver,
+            [NotificationChannel.Sms],
+            sms: new(
+                RideNoDriver,
+                NotificationChannel.Sms,
+                "HBA : aucun chauffeur disponible pour votre course. Le montant preleve vous sera rendu.",
+                SmsMaxLength)),
+
+        // COURRIEL SEULEMENT ET AUCUN REPLI, meme raison que le recu de colis : un
+        // recu qui basculerait en SMS arriverait tronque et couterait trois segments.
+        // LES ACCENTS SONT ICI : la contrainte GSM-7 ne vaut pas pour un courriel.
+        [RideReceipt] = new(
+            RideReceipt,
+            [NotificationChannel.Email],
+            email: new(
+                RideReceipt,
+                "Votre course du {date} — HBA Delivery",
+                """
+                Bonjour,
+
+                Votre course est terminée.
+
+                Date         : {date}
+                Chauffeur    : {driver}
+                Véhicule     : {vehicule}
+                Montant payé : {montant}
+
+                Ce message est un reçu : il confirme que la course a eu lieu
+                et qu'elle a été réglée. Ce n'est pas une facture.
+
+                Une question sur cette course ? Répondez à ce message.
 
                 HBA Delivery
                 """)),

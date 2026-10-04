@@ -32,6 +32,14 @@ public static class PartnerEndpoints
                     VehicleType = VehicleType.Motorcycle,
                     Source = Source.PartnerApi,
                     PackageWeightGrams = body.PackageWeightGrams,
+
+                    // L'API PARTENAIRE NE TRANSPORTE QUE DES COLIS, et la nature est
+                    // ecrite ici plutot que laissee au repli de Pricing. Compter sur
+                    // le repli marcherait aujourd'hui et deviendrait faux le jour ou
+                    // il sera retire — sans qu'une ligne de ce fichier ait change.
+                    // Ouvrir la course aux partenaires est une decision de produit,
+                    // pas un champ a rendre configurable en passant.
+                    ServiceType = ServiceType.Delivery,
                 },
                 cancellationToken: cancellationToken);
 

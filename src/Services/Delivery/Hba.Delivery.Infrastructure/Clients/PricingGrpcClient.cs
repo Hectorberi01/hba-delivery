@@ -4,6 +4,7 @@ using Hba.BuildingBlocks.Grpc;
 using Hba.Contracts.Pricing.V1;
 using Hba.Delivery.Application.Ports;
 using Hba.Delivery.Domain.ValueObjects;
+using ServiceType = Hba.Contracts.Common.V1.ServiceType;
 
 namespace Hba.Delivery.Infrastructure.Clients;
 
@@ -33,6 +34,13 @@ internal sealed class PricingGrpcClient(PricingService.PricingServiceClient clie
                 {
                     QuoteId = quoteId,
                     DeliveryId = deliveryId.ToString(),
+
+                    // ELLE EST DITE EXPLICITEMENT ALORS QUE C'EST LE REPLI DE
+                    // PRICING. Compter sur le repli marcherait aujourd'hui et
+                    // deviendrait faux le jour ou il sera retire — et ce jour-la
+                    // c'est Delivery, le plus ancien appelant, qui casserait sans
+                    // qu'aucun code de ce fichier ait change.
+                    ServiceType = ServiceType.Delivery,
                     Pickup = ToProto(pickup),
                     Dropoff = ToProto(dropoff),
                 },
@@ -72,7 +80,11 @@ internal sealed class PricingGrpcClient(PricingService.PricingServiceClient clie
             ToMoney(quote.DriverEarning),
             quote.DistanceMeters,
             quote.DurationSeconds,
-            quote.CreatedAt?.ToDateTimeOffset() ?? DateTimeOffset.UtcNow);
+            quote.CreatedAt?.ToDateTimeOffset() ?? DateTimeOffset.UtcNow,
+
+            // UN DEVIS SANS RETENUE N'EST PAS UNE ERREUR : la grille n'en prevoit
+            // pas, ou le devis date d'avant le 2 octobre 2026. ToMoney rend zero.
+            ToMoney(quote.CancellationFee));
     }
 
     /// <summary>

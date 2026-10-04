@@ -3,6 +3,7 @@ syntax = "proto3";
 package hba.payment.v1;
 
 import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
 import "hba/common/v1/money.proto";
 import "hba/common/v1/time.proto";
 
@@ -12,6 +13,23 @@ option csharp_namespace = "Hba.Contracts.Payment.V1";
 // connaît le fournisseur.
 service PaymentService {
   rpc CreatePaymentIntent(CreatePaymentIntentRequest) returns (PaymentIntent);
+
+  // Ouvre le paiement d'un POURBOIRE, après la mission (point 42, tranché le
+  // 3 octobre 2026).
+  //
+  // UNE INTENTION À PART, ET PAS UN SUPPLÉMENT SUR LA PREMIÈRE. Celle de la
+  // mission est close depuis longtemps quand celle-ci s'ouvre, et le
+  // fournisseur ne sait pas augmenter une transaction payée.
+  //
+  // LE BÉNÉFICIAIRE N'EST PAS DANS LA REQUÊTE. Payment le lit dans son propre
+  // grand livre : la rémunération de la mission y a été inscrite quand elle
+  // s'est achevée, et elle porte le chauffeur qui l'a faite. Laisser
+  // l'application le nommer reviendrait à permettre d'envoyer de l'argent à
+  // n'importe qui.
+  //
+  // COMMISSION ZÉRO. Le livreur touche le montant entier ; HBA assume les frais
+  // de l'agrégateur sur cette transaction.
+  rpc CreateTipIntent(CreateTipIntentRequest) returns (PaymentIntent);
   rpc GetPaymentIntent(GetPaymentIntentRequest) returns (PaymentIntent);
   // Déclenché par finance / ops, ou automatiquement sur NO_DRIVER_FOUND.
   rpc RefundPayment(RefundPaymentRequest) returns (Refund);
@@ -59,6 +77,28 @@ service PaymentService {
   // DE TOUT LE CONTRAT QUI DÉBITE LE COMPTE D'UN LIVREUR — la demande passe à
   // « versée » et la ligne de débit s'écrit dans la même transaction.
   rpc MarkPayoutPaid(MarkPayoutPaidRequest) returns (PayoutRequest);
+
+  // ---- Remboursements à faire ---------------------------------------------
+  //
+  // POURQUOI CES TROIS APPELS EXISTENT. Le prix est encaissé AVANT la recherche
+  // d'un chauffeur (point 35), et FedaPay N'A PAS D'API DE REMBOURSEMENT —
+  // vérifié le 30 septembre 2026 : tableau de bord marchand uniquement, et MTN
+  // Mobile Money seulement. Quand aucun chauffeur ne répond, le client a donc payé
+  // pour rien et quelqu'un doit lui rendre son argent à la main.
+  //
+  // SANS CETTE FILE, UN REMBOURSEMENT OUBLIÉ N'ÉTAIT DÉTECTABLE PAR PERSONNE : le
+  // client lisait « HBA revient vers vous », et la finance aurait dû relire toutes
+  // les transactions du fournisseur une par une.
+  //
+  // CES APPELS NE DÉPLACENT PAS D'ARGENT. Ils tiennent un cahier : l'argent part
+  // du tableau de bord du fournisseur, par un geste humain, et « SettleRefundDue »
+  // enregistre ce geste une fois accompli.
+  //
+  // LECTURE : tout le back-office. DÉCISION : admin et finance seulement, et
+  // vérifié dans le handler.
+  rpc ListRefundsDue(ListRefundsDueRequest) returns (ListRefundsDueResponse);
+  rpc SettleRefundDue(SettleRefundDueRequest) returns (RefundDue);
+  rpc DismissRefundDue(DismissRefundDueRequest) returns (RefundDue);
 }
 
 // Sens d'un mouvement au compte d'un livreur.
@@ -86,12 +126,28 @@ enum LedgerDirection {
   LEDGER_DIRECTION_DEBIT = 2;
 }
 
+// Ce qui a produit une ligne du compte d'un chauffeur.
+//
+// « DELIVERY_EARNING » GARDE SON NOM ET SON NUMÉRO, mais il couvre désormais les
+// deux natures de mission : c'est service_type qui dit laquelle. Le renommer
+// aurait obligé à toucher les lignes déjà écrites pour un gain de clarté nul —
+// la valeur persistée est le numéro.
 enum LedgerEntryKind {
   LEDGER_ENTRY_KIND_UNSPECIFIED = 0;
   // Rémunération d'une course livrée.
   LEDGER_ENTRY_KIND_DELIVERY_EARNING = 1;
   // Versement effectué par la finance.
   LEDGER_ENTRY_KIND_PAYOUT = 2;
+  // Dédommagement d'une mission engagée mais non accomplie.
+  LEDGER_ENTRY_KIND_COMPENSATION = 3;
+  // Pourboire laissé par le client, après la mission. Point 42.
+  //
+  // UN GENRE À PART, ET C'EST TOUTE LA DÉCISION. Le ranger dans
+  // DELIVERY_EARNING rendrait impossible de répondre à « combien les livreurs
+  // touchent-ils EN PLUS de la grille » — la première question que posera un
+  // livreur. Les numéros 3 et 4 existent déjà dans le domaine : les taire ici
+  // faisait lire « genre non précisé » à un livreur qui voit l'argent arriver.
+  LEDGER_ENTRY_KIND_TIP = 4;
 }
 
 enum PaymentStatus {
@@ -110,29 +166,80 @@ enum PaymentMethod {
   PAYMENT_METHOD_CARD = 2;
 }
 
+
 message PaymentIntent {
   string id = 1;
-  string delivery_id = 2;
+
+  // CE QUI EST PAYE : une livraison, ou une course de personnes. Son type est
+  // porte par service_type, et les deux ne se lisent jamais l'un sans l'autre.
+  //
+  // L'ANCIEN CHAMP delivery_id A ETE RENOMME, meme numero : compatible sur le
+  // fil, seul le code qui le lisait par son nom a change. Jusqu'au
+  // 1er octobre 2026 une course de personnes ne pouvait LITTERALEMENT pas etre
+  // payee — PaymentIntent.Create levait MISSING_DELIVERY_ID.
+  string reference_id = 2;
   string payer_id = 3;
   hba.common.v1.Money amount = 4;
   PaymentStatus status = 5;
   PaymentMethod method = 6;
   // Référence FedaPay. Jamais exposée hors du service et du back-office finance.
   string provider_reference = 7;
+
+  // Adresse de la page de paiement hébergée. C'est elle que l'application
+  // ouvre ; le payeur y choisit son opérateur, saisit son numéro et valide.
+  //
+  // ELLE A ÉTÉ RÉSERVÉE QUELQUES HEURES LE 3 OCTOBRE 2026, le temps d'un essai
+  // de paiement poussé directement sur le téléphone. Le fournisseur refuse
+  // cette poussée sur notre compte — « Opération non autorisée » — et le champ
+  // a repris SON NUMÉRO D'ORIGINE, que rien d'autre n'avait occupé entre-temps.
   string redirect_url = 8;
   google.protobuf.Timestamp created_at = 9;
   google.protobuf.Timestamp succeeded_at = 10;
   google.protobuf.Timestamp expires_at = 11;
+
+  hba.common.v1.ServiceType service_type = 12;
+}
+
+message CreateTipIntentRequest {
+  string idempotency_key = 1;
+
+  // La mission qu'on récompense. Les deux sont obligatoires : une course et une
+  // livraison peuvent porter le même identifiant.
+  hba.common.v1.ServiceType service_type = 2;
+  string reference_id = 3;
+
+  // Le numéro qui paie, facultatif : il ne fait que préremplir la page du
+  // fournisseur, où le client peut en saisir un autre.
+  string payer_phone = 4;
+
+  // En francs CFA, entier. AUCUN PLAFOND N'EST POSÉ ICI : un plafond est une
+  // décision commerciale que personne n'a prise.
+  int64 amount_xof = 5;
 }
 
 message CreatePaymentIntentRequest {
   string idempotency_key = 1;
-  string delivery_id = 2;
+  string reference_id = 2;
   string payer_id = 3;
   string payer_phone = 4;
   hba.common.v1.Money amount = 5;
   PaymentMethod method = 6;
-  string return_url = 7;
+
+  // RESERVE : l'adresse de retour apres la page hebergee, qui n'existe plus.
+  reserved 7;
+  reserved "return_url";
+
+  // OBLIGATOIRE. Le service refuse une intention sans nature plutot que de
+  // supposer la livraison : un appelant qui l'oublie paierait la livraison qui
+  // porte l'identifiant d'une course.
+  hba.common.v1.ServiceType service_type = 8;
+
+  // RÉSERVÉ : l'opérateur du numéro payeur, ajouté puis retiré le 3 octobre
+  // 2026. Il ne servait qu'à choisir le chemin de la poussée directe, que le
+  // fournisseur n'autorise pas sur ce compte. Sur la page hébergée, c'est le
+  // payeur qui choisit son opérateur — l'application n'a pas à le demander.
+  reserved 9;
+  reserved "operator";
 }
 
 message GetPaymentIntentRequest {
@@ -262,9 +369,14 @@ message LedgerEntry {
   LedgerDirection direction = 3;
   // Toujours positif.
   int64 amount_xof = 4;
-  // Renseignés pour une rémunération de course, vides pour un versement.
-  string delivery_id = 5;
-  string delivery_reference = 6;
+  // Renseignés pour une rémunération de mission, vides pour un versement.
+  //
+  // « MISSION », PAS « LIVRAISON », DEPUIS LE 1er OCTOBRE 2026 : un chauffeur
+  // gagne aussi sur des courses de personnes. Le champ a été RENOMMÉ, même
+  // numéro — sans cela, les gains de course n'apparaissaient nulle part et un
+  // chauffeur ne pouvait pas en demander le versement.
+  string reference_id = 5;
+  string reference_label = 6;
   // Instant du FAIT, pas de l'écriture : un rattrapage écrit aujourd'hui des
   // lignes datées d'hier, et c'est la date d'hier qui compte.
   google.protobuf.Timestamp occurred_at = 7;
@@ -275,6 +387,9 @@ message LedgerEntry {
   // base s'appuie dessus. Au relevé, il permet de rattacher une sortie
   // d'argent à la demande qui l'a produite, donc à sa référence de virement.
   string payout_id = 8;
+
+  // La nature de la mission rémunérée. Vide pour un versement.
+  hba.common.v1.ServiceType service_type = 9;
 }
 
 message DriverStatement {
@@ -346,4 +461,85 @@ message PaymentStats {
   int32 avg_seconds_to_payment = 9;
   // Nombre de paiements derrière cette moyenne.
   int64 payment_samples = 10;
+}
+
+// ---- Remboursements à faire --------------------------------------------------
+
+enum RefundDueStatus {
+  REFUND_DUE_STATUS_UNSPECIFIED = 0;
+  // À traiter par la finance.
+  REFUND_DUE_STATUS_PENDING = 1;
+  // L'argent a été rendu, et la finance l'a noté.
+  REFUND_DUE_STATUS_SETTLED = 2;
+  // Écarté : rien n'est dû, après examen. CET ÉTAT EST NÉCESSAIRE — supprimer la
+  // ligne ferait disparaître la décision avec elle.
+  REFUND_DUE_STATUS_DISMISSED = 3;
+}
+
+message RefundDue {
+  string id = 1;
+  hba.common.v1.ServiceType service_type = 2;
+  string reference_id = 3;
+  string payment_intent_id = 4;
+  string payer_id = 5;
+  // Ce que le client a payé.
+  int64 amount_collected = 6;
+
+  // Ce qu'il faudrait rendre.
+  //
+  // ABSENT VEUT DIRE « À DÉTERMINER », PAS « RIEN ». C'est le cas d'une mission
+  // annulée alors qu'un chauffeur s'était déjà déplacé : ce qui est dû dépend de la
+  // politique d'annulation, qui n'est PAS TRANCHÉE (point 3). La console doit
+  // afficher les deux différemment — un zéro se lirait « aucun remboursement dû »,
+  // ce qui est une décision que personne n'a prise.
+  optional int64 recommended_refund = 7;
+
+  // Pourquoi un remboursement est dû : RIDE_NO_DRIVER, RIDE_CANCELLED,
+  // DELIVERY_NO_DRIVER, DELIVERY_CANCELLED, DELIVERY_FAILED.
+  string reason = 8;
+
+  RefundDueStatus status = 9;
+  // Ce qui a réellement été rendu. Absent tant que rien ne l'est.
+  optional int64 settled_amount = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp resolved_at = 12;
+  // Qui a tranché. Jamais vide sur une ligne résolue : tout est audité.
+  string resolved_by = 13;
+  // Référence du virement, motif d'un écart, raison d'un classement sans suite.
+  string note = 14;
+}
+
+message ListRefundsDueRequest {
+  // Absent vaut PENDING : c'est la question que se pose la finance en ouvrant
+  // l'écran, et une file qui s'ouvrirait sur l'historique complet cacherait le
+  // travail du jour.
+  RefundDueStatus status = 1;
+  hba.common.v1.ServiceType service_type = 2;
+  int32 page_size = 3;
+  int32 offset = 4;
+}
+
+message ListRefundsDueResponse {
+  // Du plus ancien au plus récent, À L'INVERSE DES AUTRES LISTES : un
+  // remboursement qui attend depuis trois jours est plus urgent que celui d'il y a
+  // une heure.
+  repeated RefundDue items = 1;
+  int32 total = 2;
+}
+
+message SettleRefundDueRequest {
+  string refund_due_id = 1;
+  // Ce qui est réellement parti. PEUT DIFFÉRER DU RECOMMANDÉ — un remboursement
+  // partiel négocié, un arrondi du fournisseur — et c'est ce qui est parti qui doit
+  // figurer au dossier.
+  int64 settled_amount = 2;
+  string note = 3;
+}
+
+message DismissRefundDueRequest {
+  string refund_due_id = 1;
+  // OBLIGATOIRE, contrairement aux autres motifs du contrat. Classer sans suite,
+  // c'est décider de garder l'argent d'un client : la décision doit porter une
+  // raison, sans quoi personne ne pourra la défendre six mois plus tard.
+  string note = 2;
 }

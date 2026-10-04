@@ -26,6 +26,11 @@ builder.Services.AddPaymentInfrastructure(builder.Configuration, builder.Environ
 // de ce service, qui jusqu'ici ne faisait que publier.
 builder.Services.AddHostedService<Hba.Payment.Api.Messaging.DeliveryEventsConsumer>();
 
+// LES GAINS DES COURSES DE PERSONNES. Sans ce consommateur, un chauffeur
+// enchainait les courses et son releve restait vide : il ne pouvait rien retirer
+// de ce qu'il avait gagne a transporter des gens.
+builder.Services.AddHostedService<Hba.Payment.Api.Messaging.RideEventsConsumer>();
+
 var app = builder.Build();
 
 app.UseHbaRequestLogging();

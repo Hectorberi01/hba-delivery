@@ -11,8 +11,13 @@ public enum VehicleType
     Van = 3,
 
     // CHAQUE VALEUR AJOUTEE ICI EST UNE GRILLE TARIFAIRE A CREER, et sans elle
-    // aucun devis ne sort pour ce vehicule. Les montants ne sont pas dans le
-    // referentiel : ils viennent de la configuration, administres par ops.
+    // aucun devis ne sort pour ce vehicule : le service repond NO_TARIFF.
+    //
+    // LES MONTANTS NE SONT PAS DANS LE REFERENTIEL. Ils vivent en base, ecrits
+    // par admin ou finance (voir PricingAccess) depuis le 1er octobre 2026.
+    // Avant cette date la seule source etait la configuration, semee au
+    // demarrage pour UN couple (zone, vehicule) : les quatre autres vehicules
+    // etaient donc incommandables, sans qu'aucun ecran ne le dise.
     Bicycle = 4,
     Tricycle = 5,
 }

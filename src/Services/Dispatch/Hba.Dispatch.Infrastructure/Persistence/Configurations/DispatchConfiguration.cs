@@ -13,7 +13,25 @@ internal sealed class DispatchConfiguration : IEntityTypeConfiguration<DispatchA
         builder.ToTable("dispatches");
         builder.HasKey(d => d.Id);
         builder.Property(d => d.Id).HasColumnName("id");
-        builder.Property(d => d.DeliveryId).HasColumnName("delivery_id");
+        // LA COLONNE EST RENOMMEE, PAS AJOUTEE : « delivery_id » devient
+        // « reference_id ». La migration porte un RENAME, donc les lignes en cours
+        // de dispatch au moment du deploiement gardent leur identifiant. Une
+        // colonne neuve les aurait laissees a zero, c'est-a-dire introuvables.
+        builder.Property(d => d.ReferenceId).HasColumnName("reference_id");
+
+        // LA NATURE N'A PAS DE DEFAUT EN BASE, ET C'EST VOLONTAIRE. Les lignes
+        // existantes sont reprises explicitement en Delivery (1) par la migration ;
+        // un DEFAULT aurait rendu silencieuse une insertion qui l'oublie, alors que
+        // l'agregat la refuse justement a la creation.
+        builder.Property(d => d.ServiceType).HasColumnName("service_type").HasConversion<int>();
+
+        // NON PRECISE POUR TOUT L'EXISTANT, ET C'EST LA BONNE VALEUR : aucune
+        // livraison ne precise son vehicule — « DeliveryConfirmed » ne porte pas le
+        // poids du colis — et aucune ne doit donc se voir filtrer sur un type.
+        builder.Property(d => d.VehicleType)
+            .HasColumnName("vehicle_type")
+            .HasConversion<int>()
+            .HasDefaultValue(VehicleType.Unspecified);
         builder.Property(d => d.PickupLandmark).HasColumnName("pickup_landmark").HasMaxLength(200);
         builder.Property(d => d.TripDistanceMeters).HasColumnName("trip_distance_meters");
         builder.Property(d => d.DriverEarningXof).HasColumnName("driver_earning_xof");
@@ -35,10 +53,17 @@ internal sealed class DispatchConfiguration : IEntityTypeConfiguration<DispatchA
         // la seconde ecriture au lieu de donner la course a deux livreurs.
         builder.Property(d => d.Version).IsRowVersion().HasColumnName("xmin").HasColumnType("xid");
 
-        // UNE SEULE RECHERCHE PAR LIVRAISON. Le rejeu d'un evenement Kafka ne
-        // doit pas en ouvrir une seconde, et la contrainte le garantit meme si
-        // le controle applicatif etait contourne.
-        builder.HasIndex(d => d.DeliveryId).IsUnique();
+        // UNE SEULE RECHERCHE PAR MISSION. Le rejeu d'un evenement Kafka ne doit
+        // pas en ouvrir une seconde, et la contrainte le garantit meme si le
+        // controle applicatif etait contourne.
+        //
+        // LA NATURE FAIT PARTIE DE LA CLE, et sans elle la contrainte serait
+        // FAUSSE : une livraison et une course pourraient porter le meme
+        // identifiant — rien ne les tire du meme generateur — et la seconde
+        // recherche serait rejetee comme un doublon.
+        builder.HasIndex(d => new { d.ServiceType, d.ReferenceId })
+            .IsUnique()
+            .HasDatabaseName("ix_dispatches_mission");
 
         // LA REQUETE DU PLANIFICATEUR : les recherches encore ouvertes.
         builder.HasIndex(d => new { d.Status, d.CurrentWaveOpenedAt });
@@ -50,6 +75,9 @@ internal sealed class DispatchConfiguration : IEntityTypeConfiguration<DispatchA
 
         builder.Ignore(d => d.IsOpen);
         builder.Ignore(d => d.SolicitedDriverIds);
+
+        // CALCULEE DEPUIS LA NATURE : voir DispatchAggregate.CapaciteExigee.
+        builder.Ignore(d => d.CapaciteExigee);
 
         builder.OwnsMany(d => d.Offers, offer =>
         {

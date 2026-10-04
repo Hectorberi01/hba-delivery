@@ -9,6 +9,10 @@ import 'tokens.dart';
 /// une application distribuee, contrairement a la plupart des fontes
 /// geometriques commerciales qui lui ressemblent.
 ///
+/// LE STYLE A CHANGE LE 2 OCTOBRE 2026 : surfaces blanches sur fond ivoire,
+/// filets fins, terre cuite. Voir tokens.dart pour ce qui a bouge et pourquoi
+/// aucun nom de jeton n'a change.
+///
 /// CE QUE MATERIAL APPORTE ICI, ET CE QU'IL NE DECIDE PAS. On garde de
 /// Material 3 ses seuils — contraste, cible tactile, duree des transitions —
 /// et sa machinerie d'etats. On lui retire tout ce qui dessine une elevation a
@@ -17,12 +21,11 @@ import 'tokens.dart';
 /// deux mecanismes se superposeraient a la double ombre du systeme et
 /// donneraient des blocs sales, gris sur un fond chaud.
 ///
-/// PAS DE THEME SOMBRE, ET C'EST UNE DECISION. Le neumorphisme rend mieux en
-/// sombre — c'est meme la qu'il est ne. Mais cette application se tient dehors,
-/// de jour ; un second theme doublerait la surface a verifier pour une
-/// condition d'usage minoritaire. Il demanderait aussi ses propres jetons
-/// d'ombre : une ombre sombre ne s'obtient pas en inversant une ombre claire,
-/// la lumiere et l'ombre ne se comportent pas symetriquement.
+/// PAS DE THEME SOMBRE, ET C'EST TOUJOURS UNE DECISION. L'argument a change
+/// avec le style : ce n'etait plus « le neumorphisme rend mieux en sombre »,
+/// c'est qu'un second theme doublerait la surface a verifier pour une
+/// condition d'usage minoritaire — ces applications se tiennent dehors, de
+/// jour.
 abstract final class HbaTheme {
   static ThemeData light() {
     final text = GoogleFonts.plusJakartaSansTextTheme().apply(
@@ -41,9 +44,9 @@ abstract final class HbaTheme {
       canvasColor: HbaColors.background,
 
       colorScheme: const ColorScheme.light(
-        // L'ORANGE DE REMPLISSAGE, PAS CELUI DE LA MARQUE : c'est ce jeton que
-        // Material pose sous du blanc — barres de progression, curseur de
-        // saisie, selection — et #F2690F n'y tiendrait pas le contraste.
+        // LA TERRE CUITE PROFONDE, parce que Material pose ce jeton sous du
+        // blanc — barres de progression, curseur de saisie, selection — et
+        // qu'une marge de contraste y vaut mieux qu'un ton juste.
         primary: HbaColors.primaryDeep,
         onPrimary: Colors.white,
         secondary: HbaColors.primary,
@@ -85,12 +88,14 @@ abstract final class HbaTheme {
         foregroundColor: HbaColors.ink,
       ),
 
-      // LE CHAMP DE SAISIE EST UN CREUX. Faute de pouvoir peindre une ombre
-      // interieure a travers InputDecoration, le creux se joue ici sur la
-      // seule valeur : un fond plus SOMBRE que la page, et aucun contour. Sur
-      // cette matiere, un aplat enfonce se lit deja comme un trou ; ce qui
-      // trahissait l'ancien champ, c'etait son fond blanc pose sur un fond
-      // creme, qui le faisait flotter.
+      // LE CHAMP DE SAISIE EST UN APLAT BORDE. Il etait creuse — un fond plus
+      // sombre et aucun contour, qui imitait un trou dans la matiere. Les
+      // maquettes le dessinent autrement : un fond a peine sourd, un filet fin
+      // partout, et le filet terre cuite quand le champ a le focus.
+      //
+      // LE FOND RESTE PLUS SOURD QUE LE BLANC, et ce n'est pas un reste de
+      // l'ancien style : c'est ce qui distingue un champ VIDE a remplir d'une
+      // carte blanche a lire, avant meme qu'on lise l'etiquette.
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: HbaColors.surfaceSunken,
@@ -98,8 +103,8 @@ abstract final class HbaTheme {
           horizontal: HbaSpacing.md + 2,
           vertical: HbaSpacing.md,
         ),
-        border: _bord(Colors.transparent),
-        enabledBorder: _bord(Colors.transparent),
+        border: _bord(HbaColors.border),
+        enabledBorder: _bord(HbaColors.border),
 
         // LE FOCUS GARDE UN CONTOUR FRANC. C'est le seul etat que ni l'ombre
         // ni la valeur ne savent dire, et c'est aussi celui dont depend
@@ -154,8 +159,18 @@ abstract final class HbaTheme {
         selectedLabelStyle: TextStyle(fontWeight: FontWeight.w700),
       ),
 
+      // LA FEUILLE DU BAS EST BLANCHE, ET ARRONDIE EN HAUT. C'est la forme la
+      // plus presente des maquettes : la carte geographique occupe l'ecran, et
+      // tout ce qui se lit ou se remplit monte depuis le bas sur une feuille
+      // blanche. Elle etait ivoire, donc de la couleur du fond — elle ne
+      // montait sur rien.
       bottomSheetTheme: const BottomSheetThemeData(
-        backgroundColor: HbaColors.background,
+        backgroundColor: HbaColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(HbaRadius.feuille),
+          ),
+        ),
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         showDragHandle: true,
@@ -163,7 +178,7 @@ abstract final class HbaTheme {
       ),
 
       dialogTheme: const DialogThemeData(
-        backgroundColor: HbaColors.background,
+        backgroundColor: HbaColors.surface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
       ),
@@ -186,9 +201,10 @@ abstract final class HbaTheme {
         textColor: HbaColors.ink,
       ),
 
-      // Le retour tactile Material — nappe d'encre circulaire — est etranger a
-      // ce style : la pression se dit par l'enfoncement du bloc. Les rares
-      // widgets Material restants n'en portent donc plus.
+      // Le retour tactile Material — nappe d'encre circulaire — reste etranger
+      // a ce style : la pression se dit par une teinte et la disparition de
+      // l'ombre (voir HbaPressable). Les rares widgets Material restants n'en
+      // portent donc plus.
       splashFactory: NoSplash.splashFactory,
       highlightColor: Colors.transparent,
     );

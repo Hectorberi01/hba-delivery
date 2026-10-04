@@ -1,12 +1,14 @@
 import { redirect } from 'next/navigation';
 import { Marque } from '@/composants/entete';
+import { accueilDe } from '@/lib/accueil';
 import { lirePrincipal } from '@/lib/serveur/session';
 import { FormulaireDeConnexion } from './formulaire';
 
 export const metadata = { title: 'Connexion — Console HBA Delivery' };
 
 export default async function PageDeConnexion() {
-  if (await lirePrincipal()) redirect('/tableau-de-bord');
+  const principal = await lirePrincipal();
+  if (principal) redirect(accueilDe(principal.roles));
 
   return (
     <main className="grid min-h-screen place-items-center px-6 py-12">
@@ -18,7 +20,7 @@ export default async function PageDeConnexion() {
 
           <h1 className="mt-7 text-center text-xl font-semibold text-encre">Connexion</h1>
           <p className="mt-1 text-center text-sm text-encre-3">
-            Back-office : admin, ops, support, finance.
+            Back-office et portail commerçant.
           </p>
 
           <FormulaireDeConnexion />

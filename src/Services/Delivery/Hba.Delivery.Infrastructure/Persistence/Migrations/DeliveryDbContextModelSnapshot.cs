@@ -554,6 +554,23 @@ namespace Hba.Delivery.Infrastructure.Persistence.Migrations
                                         .HasForeignKey("PricingSnapshotDeliveryId");
                                 });
 
+                            b1.OwnsOne("Hba.Delivery.Domain.ValueObjects.MoneyXof", "CancellationFee", b2 =>
+                                {
+                                    b2.Property<Guid>("PricingSnapshotDeliveryId")
+                                        .HasColumnType("uuid");
+
+                                    b2.Property<long>("Amount")
+                                        .HasColumnType("bigint")
+                                        .HasColumnName("cancellation_fee_xof");
+
+                                    b2.HasKey("PricingSnapshotDeliveryId");
+
+                                    b2.ToTable("deliveries", "delivery");
+
+                                    b2.WithOwner()
+                                        .HasForeignKey("PricingSnapshotDeliveryId");
+                                });
+
                             b1.OwnsOne("Hba.Delivery.Domain.ValueObjects.MoneyXof", "DistanceFare", b2 =>
                                 {
                                     b2.Property<Guid>("PricingSnapshotDeliveryId")
@@ -623,6 +640,9 @@ namespace Hba.Delivery.Infrastructure.Persistence.Migrations
                                 });
 
                             b1.Navigation("BaseFare")
+                                .IsRequired();
+
+                            b1.Navigation("CancellationFee")
                                 .IsRequired();
 
                             b1.Navigation("DistanceFare")

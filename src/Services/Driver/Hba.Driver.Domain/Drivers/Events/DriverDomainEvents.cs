@@ -51,10 +51,37 @@ public sealed record DriverDocumentAttached(
     Actor Actor,
     DateTimeOffset OccurredAt) : DriverDomainEvent(DriverId, Actor, OccurredAt);
 
+/// <summary>
+/// Le livreur a declare ou change son vehicule.
+/// </summary>
+///
+/// <remarks>
+/// « ARenvoyeALExamen » DIT CE QUI VIENT D'ARRIVER AU DOSSIER, et c'est la
+/// seule chose qui distingue une premiere declaration d'un changement. Vrai, le
+/// livreur etait VERIFIED et ne l'est plus : il ne recevra plus d'offre tant
+/// qu'ops n'aura pas revu la carte grise du nouveau vehicule. Les consommateurs
+/// qui tiennent une liste de livreurs eligibles doivent l'en retirer sur ce
+/// seul champ — sans lui, ils ne verraient qu'un changement de type et
+/// continueraient de lui envoyer des courses.
+/// </remarks>
 public sealed record DriverVehicleDeclared(
     Guid DriverId,
     VehicleType Type,
     string Plate,
+    bool ARenvoyeALExamen,
+    Actor Actor,
+    DateTimeOffset OccurredAt) : DriverDomainEvent(DriverId, Actor, OccurredAt);
+
+/// <summary>
+/// Le livreur a declare ce qu'il exerce.
+///
+/// L'EVENEMENT PORTE L'ENSEMBLE COMPLET, pas un ajout : c'est l'etat apres
+/// declaration. Un consommateur qui ne verrait que l'ajout ne saurait pas ce
+/// qui a ete RETIRE, et garderait une habilitation revoquee.
+/// </summary>
+public sealed record DriverCapabilitiesDeclared(
+    Guid DriverId,
+    IReadOnlyCollection<DriverCapability> Capabilities,
     Actor Actor,
     DateTimeOffset OccurredAt) : DriverDomainEvent(DriverId, Actor, OccurredAt);
 

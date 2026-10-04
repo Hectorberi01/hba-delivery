@@ -11,7 +11,7 @@ import {
   TitreDeCarte,
 } from '@/composants/base';
 import { ChoixPeriode, type ClePeriode } from '@/composants/periode';
-import { duree, fenetre as libelleFenetre, nombre, val, xof } from '@/lib/format';
+import { duree, fenetre as libelleFenetre, instant, nombre, val, xof } from '@/lib/format';
 import { COULEUR_TON, lireStatut, STATUTS } from '@/lib/statuts';
 import { libelleSource } from '@/lib/agregats';
 import { lireOperationnel, lireVerification, COULEUR_TON_LIVREUR } from '@/lib/statuts';
@@ -27,6 +27,36 @@ const SERIES = [
 
 const RAMPE = ['var(--color-rampe-1)', 'var(--color-rampe-2)', 'var(--color-rampe-3)'];
 
+/**
+ * L'ecart entre deux periodes, en pourcentage entier.
+ *
+ * TROIS CAS RENDENT « RIEN » PLUTOT QU'UN CHIFFRE, et c'est le coeur de cette
+ * fonction : un ecart affiche est une affirmation, et il vaut mieux ne rien dire
+ * que d'affirmer du bruit.
+ *
+ * - La periode precedente est VIDE. « +100 % » n'est pas une croissance, c'est
+ *   une division par zero habillee.
+ * - Elle est TROP MAIGRE. Au pilote, deux courses contre une donnent « +100 % »,
+ *   qui se lit comme une tendance alors que c'est un hasard. Le seuil est bas et
+ *   assume : en dessous de cinq, on se tait.
+ * - L'une des deux manque, parce que le service correspondant n'a pas repondu.
+ *
+ * LE SEUIL NE VAUT PAS POUR L'ARGENT, qui a sa propre echelle : 2 430 F contre
+ * 2 100 F est un ecart parfaitement lisible. L'appelant passe donc son propre
+ * plancher.
+ */
+function ecartEntre(
+  maintenant: number | null | undefined,
+  avant: number | null | undefined,
+  plancher: number,
+): number | undefined {
+  if (maintenant === null || maintenant === undefined) return undefined;
+  if (avant === null || avant === undefined) return undefined;
+  if (avant < plancher) return undefined;
+
+  return Math.round(((maintenant - avant) / avant) * 100);
+}
+
 export default function TableauDeBord() {
   const [periode, setPeriode] = useState<ClePeriode>('30d');
 
@@ -39,6 +69,43 @@ export default function TableauDeBord() {
 
   const { donnees, chargement, erreur } = useRessource<Indicateurs>(
     `admin/v1/kpi?range=${periode}&granularity=${pas}`,
+  );
+
+  // LA PERIODE PRECEDENTE, DEMANDEE SUR LA FENETRE QUE LA PREMIERE A RENDUE.
+  //
+  // ELLE NE SE CALCULE PAS ICI A PARTIR DE « 30d ». La passerelle traduit un nom
+  // de periode en instants dans le fuseau metier (ADR 0019) ; refaire ce calcul
+  // dans le navigateur donnerait une fenetre decalee de quelques heures selon ou
+  // se trouve le poste, et donc un ecart faux. On prend donc la fenetre REELLE
+  // du premier appel et on la recule de sa propre duree.
+  //
+  // NUL TANT QUE LA PREMIERE N'A PAS REPONDU : useRessource accepte « null » et
+  // ne part pas. Le tableau s'affiche sans ecarts, puis les ecarts arrivent.
+  const fenetrePrecedente = useMemo(() => {
+    const debut = donnees?.window?.from;
+    const fin = donnees?.window?.to;
+    if (!debut || !fin) return null;
+
+    // « instant » PARCE QUE LA BORNE N'EST PAS TOUJOURS UNE CHAINE. Un Timestamp
+    // protobuf serialise par System.Text.Json sort en { seconds, nanos } ; la
+    // passerelle relaie les deux formes selon le chemin, et « new Date({…}) »
+    // rendrait une date invalide en silence.
+    const deA = instant(debut);
+    const aB = instant(fin);
+    if (deA === null || aB === null || aB <= deA) return null;
+
+    const duree = aB - deA;
+    return {
+      from: new Date(deA - duree).toISOString(),
+      to: new Date(deA).toISOString(),
+    };
+  }, [donnees?.window?.from, donnees?.window?.to]);
+
+  const { donnees: avant } = useRessource<Indicateurs>(
+    fenetrePrecedente
+      ? `admin/v1/kpi?from=${encodeURIComponent(fenetrePrecedente.from)}`
+        + `&to=${encodeURIComponent(fenetrePrecedente.to)}&granularity=${pas}`
+      : null,
   );
 
   const courses = donnees?.deliveries ?? null;
@@ -74,6 +141,38 @@ export default function TableauDeBord() {
 
   const closes = val(courses?.closed);
   const livrees = val(courses?.delivered);
+
+  // LES ECARTS, QUAND ILS VEULENT DIRE QUELQUE CHOSE.
+  //
+  // LE PLANCHER EST DANS LES UNITES DE CHAQUE MESURE, pas un pourcentage. Cinq
+  // courses pour les comptes : en dessous, le rapport est du bruit. Mille francs
+  // pour l'argent : un encaissement se compare bien plus tot, parce que son
+  // echelle est plus fine.
+  //
+  // LE TAUX DE REUSSITE EST COMPARE EN POINTS, PAS EN POURCENTAGE DE
+  // POURCENTAGE. Passer de 40 % a 43 % est « +3 points » ; dire « +7,5 % »
+  // serait exact et illisible. On ne l'affiche donc pas comme les autres — et
+  // tant qu'aucune carte ne sait montrer des points, on s'en passe.
+  const avantCourses = avant?.deliveries ?? null;
+  const avantPaiements = avant?.payments ?? null;
+
+  const ecartTotal = ecartEntre(
+    courses ? val(courses.total) : null,
+    avantCourses ? val(avantCourses.total) : null,
+    5,
+  );
+
+  const ecartLivrees = ecartEntre(
+    courses ? livrees : null,
+    avantCourses ? val(avantCourses.delivered) : null,
+    5,
+  );
+
+  const ecartEncaisse = ecartEntre(
+    paiements ? val(paiements.collectedXof) : null,
+    avantPaiements ? val(avantPaiements.collectedXof) : null,
+    1000,
+  );
 
   return (
     <>
@@ -120,16 +219,19 @@ export default function TableauDeBord() {
               titre="Courses"
               valeur={courses ? nombre(val(courses.total)) : '—'}
               detail="Créées sur la période"
+              ecart={ecartTotal}
             />
             <CarteStat
               titre="Livrées"
               valeur={courses ? nombre(livrees) : '—'}
               detail="Remise confirmée par OTP"
+              ecart={ecartLivrees}
             />
             <CarteStat
               titre="Encaissé"
               valeur={paiements ? xof(val(paiements.collectedXof)) : '—'}
               detail="Reçu sur la période"
+              ecart={ecartEncaisse}
             />
             <CarteStat
               titre="Taux de réussite"

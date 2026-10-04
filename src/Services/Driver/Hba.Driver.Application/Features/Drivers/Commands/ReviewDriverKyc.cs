@@ -17,7 +17,6 @@ public sealed record SuspendDriverCommand(Guid DriverId, string Reason) : IComma
 
 public sealed class ReviewDriverKycHandler(
     IDriverRepository drivers,
-    IDriverLocationStore locations,
     IUnitOfWork unitOfWork,
     ICallerContext caller,
     IClock clock) : ICommandHandler<ReviewDriverKycCommand, DriverView>
@@ -34,10 +33,17 @@ public sealed class ReviewDriverKycHandler(
         driver.ReviewKyc(command.Approved, command.Reason, caller.SubjectId, caller.ToActor(), clock.UtcNow);
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        if (!command.Approved)
-        {
-            await locations.RemoveAsync(driver.Id, cancellationToken).ConfigureAwait(false);
-        }
+        // UN REFUS N'EFFACE PLUS LA POSITION, ET IL N'A PLUS A LE FAIRE.
+        //
+        // Ce handler appelait locations.RemoveAsync jusqu'au 1er octobre 2026, parce
+        // qu'une position laissee en place faisait apparaitre le livreur dans les vagues.
+        // Depuis que l'eligibilite se lit dans la base et la position dans Location, une
+        // vague croise toujours les deux : un dossier refuse est ecarte par le croisement,
+        // quel que soit l'etat de l'index geographique.
+        //
+        // LE POINT S'EFFACE TOUT SEUL au bout de la fenetre de fraicheur. Pendant ces
+        // deux minutes, la carte de l'exploitation le montre encore — et c'est plutot
+        // utile le jour ou l'on refuse le dossier de quelqu'un qui est en train de rouler.
 
         return DriverView.From(driver);
     }
@@ -77,16 +83,17 @@ public sealed class ReinstateDriverHandler(
 
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        // RIEN A FAIRE SUR LA POSITION, CONTRAIREMENT A LA SUSPENSION. Elle a
-        // ete effacee en suspendant, et elle ne revient qu'avec le battement du
-        // livreur — c'est-a-dire quand il se remet en ligne lui-meme.
+        // RIEN A FAIRE SUR LA POSITION, ET PLUS AUCUN DES TROIS HANDLERS DE CE FICHIER
+        // N'Y TOUCHE. Avant le 1er octobre 2026, la suspension effacait le point et la
+        // reinstallation le laissait revenir avec le battement du livreur. Aujourd'hui
+        // aucun des deux ne touche a l'index : c'est l'etat en base qui decide, a chaque
+        // vague, et la position suit le telephone.
         return DriverView.From(driver);
     }
 }
 
 public sealed class SuspendDriverHandler(
     IDriverRepository drivers,
-    IDriverLocationStore locations,
     IUnitOfWork unitOfWork,
     ICallerContext caller,
     IClock clock) : ICommandHandler<SuspendDriverCommand, DriverView>
@@ -103,9 +110,14 @@ public sealed class SuspendDriverHandler(
         driver.Suspend(command.Reason, caller.ToActor(), clock.UtcNow);
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        // Une suspension qui laisse la position en place laisserait le livreur
-        // apparaitre dans les vagues jusqu'a la prochaine purge.
-        await locations.RemoveAsync(driver.Id, cancellationToken).ConfigureAwait(false);
+        // MEME RAISON QUE POUR LE REFUS DE DOSSIER : la suspension n'efface plus la
+        // position. L'etat suspendu en base suffit a ecarter le livreur de toute vague,
+        // puisque le croisement passe par la base a chaque fois.
+        //
+        // CE SERVICE N'A PLUS AUCUN MOYEN D'EFFACER UN POINT, d'ailleurs — il n'a plus de
+        // client vers Location, et c'est voulu : lui en donner un pour ce geste-la aurait
+        // rouvert une dependance de Driver vers les positions pour un nettoyage que la
+        // fenetre de fraicheur fait seule en deux minutes.
 
         return DriverView.From(driver);
     }

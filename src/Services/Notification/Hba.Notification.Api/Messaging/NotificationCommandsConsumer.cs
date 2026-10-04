@@ -6,6 +6,15 @@ using Hba.Notification.Domain.Messages;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
+// LE CANAL PORTE LE MEME NOM DES DEUX COTES, ET C'EST VOULU : le contrat
+// protobuf nomme les canaux comme le domaine. Ce fichier importe les deux
+// espaces de noms — le proto pour lire la commande Kafka, le domaine pour
+// construire la commande applicative — donc « NotificationChannel » seul est
+// ambigu depuis que notification_service.proto existe (2 octobre 2026). ICI,
+// C'EST TOUJOURS CELUI DU DOMAINE : ce consommateur traduit du proto vers le
+// domaine, jamais l'inverse.
+using NotificationChannel = Hba.Notification.Domain.Messages.NotificationChannel;
+
 namespace Hba.Notification.Api.Messaging;
 
 /// <summary>
@@ -61,12 +70,19 @@ public sealed class NotificationCommandsConsumer(
 
         return message.PayloadCase switch
         {
+            // LE NUMERO OU LE COMPTE, ET LE PREMIER GAGNE. Identity connait le
+            // telephone a qui il envoie un code ; Delivery et Ride ne connaissent
+            // que le compte de leur client, et c'est Notification qui demande son
+            // numero a l'annuaire. Sans ce second chemin, deux modeles du catalogue
+            // sont restes sans producteur depuis l'origine.
             NotificationCommand.PayloadOneofCase.SendSms => new SendNotificationCommand(
                 NotificationChannel.Sms,
                 message.SendSms.ToPhone,
                 message.SendSms.TemplateId,
                 Copy(message.SendSms.Variables),
-                correlationId),
+                correlationId,
+                Guid.TryParse(message.SendSms.SubjectId, out var compteSms) ? compteSms : null,
+                message.Envelope?.EventId),
 
             // CANAL NON IMPOSE, DELIBEREMENT. Demander WhatsApp, c'est demander la
             // chaine du catalogue — WhatsApp puis SMS —, pas WhatsApp seul : un
@@ -77,7 +93,9 @@ public sealed class NotificationCommandsConsumer(
                 message.SendWhatsapp.ToPhone,
                 message.SendWhatsapp.TemplateId,
                 Copy(message.SendWhatsapp.Variables),
-                correlationId),
+                correlationId,
+                Guid.TryParse(message.SendWhatsapp.SubjectId, out var compteWa) ? compteWa : null,
+                message.Envelope?.EventId),
 
             NotificationCommand.PayloadOneofCase.SendPush => new SendNotificationCommand(
                 NotificationChannel.Push,

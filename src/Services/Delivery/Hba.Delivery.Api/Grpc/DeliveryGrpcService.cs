@@ -46,6 +46,11 @@ public sealed class DeliveryGrpcService(IDispatcher dispatcher, ITimeCalendar ca
             RecipientPhone = request.RecipientPhone,
             PackageDescription = Nullify(request.PackageDescription),
             PackageWeightGrams = request.PackageWeightGrams,
+
+            // LE NUMERO QUI PAIE, FACULTATIF : vide, le service reprend celui
+            // du jeton. Vide aussi pour un partenaire, qui est debite sur son
+            // compte prepaye.
+            PayerPhone = Nullify(request.PayerPhone),
         };
 
         var result = await dispatcher.SendAsync(command, context.CancellationToken).ConfigureAwait(false);
@@ -64,7 +69,9 @@ public sealed class DeliveryGrpcService(IDispatcher dispatcher, ITimeCalendar ca
         ArgumentNullException.ThrowIfNull(context);
 
         var view = await dispatcher
-            .QueryAsync(new GetDeliveryQuery(ParseId(request.DeliveryId)), context.CancellationToken)
+            .QueryAsync(
+                new GetDeliveryQuery(ParseId(request.DeliveryId), request.IncludeRoute),
+                context.CancellationToken)
             .ConfigureAwait(false);
 
         return DeliveryProtoMapper.ToProto(view);

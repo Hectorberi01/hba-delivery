@@ -127,6 +127,18 @@ public sealed record DeliveryCancelled(
     Guid DeliveryId,
     DeliveryStatus PreviousStatus,
     string Reason,
+
+    /// <summary>
+    /// Retenue due au livreur, en francs CFA. ZÉRO QUAND AUCUN LIVREUR N'ÉTAIT
+    /// AFFECTÉ — il n'y a alors aucun déplacement à dédommager, et l'annulation
+    /// est entièrement gratuite.
+    ///
+    /// ELLE VOYAGE DANS L'ÉVÉNEMENT PLUTÔT QUE D'ÊTRE RELUE, exactement comme la
+    /// part du livreur sur une remise : Payment n'a pas le droit de lire la base
+    /// de Delivery, et la recalculer là-bas ferait dépendre le montant d'une
+    /// grille qui a pu changer depuis.
+    /// </summary>
+    long CancellationFeeXof,
     Actor Actor,
     DateTimeOffset OccurredAt) : DeliveryDomainEvent(DeliveryId, Actor, OccurredAt);
 
@@ -134,6 +146,18 @@ public sealed record DeliveryFailed(
     Guid DeliveryId,
     DeliveryStatus PreviousStatus,
     string Reason,
+
+    /// <summary>
+    /// Retenue due au livreur, en francs CFA. ZÉRO QUAND AUCUN LIVREUR N'ÉTAIT
+    /// AFFECTÉ — il n'y a alors aucun déplacement à dédommager, et l'annulation
+    /// est entièrement gratuite.
+    ///
+    /// ELLE VOYAGE DANS L'ÉVÉNEMENT PLUTÔT QUE D'ÊTRE RELUE, exactement comme la
+    /// part du livreur sur une remise : Payment n'a pas le droit de lire la base
+    /// de Delivery, et la recalculer là-bas ferait dépendre le montant d'une
+    /// grille qui a pu changer depuis.
+    /// </summary>
+    long CancellationFeeXof,
     Actor Actor,
     DateTimeOffset OccurredAt) : DeliveryDomainEvent(DeliveryId, Actor, OccurredAt);
 

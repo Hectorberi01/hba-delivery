@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hba_ui/hba_ui.dart';
 
-import 'map_picker_screen.dart';
+import 'choix_du_point.dart';
 
 /// Un point GPS choisi par l'utilisateur.
 class PickedPoint {
@@ -16,10 +16,17 @@ class PickedPoint {
       '${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}';
 }
 
-/// Champ « point sur la carte ».
+/// Champ « point », qui ouvre la feuille de choix.
 ///
-/// Il n'affiche jamais de champ de saisie : une latitude ne se tape pas. Il
-/// ouvre la carte et rend deux nombres.
+/// Il n'affiche jamais de champ de saisie : une latitude ne se tape pas.
+///
+/// IL N'OUVRE PLUS LA CARTE DIRECTEMENT, depuis le 4 octobre 2026. Il ouvrait
+/// le selecteur de carte, donc il imposait de trainer une epingle au doigt —
+/// meme vers un endroit ou le client va toutes les semaines, meme quand la
+/// reponse etait « la ou je suis ». La feuille pose d'abord les reponses qu'on
+/// a deja : la position, les adresses enregistrees, les dernieres utilisees ;
+/// la carte y figure, en dernier, pour ce qui n'a ni nom ni passe. Voir
+/// [ChoixDuPoint].
 class PointField extends StatelessWidget {
   const PointField({
     required this.label,
@@ -36,7 +43,13 @@ class PointField extends StatelessWidget {
   final String hint;
 
   final PickedPoint? value;
-  final ValueChanged<PickedPoint> onChanged;
+
+  /// Appele avec le point ET le repere qui l'accompagne, quand il y en a un.
+  ///
+  /// LE REPERE VOYAGE AVEC LE POINT, et c'est tout l'interet de la feuille : une
+  /// adresse enregistree porte « en face de la pharmacie », et le client ne doit
+  /// pas avoir a le retaper sous pretexte qu'il a choisi dans une liste.
+  final ValueChanged<PointChoisi> onChanged;
 
   /// Met la carte en avant alors qu'aucun point n'est encore choisi.
   ///
@@ -54,13 +67,22 @@ class PointField extends StatelessWidget {
       highlighted: point != null || accentue,
       padding: const EdgeInsets.all(HbaSpacing.md),
       onTap: () async {
-        final picked = await Navigator.of(context).push<PickedPoint>(
-          MaterialPageRoute(
-            builder: (_) => MapPickerScreen(title: label, initial: point),
+        final choisi = await Navigator.of(context).push<PointChoisi>(
+          ModalBottomSheetRoute<PointChoisi>(
+            builder: (_) => ChoixDuPoint(titre: label, actuel: point),
+
+            // LES MEMES REGLAGES QUE PageEnFeuille, ET POUR LES MEMES RAISONS :
+            // la feuille doit pouvoir depasser la moitie de l'ecran, laisser
+            // voir ce qu'il y a dessous, et porter elle-meme son fond et ses
+            // coins. Voir feuille_modale.dart.
+            isScrollControlled: true,
+            modalBarrierColor: const Color(0x33000000),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
           ),
         );
 
-        if (picked != null) onChanged(picked);
+        if (choisi != null) onChanged(choisi);
       },
       child: Row(
         children: [

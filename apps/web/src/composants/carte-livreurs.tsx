@@ -22,8 +22,82 @@ const COTONOU = { lat: 6.3703, lng: 2.3912 };
  * quinze evite qu'un point paraisse vieux de trente-cinq secondes alors qu'il
  * en a vingt. Descendre plus bas ne montrerait rien de neuf et multiplierait
  * les appels.
+ *
+ * CETTE CONSOLE RESTE AU SONDAGE ALORS QUE LES DEUX APPLICATIONS MOBILES SONT
+ * PASSEES AU TEMPS REEL, ET CE N'EST PAS UN OUBLI DE LA PHASE 8.
+ *
+ * SignalR depuis un navigateur exige le jeton EN JAVASCRIPT — un WebSocket ne
+ * porte pas d'en-tete Authorization, d'ou la convention « access_token » dans la
+ * chaine de requete. Or ici le jeton ne quitte JAMAIS le serveur : il vit dans un
+ * cookie httpOnly et la procuration Next.js le pose elle-meme, precisement pour
+ * qu'un script injecte dans la page ne puisse pas le recopier (voir
+ * lib/serveur/session.ts). Le donner au navigateur mettrait un jeton
+ * d'administration valable quinze minutes a portee de n'importe quelle injection.
+ *
+ * ET LE GAIN SERAIT MINCE : la carte ne peut pas etre plus fraiche que les points
+ * qu'elle affiche, et ceux-la arrivent toutes les vingt secondes. On echangerait
+ * donc la seule protection du jeton d'administration contre cinq secondes.
+ *
+ * LA BONNE REPONSE, LE JOUR OU L'INSTANTANE COMPTERA : un jeton court emis par
+ * Identity, d'audience restreinte au hub — soixante secondes, utilisable seulement
+ * sur /hubs/ops. C'est une fonctionnalite d'Identity, pas une ligne a ajouter ici.
  */
 const RAFRAICHISSEMENT_MS = 15_000;
+
+/**
+ * CE QUE LE TELEPHONE DIT DU MOUVEMENT : vitesse, cap, precision.
+ *
+ * TROIS CHAMPS QUE SEULE LA CONSOLE VOIT. Le point 37 les refuse au client d'une
+ * mission ; ici ils repondent a la question que l'exploitation se pose vraiment —
+ * « pourquoi cette course traine ». Un livreur a l'arret depuis dix minutes et un
+ * livreur qui roule a 30 km/h n'appellent pas le meme coup de telephone, et la
+ * carte seule ne distingue pas les deux.
+ *
+ * RIEN N'EST AFFICHE QUAND RIEN N'EST SU, et surtout pas un zero. Un cap absent et
+ * un cap de zero degre sont deux choses differentes — la seconde veut dire « plein
+ * nord » — et ecrire « 0° » sur un telephone muet ferait croire a une mesure.
+ *
+ * LA VITESSE EST CONVERTIE EN KM/H, parce que c'est l'unite dans laquelle on lit
+ * une route. Le contrat la porte en metres par seconde, qui est l'unite du capteur.
+ *
+ * LA PRECISION N'APPARAIT QU'AU-DELA DE CINQUANTE METRES. En dessous, elle ne dit
+ * rien d'utile et encombrerait chaque bulle ; au-dela, elle explique pourquoi une
+ * epingle a saute d'un pate de maisons sans que personne n'ait bouge.
+ */
+function mouvement(position: PositionLivreur): string {
+  const morceaux: string[] = [];
+
+  if (typeof position.speedMps === 'number') {
+    const kmh = Math.round(position.speedMps * 3.6);
+    morceaux.push(kmh === 0 ? 'à l’arrêt' : `${kmh} km/h`);
+  }
+
+  if (typeof position.headingDegrees === 'number') {
+    morceaux.push(cardinal(position.headingDegrees));
+  }
+
+  if (typeof position.accuracyMeters === 'number' && position.accuracyMeters > 50) {
+    morceaux.push(`± ${Math.round(position.accuracyMeters)} m`);
+  }
+
+  if (morceaux.length === 0) return '';
+
+  return `<br><span style="color:#565e6b">${echapper(morceaux.join(' · '))}</span>`;
+}
+
+/**
+ * Le cap en point cardinal plutot qu'en degres.
+ *
+ * « VERS LE NORD-EST » SE LIT, « 47° » SE CALCULE. Personne, devant une carte, ne
+ * traduit un angle de tete — et la precision d'un degre n'apporte rien quand on
+ * cherche a savoir si le livreur s'eloigne ou se rapproche.
+ */
+function cardinal(degres: number): string {
+  const points = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ouest', 'ouest', 'nord-ouest'];
+  const index = Math.round(((degres % 360) + 360) % 360 / 45) % 8;
+
+  return `vers le ${points[index]}`;
+}
 
 export function CarteDesLivreurs() {
   const hote = useRef<HTMLDivElement | null>(null);
@@ -162,6 +236,7 @@ export function CarteDesLivreurs() {
              <strong>${echapper(courant.displayName ?? 'Livreur')}</strong><br>
              ${echapper(libelle)} · ${echapper(libelleVehicule(courant.vehicleType))}<br>
              <span style="color:#565e6b">Vu ${echapper(courant.seenAt ? depuis(courant.seenAt) : "à l'instant")}</span>
+             ${mouvement(courant)}
            </div>`,
         );
         if (carte.current) bulle.current?.open({ map: carte.current, anchor: marqueur });
@@ -218,7 +293,10 @@ export function CarteDesLivreurs() {
   const fenetre = page?.freshnessSeconds ?? 0;
 
   return (
-    <div>
+    // UNE COLONNE QUI PEUT S'ETIRER : compteur en haut, legende en bas, et la
+    // carte prend ce qui reste. Sans « h-full », le composant garde la hauteur
+    // minimale de son conteneur de carte et le parent ne peut rien lui donner.
+    <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm text-encre-2">
           <strong className="font-semibold text-encre">{positions.length}</strong>{' '}
@@ -234,8 +312,17 @@ export function CarteDesLivreurs() {
         ) : null}
       </div>
 
-      <div className="creux relative mt-3 overflow-hidden rounded-xl">
-        <div ref={hote} className="h-[420px] w-full" role="application" aria-label="Carte des livreurs" />
+      <div className="creux relative mt-3 min-h-0 flex-1 overflow-hidden rounded-xl">
+        {/* LA HAUTEUR VIENT DU PARENT QUAND IL EN DONNE UNE, et retombe sur
+            420px sinon. « h-full » seul s'effondre a zero dans un conteneur
+            sans hauteur : le minimum est ce qui rend ce composant posable
+            n'importe ou. */}
+        <div
+          ref={hote}
+          className="h-full min-h-[420px] w-full"
+          role="application"
+          aria-label="Carte des livreurs"
+        />
 
         {positions.length === 0 && !erreur ? (
           <p className="pointer-events-none absolute inset-x-6 top-1/2 -translate-y-1/2 text-center text-sm text-encre-2">

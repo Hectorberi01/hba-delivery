@@ -33,3 +33,18 @@ final courseEnAttenteProvider = StateProvider<String?>((ref) => null);
 final deliveryProvider = FutureProvider.family<Delivery, String>(
   (ref, id) => ref.watch(deliveryRepositoryProvider).byId(id),
 );
+
+/// La meme livraison, trace de l'itineraire compris.
+///
+/// UNE FAMILLE A PART ET NON UN PARAMETRE DE LA PREMIERE. Riverpod indexe une
+/// famille par son argument : ajouter un drapeau au meme fournisseur ferait deux
+/// entrees de cache pour une seule livraison, et l'ecran qui dessine la route
+/// invaliderait celle du bandeau sans jamais la rafraichir. Deux familles
+/// distinctes disent ce qu'elles sont.
+///
+/// IL N'EST REGARDE QUE PAR CE QUI DESSINE. Partout ailleurs, deliveryProvider
+/// suffit et ne transporte aucune geometrie.
+final livraisonAvecItineraireProvider = FutureProvider.family<Delivery, String>(
+  (ref, id) =>
+      ref.watch(deliveryRepositoryProvider).byId(id, avecItineraire: true),
+);

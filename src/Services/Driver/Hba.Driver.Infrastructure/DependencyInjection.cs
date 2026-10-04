@@ -9,19 +9,18 @@ using Hba.Driver.Application.Common.Interfaces;
 using Hba.Driver.Infrastructure.Persistence;
 using Hba.Driver.Infrastructure.Persistence.Reads;
 using Hba.Driver.Infrastructure.Persistence.Repositories;
-using Hba.Driver.Infrastructure.Services.Locations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using StackExchange.Redis;
 
 namespace Hba.Driver.Infrastructure;
 
 public static class DependencyInjection
 {
     /// <summary>
-    /// Dossiers des livreurs en base, positions dans Redis GEO.
+    /// Dossiers des livreurs en base. LES POSITIONS SONT DANS LE SERVICE LOCATION
+    /// depuis le 1er octobre 2026 : ce service ne sait plus ou se trouvent les gens.
     /// </summary>
     public static IServiceCollection AddDriverInfrastructure(
         this IServiceCollection services,
@@ -74,7 +73,6 @@ public static class DependencyInjection
 
         services.AddScoped<IDriverRepository, DriverRepository>();
 
-        AddLocations(services, configuration);
         // LE CHEMIN DU .ENV EST PASSE AU SOCLE, parce que c'est lui que cite
         // le message d'arret quand les cles manquent. Un message partage qui
         // dirait « le .env du service » laisserait deviner lequel.
@@ -89,28 +87,13 @@ public static class DependencyInjection
         return services;
     }
 
-    private static void AddLocations(IServiceCollection services, IConfiguration configuration)
-    {
-        var connectionString = configuration.GetConnectionString("Redis");
-
-        // SANS REDIS, AUCUNE POSITION, DONC AUCUNE OFFRE. Le service
-        // demarrerait, repondrait a /health, accepterait les passages en
-        // ligne — et aucune vague ne trouverait jamais personne. C'est
-        // exactement la panne invisible que ce depot a deja rencontree trois
-        // fois ; elle s'arrete ici.
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "ConnectionStrings:Redis est absent. Les positions des livreurs y vivent : "
-                + "sans lui le dispatch ne trouverait jamais personne.");
-        }
-
-        services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(connectionString));
-
-        services.AddOptions<DriverLocationOptions>()
-            .Bind(configuration.GetSection(DriverLocationOptions.SectionName))
-            .ValidateOnStart();
-
-        services.AddScoped<IDriverLocationStore, RedisDriverLocationStore>();
-    }
+    // ---- LES POSITIONS ONT QUITTE CE SERVICE ---------------------------------
+    //
+    // AddLocations vivait ici jusqu'au 1er octobre 2026 : elle exigeait Redis au
+    // demarrage, posait DriverLocationOptions et enregistrait RedisDriverLocationStore.
+    // Tout est parti dans le service Location.
+    //
+    // DRIVER N'A PLUS AUCUNE DEPENDANCE A REDIS, et c'est verifiable d'un coup d'oeil :
+    // plus un seul « using StackExchange.Redis » dans ce projet. Si l'un revient, c'est
+    // que les positions sont en train de rentrer par la fenetre.
 }

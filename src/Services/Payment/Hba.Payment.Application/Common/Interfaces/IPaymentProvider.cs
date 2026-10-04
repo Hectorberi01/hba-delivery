@@ -4,9 +4,26 @@ using Hba.Payment.Domain.ValueObjects;
 namespace Hba.Payment.Application.Common.Interfaces;
 
 /// <summary>
-/// Transaction ouverte chez le fournisseur : sa reference, et l'adresse a
-/// laquelle envoyer le payeur.
+/// Ce que le fournisseur rend quand on ouvre une transaction : sa reference, et
+/// l'adresse de la page ou envoyer le payeur.
 /// </summary>
+///
+/// <remarks>
+/// L'ADRESSE EST REVENUE LE 3 OCTOBRE 2026, APRES AVOIR DISPARU LE MATIN MEME.
+/// Entre les deux, cet enregistrement s'appelait ProviderPushResult et ne
+/// portait que la reference : la demande devait partir directement sur le
+/// telephone du payeur, sans rien a ouvrir.
+///
+/// POURQUOI CE RETOUR EN ARRIERE. Le chemin de la poussee directe a fini par
+/// etre trouve — POST /v1/mtn_open, a la racine, pas sous transactions/ — mais
+/// le fournisseur le refuse sur ce compte : 400 « Operation non autorisee »,
+/// sans un seul champ en erreur, c'est-a-dire une methode de collecte qui n'est
+/// pas ouverte chez lui. Aucune ecriture ne leve cela ; seule une activation
+/// cote fournisseur le peut. La page hebergee, elle, encaisse depuis des mois.
+///
+/// CE QU'IL FAUDRA POUR REESSAYER : que MTN et Moov soient actifs sur le compte
+/// marchand, ce que scripts/fedapay-sonde-poussee.sh verifie en trois essais.
+/// </remarks>
 public sealed record ProviderCheckout(string Reference, string RedirectUrl);
 
 /// <summary>
@@ -30,12 +47,32 @@ public interface IPaymentProvider
     /// <summary>Nom du fournisseur, pour les journaux et le rapport de demarrage.</summary>
     string Name { get; }
 
+    /// <summary>
+    /// Ouvre une transaction chez le fournisseur et rend la page ou envoyer le
+    /// payeur.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LA MISSION N'EST PASSEE QUE POUR LE LIBELLE ET LES JOURNAUX. FedaPay ne
+    /// sait rien de nos livraisons ni de nos courses : l'identifiant sert a
+    /// retrouver la transaction depuis le tableau de bord marchand, ce qui est
+    /// exactement ce dont finance a besoin le jour d'un remboursement manuel.
+    ///
+    /// LE NUMERO NE FAIT QUE PREREMPLIR LA PAGE. Le payeur peut le corriger, et
+    /// c'est le compte qu'il designe LA qui sera debite — pas celui-ci. C'est
+    /// aussi pour cela que la page couvre MTN, Moov et Celtiis sans que nous
+    /// ayons a demander l'operateur : il le choisit lui-meme.
+    ///
+    /// CE QUE CET APPEL NE PROUVE PAS : que le paiement aura lieu. Il rend une
+    /// adresse ; le payeur peut ne jamais l'ouvrir. Seul le webhook signe fait
+    /// foi (ADR 0017).
+    /// </remarks>
     Task<ProviderCheckout> OpenCheckoutAsync(
         Guid paymentIntentId,
-        Guid deliveryId,
+        ServiceType serviceType,
+        Guid referenceId,
         MoneyXof amount,
         string payerPhone,
-        string? returnUrl,
         CancellationToken cancellationToken);
 
     /// <summary>

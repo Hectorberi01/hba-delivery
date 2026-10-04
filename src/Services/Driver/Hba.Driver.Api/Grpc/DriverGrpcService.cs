@@ -10,12 +10,13 @@ using Hba.Driver.Application.Features.Drivers.Commands;
 using Hba.Driver.Application.Features.Drivers.Queries;
 using Microsoft.AspNetCore.Authorization;
 using CommonVehicleType = Hba.Contracts.Common.V1.VehicleType;
+using DomainCapability = Hba.Driver.Domain.Drivers.DriverCapability;
 using DomainDocumentType = Hba.Driver.Domain.Drivers.DocumentType;
+using ProtoCapability = Hba.Contracts.Common.V1.DriverCapability;
 using DomainOperational = Hba.Driver.Domain.Drivers.OperationalStatus;
 using DomainVehicleType = Hba.Driver.Domain.Drivers.VehicleType;
 using DomainVerification = Hba.Driver.Domain.Drivers.VerificationStatus;
 using ProtoDriver = Hba.Contracts.Driver.V1.Driver;
-using ProtoDriverPosition = Hba.Contracts.Driver.V1.DriverPosition;
 
 namespace Hba.Driver.Api.Grpc;
 
@@ -60,23 +61,35 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
             Phone = view.Phone,
             VehicleType = ToProto(view.VehicleType),
             VehiclePlate = view.VehiclePlate,
+            VehicleBrand = view.VehicleBrand,
+            VehicleModel = view.VehicleModel,
+            VehicleColor = view.VehicleColor,
         };
     }
 
+    /// <summary>
+    /// Passage en ligne. LA POSITION DU CONTRAT EST IGNOREE ICI.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LE CHAMP RESTE AU CONTRAT ET N'EST PLUS LU, et c'est un choix de transition.
+    /// Driver n'ecrit plus de position depuis le 1er octobre 2026 : c'est la passerelle
+    /// qui enchaine Driver pour l'etat et Location pour le premier point. Mais une
+    /// application chauffeur deja installee envoie encore sa position dans ce message,
+    /// et refuser un passage en ligne qui la porte n'aurait rien ameliore.
+    ///
+    /// LE CHAMP SERA RETIRE QUAND LES APPLICATIONS DEPLOYEES NE L'ENVERRONT PLUS, et son
+    /// numero sera alors reserve. En attendant, il est documente comme ignore — un champ
+    /// silencieusement jete est exactement ce qui a fait chiffrer les colis de trente
+    /// kilos au prix d'une enveloppe pendant des mois.
+    /// </remarks>
     public override async Task<ProtoDriver> GoOnline(GoOnlineRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
 
-        if (request.Position is null)
-        {
-            throw new DomainException(
-                "MISSING_POSITION",
-                "Passer en ligne demande une position : sans elle aucune course ne peut etre proposee.");
-        }
-
         var view = await dispatcher.SendAsync(
-            new GoOnlineCommand(ParseId(request.DriverId), request.Position.Latitude, request.Position.Longitude),
+            new GoOnlineCommand(ParseId(request.DriverId)),
             context.CancellationToken).ConfigureAwait(false);
 
         return ToProto(view);
@@ -94,29 +107,6 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
         return ToProto(view);
     }
 
-    public override async Task<UpdateLocationResponse> UpdateLocation(
-        UpdateLocationRequest request,
-        ServerCallContext context)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(context);
-
-        if (request.Position is null)
-        {
-            throw new DomainException("MISSING_POSITION", "Une mise a jour de position transporte une position.");
-        }
-
-        var ok = await dispatcher.SendAsync(
-            new UpdateDriverLocationCommand(
-                ParseId(request.DriverId),
-                request.Position.Latitude,
-                request.Position.Longitude,
-                request.CapturedAt?.ToDateTimeOffset()),
-            context.CancellationToken).ConfigureAwait(false);
-
-        return new UpdateLocationResponse { Ok = ok };
-    }
-
     public override async Task<DriverAvailability> CheckDriverAvailability(
         CheckDriverAvailabilityRequest request,
         ServerCallContext context)
@@ -124,21 +114,11 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
 
-        if (request.Reference is null)
-        {
-            throw new DomainException(
-                "MISSING_REFERENCE",
-                "Une distance se mesure depuis un point : la reference est obligatoire.");
-        }
-
         var vue = await dispatcher.QueryAsync(
-            new CheckDriverAvailabilityQuery(
-                ParseId(request.DriverId),
-                request.Reference.Latitude,
-                request.Reference.Longitude),
+            new CheckDriverAvailabilityQuery(ParseId(request.DriverId)),
             context.CancellationToken).ConfigureAwait(false);
 
-        var reponse = new DriverAvailability
+        return new DriverAvailability
         {
             DriverId = vue.DriverId.ToString(),
             DisplayName = vue.DisplayName,
@@ -147,64 +127,119 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
             VerificationStatus = ToProto(vue.VerificationStatus),
             OperationalStatus = ToProto(vue.OperationalStatus),
         };
-
-        // LES TROIS CHAMPS DE POSITION RESTENT VIDES QUAND IL N'Y A PAS DE
-        // POSITION RECENTE, plutot que de prendre leur valeur par defaut.
-        // Une distance de zero et une date a l'epoque Unix se lisent comme
-        // des mesures ; l'absence, elle, se lit comme une absence.
-        if (vue.Position is { } position)
-        {
-            reponse.DistanceMeters = position.DistanceMeters;
-            reponse.Position = new Hba.Contracts.Common.V1.GeoPoint
-            {
-                Latitude = position.Latitude,
-                Longitude = position.Longitude,
-            };
-            reponse.SeenAt = Timestamp.FromDateTimeOffset(position.SeenAt);
-        }
-
-        return reponse;
     }
 
-    public override async Task<FindAvailableNearbyResponse> FindAvailableNearby(
-        FindAvailableNearbyRequest request,
+    /// <summary>
+    /// Le versant « qui » du croisement : parmi ces identifiants, lesquels sont
+    /// offrables.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// AUCUNE COORDONNEE N'ENTRE NI NE SORT. C'est a cela qu'on verifie, en lisant ce
+    /// fichier, que la frontiere posee le 1er octobre 2026 tient : si une latitude
+    /// reapparait dans ce service, c'est que le croisement est revenu ici.
+    /// </remarks>
+    public override async Task<FilterAvailableDriversResponse> FilterAvailableDrivers(
+        FilterAvailableDriversRequest request,
         ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
 
-        if (request.Center is null)
-        {
-            throw new DomainException("MISSING_CENTER", "Une recherche de proximite part d'un point.");
-        }
-
-        var exclus = request.ExcludeDriverIds
-            .Select(id => Guid.TryParse(id, out var parsed) ? parsed : Guid.Empty)
-            .Where(id => id != Guid.Empty)
-            .ToHashSet();
-
         var vues = await dispatcher.QueryAsync(
-            new FindAvailableNearbyQuery(
-                request.Center.Latitude,
-                request.Center.Longitude,
-                request.RadiusMeters,
+            new FilterAvailableDriversQuery(
+                Identifiants(request.DriverIds),
                 ToDomain(request.VehicleType),
-                request.Limit,
-                exclus),
+                ToDomain(request.RequiredCapability)),
             context.CancellationToken).ConfigureAwait(false);
 
-        var response = new FindAvailableNearbyResponse();
+        var reponse = new FilterAvailableDriversResponse();
 
-        response.Drivers.AddRange(vues.Select(v => new NearbyDriver
+        reponse.Drivers.AddRange(vues.Select(v => new EligibleDriver
         {
             DriverId = v.DriverId.ToString(),
-            DistanceMeters = v.DistanceMeters,
-            Position = new Hba.Contracts.Common.V1.GeoPoint { Latitude = v.Latitude, Longitude = v.Longitude },
             VehicleType = ToProto(v.VehicleType),
         }));
 
-        return response;
+        return reponse;
     }
+
+    /// <summary>
+    /// Les pastilles de la carte du client.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// AUCUNE COORDONNEE N'ENTRE NI NE SORT, comme pour le filtre juste au-dessus :
+    /// Location tient les positions, ce service tient les livreurs, et la passerelle
+    /// recolle les deux.
+    /// </remarks>
+    public override async Task<GetDriverPinsResponse> GetDriverPins(
+        GetDriverPinsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var vues = await dispatcher.QueryAsync(
+            new GetDriverPinsQuery(Identifiants(request.DriverIds)),
+            context.CancellationToken).ConfigureAwait(false);
+
+        var reponse = new GetDriverPinsResponse();
+
+        reponse.Pins.AddRange(vues.Select(v => new DriverPin
+        {
+            DriverId = v.DriverId.ToString(),
+            VehicleType = ToProto(v.VehicleType),
+            Available = v.Available,
+        }));
+
+        return reponse;
+    }
+
+    public override async Task<GetDriverSummariesResponse> GetDriverSummaries(
+        GetDriverSummariesRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var vues = await dispatcher.QueryAsync(
+            new GetDriverSummariesQuery(Identifiants(request.DriverIds)),
+            context.CancellationToken).ConfigureAwait(false);
+
+        var reponse = new GetDriverSummariesResponse();
+
+        reponse.Drivers.AddRange(vues.Select(v => new DriverSummary
+        {
+            DriverId = v.DriverId.ToString(),
+            DisplayName = v.DisplayName,
+            VerificationStatus = ToProto(v.VerificationStatus),
+            OperationalStatus = ToProto(v.OperationalStatus),
+            VehicleType = ToProto(v.VehicleType),
+        }));
+
+        return reponse;
+    }
+
+    /// <summary>
+    /// Traduit une liste d'identifiants, en ignorant les illisibles.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ON IGNORE AU LIEU DE REFUSER, ET C'EST LE CONTRAIRE DE <c>ParseId</c>. La
+    /// difference tient a ce que l'appel demande : un identifiant unique mal forme rend
+    /// la question insensee, donc on refuse ; une LISTE dont un element est illisible
+    /// garde un sens pour tous les autres. Et cette liste vient d'un index Redis, pas
+    /// d'un humain : faire echouer une vague entiere, ou une carte entiere, pour une
+    /// entree abimee serait une panne la ou il suffit de sauter une ligne.
+    /// </remarks>
+    private static IReadOnlyCollection<Guid> Identifiants(IEnumerable<string> valeurs)
+        =>
+        [
+            .. valeurs
+                .Select(id => Guid.TryParse(id, out var identifiant) ? identifiant : Guid.Empty)
+                .Where(id => id != Guid.Empty),
+        ];
 
     // ------------------------------- Constitution du dossier (ADR 0021) --
     //
@@ -232,7 +267,43 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
                 ParseId(request.DriverId),
                 type,
                 request.Plate,
-                request.CapacityGrams),
+                request.CapacityGrams,
+                request.Brand,
+                request.Model,
+                request.Color,
+                request.PassengerCapacity),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(view);
+    }
+
+    public override async Task<ProtoDriver> DeclareCapabilities(
+        DeclareCapabilitiesRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        // PAS DE REPLI SUR LE COLIS ICI, CONTRAIREMENT A LA RECHERCHE. Une
+        // valeur non reconnue dans une DECLARATION serait silencieusement
+        // traduite en « colis », et le livreur croirait avoir declare autre
+        // chose. L'agregat ecarte Unspecified ; ce qui arrive ici doit donc
+        // etre nomme.
+        var demandees = request.Capabilities
+            .Where(c => c != ProtoCapability.Unspecified)
+            .Select(c => c switch
+            {
+                ProtoCapability.PackageDelivery => DomainCapability.PackageDelivery,
+                ProtoCapability.PassengerTransport => DomainCapability.PassengerTransport,
+                ProtoCapability.FoodDelivery => DomainCapability.FoodDelivery,
+                _ => throw new RpcException(new Status(
+                    StatusCode.InvalidArgument,
+                    "Habilitation inconnue.")),
+            })
+            .ToList();
+
+        var view = await dispatcher.SendAsync(
+            new DeclareCapabilitiesCommand(ParseId(request.DriverId), demandees),
             context.CancellationToken).ConfigureAwait(false);
 
         return ToProto(view);
@@ -276,6 +347,7 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
                 Type = ToProto(view.VehicleType),
                 Plate = view.VehiclePlate,
                 CapacityGrams = view.VehicleCapacityGrams,
+                PassengerCapacity = view.VehiclePassengerCapacity,
             },
             ProfilePhotoUrl = view.ProfilePhotoUrl?.ToString() ?? string.Empty,
             CanSubmit = view.CanSubmit,
@@ -294,6 +366,8 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
 
         reponse.MissingDocuments.AddRange(view.MissingDocuments.Select(ToProto));
         reponse.RequiredDocuments.AddRange(view.RequiredDocuments.Select(ToProto));
+        reponse.Capabilities.AddRange(view.Capabilities.Select(ToProto));
+        reponse.AllowedCapabilities.AddRange(view.AllowedCapabilities.Select(ToProto));
 
         return reponse;
     }
@@ -364,36 +438,6 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
 
         var reponse = new ListDriversResponse { Total = vue.Total };
         reponse.Drivers.AddRange(vue.Drivers.Select(ToProto));
-
-        return reponse;
-    }
-
-    public override async Task<ListDriverPositionsResponse> ListDriverPositions(
-        ListDriverPositionsRequest request,
-        ServerCallContext context)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(context);
-
-        // ZERO VAUT « LE DEFAUT DU SERVICE », comme partout ailleurs dans ce
-        // contrat : c'est la valeur par defaut de protobuf, et la traiter
-        // comme une demande de zero point rendrait une carte vide.
-        var vue = await dispatcher.QueryAsync(
-            new ListDriverPositionsQuery(request.Limit == 0 ? 500 : request.Limit),
-            context.CancellationToken).ConfigureAwait(false);
-
-        var reponse = new ListDriverPositionsResponse { FreshnessSeconds = vue.FreshnessSeconds };
-
-        reponse.Positions.AddRange(vue.Positions.Select(p => new ProtoDriverPosition
-        {
-            DriverId = p.DriverId,
-            DisplayName = p.DisplayName,
-            Latitude = p.Latitude,
-            Longitude = p.Longitude,
-            SeenAt = Timestamp.FromDateTimeOffset(p.SeenAt),
-            OperationalStatus = ToProto(p.OperationalStatus),
-            VehicleType = ToProto(p.VehicleType),
-        }));
 
         return reponse;
     }
@@ -517,11 +561,46 @@ public sealed class DriverGrpcService(IDispatcher dispatcher, ITimeCalendar cale
             Type = ToProto(view.VehicleType),
             Plate = view.VehiclePlate,
             CapacityGrams = view.VehicleCapacityGrams,
+            Brand = view.VehicleBrand,
+            Model = view.VehicleModel,
+            Color = view.VehicleColor,
+            PassengerCapacity = view.VehiclePassengerCapacity,
         },
         VerificationStatus = ToProto(view.VerificationStatus),
         OperationalStatus = ToProto(view.OperationalStatus),
         RegisteredAt = Timestamp.FromDateTimeOffset(view.RegisteredAt),
         VerifiedAt = view.VerifiedAt is null ? null : Timestamp.FromDateTimeOffset(view.VerifiedAt.Value),
         StatusReason = view.StatusReason,
+        Capabilities = { view.Capabilities.Select(ToProto) },
+    };
+
+    // ---- Habilitations --------------------------------------------------------
+
+    /// <summary>
+    /// L'habilitation exigee par une recherche.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// NON PRECISEE VAUT « LIVRAISON DE COLIS », et ce repli est ce qui rend le
+    /// champ retrocompatible : le dispatch d'aujourd'hui ne le renseigne pas, et
+    /// doit continuer de recevoir exactement les memes livreurs qu'avant.
+    ///
+    /// C'EST L'INVERSE DU CHOIX FAIT POUR UNE ECRITURE. Ecrire une habilitation
+    /// sans la nommer serait absurde ; en CHERCHER une sans la nommer a un sens
+    /// evident, puisqu'un seul metier existait avant.
+    /// </remarks>
+    private static DomainCapability ToDomain(ProtoCapability capability) => capability switch
+    {
+        ProtoCapability.PassengerTransport => DomainCapability.PassengerTransport,
+        ProtoCapability.FoodDelivery => DomainCapability.FoodDelivery,
+        _ => DomainCapability.PackageDelivery,
+    };
+
+    private static ProtoCapability ToProto(DomainCapability capability) => capability switch
+    {
+        DomainCapability.PackageDelivery => ProtoCapability.PackageDelivery,
+        DomainCapability.PassengerTransport => ProtoCapability.PassengerTransport,
+        DomainCapability.FoodDelivery => ProtoCapability.FoodDelivery,
+        _ => ProtoCapability.Unspecified,
     };
 }

@@ -4,6 +4,7 @@ using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Application.Time;
 using Hba.BuildingBlocks.Domain;
 using Hba.BuildingBlocks.Grpc.Time;
+using Hba.Contracts.Common.V1;
 using Hba.Contracts.Dispatch.V1;
 using Hba.Dispatch.Application.Common.Views;
 using Hba.Dispatch.Application.Features.Dispatching.Commands;
@@ -11,6 +12,8 @@ using Hba.Dispatch.Application.Features.Dispatching.Queries;
 using Microsoft.AspNetCore.Authorization;
 using DomainDispatchStatus = Hba.Dispatch.Domain.Dispatching.DispatchStatus;
 using DomainOfferStatus = Hba.Dispatch.Domain.Dispatching.OfferStatus;
+using DomainServiceType = Hba.Dispatch.Domain.Dispatching.ServiceType;
+using DomainVehicle = Hba.Dispatch.Domain.Dispatching.VehicleType;
 
 namespace Hba.Dispatch.Api.Grpc;
 
@@ -95,7 +98,8 @@ public sealed class DispatchGrpcService(IDispatcher dispatcher, ITimeCalendar ca
 
         var result = await dispatcher.SendAsync(
             new OfferToDriverCommand(
-                ParseId(request.DeliveryId, "delivery_id"),
+                Nature(request.ServiceType),
+                ParseId(request.ReferenceId, "reference_id"),
                 request.DriverId,
                 string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason),
             context.CancellationToken).ConfigureAwait(false);
@@ -172,6 +176,42 @@ public sealed class DispatchGrpcService(IDispatcher dispatcher, ITimeCalendar ca
         _ => OfferStatus.Unspecified,
     };
 
+    /// <summary>
+    /// La nature de la mission, exigee et non devinee.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// UN APPEL SANS NATURE EST REFUSE, PAS INTERPRETE COMME UNE LIVRAISON. Le
+    /// defaut protobuf d'un enum est zero : traiter zero comme « colis » ferait
+    /// qu'un client oubliant le champ agirait sur la livraison qui porte
+    /// l'identifiant d'une course. Mieux vaut un argument invalide tout de suite.
+    /// </remarks>
+    private static DomainServiceType Nature(ServiceType nature) => nature switch
+    {
+        ServiceType.Delivery => DomainServiceType.Delivery,
+        ServiceType.Ride => DomainServiceType.Ride,
+        _ => throw new DomainException(
+            "VALIDATION_FAILED",
+            "Le champ service_type est obligatoire : livraison ou course."),
+    };
+
+    private static ServiceType Nature(DomainServiceType nature) => nature switch
+    {
+        DomainServiceType.Delivery => ServiceType.Delivery,
+        DomainServiceType.Ride => ServiceType.Ride,
+        _ => ServiceType.Unspecified,
+    };
+
+    private static Hba.Contracts.Common.V1.VehicleType Vehicule(DomainVehicle type) => type switch
+    {
+        DomainVehicle.Motorcycle => Hba.Contracts.Common.V1.VehicleType.Motorcycle,
+        DomainVehicle.Car => Hba.Contracts.Common.V1.VehicleType.Car,
+        DomainVehicle.Van => Hba.Contracts.Common.V1.VehicleType.Van,
+        DomainVehicle.Bicycle => Hba.Contracts.Common.V1.VehicleType.Bicycle,
+        DomainVehicle.Tricycle => Hba.Contracts.Common.V1.VehicleType.Tricycle,
+        _ => Hba.Contracts.Common.V1.VehicleType.Unspecified,
+    };
+
     private static Guid ParseId(string value, string field)
         => Guid.TryParse(value, out var id) && id != Guid.Empty
             ? id
@@ -180,7 +220,9 @@ public sealed class DispatchGrpcService(IDispatcher dispatcher, ITimeCalendar ca
     private static Offer ToProto(OfferView view) => new()
     {
         Id = view.Id.ToString(),
-        DeliveryId = view.DeliveryId.ToString(),
+        ReferenceId = view.ReferenceId.ToString(),
+        ServiceType = Nature(view.ServiceType),
+        VehicleType = Vehicule(view.VehicleType),
         DriverId = view.DriverId,
         Status = ToProto(view.Status),
         WaveNumber = view.WaveNumber,

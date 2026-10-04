@@ -21,6 +21,19 @@ public sealed class DriverAggregate : AggregateRoot
 {
     private readonly List<DriverDocument> _documents = [];
 
+    // UNE LISTE, ET C'EST UNE CONTRAINTE D'EF, PAS UN CHOIX DE MODELISATION.
+    // Les collections primitives d'EF Core exigent un type qui implemente
+    // IList<T> : leur materialisation remplit la collection par cette
+    // interface. Un HashSet se serialisait bien a l'ecriture et faisait echouer
+    // CHAQUE lecture sur InvalidCastException — « Unable to cast HashSet<T> to
+    // IList<T> » —, ce qui condamnait tout le service Driver.
+    //
+    // L'UNICITE RESTE GARANTIE, AILLEURS. Le doublon n'a aucun sens ici :
+    // « habilite deux fois au colis » ne veut rien dire. DeclareCapabilities est
+    // le seul point de mutation : il deduplique par ToHashSet, vide puis
+    // reecrit. Aucun autre code ne touche ce champ.
+    private readonly List<DriverCapability> _capabilities = [];
+
     private DriverAggregate()
     {
     }
@@ -72,6 +85,41 @@ public sealed class DriverAggregate : AggregateRoot
     public DateTimeOffset? SubmittedAt { get; private set; }
 
     public IReadOnlyCollection<DriverDocument> Documents => _documents.AsReadOnly();
+
+    /// <summary>Ce que ce livreur est habilite a faire.</summary>
+    ///
+    /// <remarks>
+    /// VIDE VEUT DIRE « LE COLIS, ET RIEN D'AUTRE ». C'est la lecture de
+    /// <see cref="Habilite"/> : les milliers de livreurs deja inscrits n'ont
+    /// declare aucune capacite, et ils font tous du colis. Leur en attribuer une
+    /// a la migration aurait ecrit une declaration que personne n'a faite ;
+    /// exiger qu'ils la fassent les aurait tous arretes du jour au lendemain.
+    /// </remarks>
+    public IReadOnlyCollection<DriverCapability> Capabilities => _capabilities;
+
+    /// <summary>Ce livreur peut-il faire cela, aujourd'hui, avec ce vehicule ?</summary>
+    ///
+    /// <remarks>
+    /// LES DEUX CONDITIONS SONT NECESSAIRES, ET C'EST TOUT LE PROPOS DE CETTE
+    /// METHODE. L'habilitation appartient a la PERSONNE — ops l'accorde apres
+    /// examen — et la possibilite appartient au MATERIEL. Un chauffeur habilite
+    /// au transport de personnes qui roule aujourd'hui en velo ne peut pas
+    /// prendre de passager ; c'est le vehicule declare qui tranche, pas le
+    /// dossier.
+    ///
+    /// LE COLIS EST LE SOCLE, ET IL N'A PAS BESOIN D'ETRE DECLARE. Un dossier
+    /// vide n'est pas un livreur sans metier : c'est le metier d'origine.
+    /// </remarks>
+    public bool Habilite(DriverCapability capacite)
+    {
+        if (!Vehicle.Autorise(capacite))
+        {
+            return false;
+        }
+
+        return capacite == DriverCapability.PackageDelivery
+            || _capabilities.Contains(capacite);
+    }
 
     public bool CanWork => VerificationStatus == VerificationStatus.Verified;
 
@@ -218,20 +266,63 @@ public sealed class DriverAggregate : AggregateRoot
     }
 
     /// <summary>
-    /// Declaration du vehicule par le livreur.
+    /// Declaration ou changement du vehicule par le livreur.
     ///
-    /// L'IMMATRICULATION DEVIENT OBLIGATOIRE ICI, alors que Vehicle.Create
+    /// L'IMMATRICULATION EST OBLIGATOIRE ICI, alors que Vehicle.Create
     /// l'accepte vide. Ce n'est pas une contradiction : Vehicle.Unknown nait
     /// sans plaque a l'inscription, parce que le compte precede le dossier.
     /// Mais un livreur qui DECLARE son vehicule et laisse la plaque vide ne
     /// declare rien qu'ops puisse verifier.
     /// </summary>
+    ///
+    /// <remarks>
+    /// UN DOSSIER VALIDE ACCEPTE DESORMAIS CE CHANGEMENT, ET LE PAIE. Jusqu'au
+    /// 3 octobre 2026, ExigerDossierModifiable le refusait net : un livreur qui
+    /// changeait de vehicule — il en achete un, le sien tombe en panne, il
+    /// emprunte la voiture d'un frere — devait appeler HBA pour faire rouvrir
+    /// son dossier. Le refus avait une bonne raison et un mauvais effet : la
+    /// bonne raison, c'est que la carte grise au dossier atteste CE vehicule-la
+    /// et aucun autre ; le mauvais effet, c'est qu'un livreur bloque continue de
+    /// rouler avec un vehicule qui ne correspond plus a rien.
+    ///
+    /// LE CHANGEMENT RENVOIE DONC LE DOSSIER A L'EXAMEN. Le livreur modifie
+    /// librement, et perd sa validation dans le meme geste : il ne recevra plus
+    /// d'offre (CanWork exige Verified) tant qu'ops n'aura pas revu les pieces
+    /// du nouveau vehicule. Rien n'est contourne — la verification est
+    /// REPORTEE, pas supprimee — et c'est le livreur, pas HBA, qui decide quand
+    /// la payer.
+    ///
+    /// CE QUI RESTE INTERDIT : changer pendant une mission. Le client attend le
+    /// vehicule qu'on lui a annonce, et son ecran de suivi le nomme.
+    ///
+    /// LES PIECES NE SONT PAS EFFACEES, et c'est volontaire. Un livreur qui
+    /// corrige une couleur ne doit pas redeposer sa CNI. PiecesManquantes
+    /// recalcule ce qu'il faut pour le NOUVEAU type — passer du velo a la moto
+    /// reclame d'un coup permis et carte grise — et SubmitForReview refusera
+    /// tant qu'elles manquent.
+    /// </remarks>
     public void DeclareVehicle(Vehicle vehicle, Actor actor, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(vehicle);
         ArgumentNullException.ThrowIfNull(actor);
 
-        ExigerDossierModifiable();
+        // LA SUSPENSION RESTE UN MUR. Un compte suspendu ne se repare pas en
+        // changeant de vehicule : c'est la personne qui est ecartee, pas son
+        // materiel.
+        if (VerificationStatus == VerificationStatus.Suspended)
+        {
+            throw new DomainException(
+                DriverErrorCodes.ApplicationNotEditable,
+                "Ce compte est suspendu : contactez HBA.");
+        }
+
+        if (OperationalStatus is OperationalStatus.Reserved or OperationalStatus.OnMission)
+        {
+            throw new DomainException(
+                DriverErrorCodes.VehicleLockedDuringMission,
+                "Terminez votre mission avant de changer de vehicule : le client "
+                + "attend celui qui lui a ete annonce.");
+        }
 
         // ELLE RESTE OBLIGATOIRE POUR TOUT CE QUI A UN MOTEUR. Ce qui a change
         // le 30 septembre 2026, c'est qu'un velo n'en a pas : exiger sa plaque
@@ -243,9 +334,33 @@ public sealed class DriverAggregate : AggregateRoot
                 "L'immatriculation est obligatoire : ops la compare a la carte grise.");
         }
 
+        var etaitValide = VerificationStatus == VerificationStatus.Verified;
+
         Vehicle = vehicle;
 
-        Raise(new DriverVehicleDeclared(Id, vehicle.Type, vehicle.Plate, actor, now));
+        if (etaitValide)
+        {
+            // IL REDEVIENT EN ATTENTE, ET IL PASSE HORS LIGNE. Le laisser
+            // « disponible » avec un dossier non valide afficherait un livreur
+            // de plus sur la carte des clients pour quelqu'un qui ne peut rien
+            // recevoir.
+            VerificationStatus = VerificationStatus.PendingVerification;
+            StatusReason = null;
+            SubmittedAt = null;
+
+            if (OperationalStatus == OperationalStatus.Available)
+            {
+                OperationalStatus = OperationalStatus.Offline;
+            }
+        }
+
+        // LES HABILITATIONS NE SONT PAS TOUCHEES, ET C'EST UNE REGLE DEJA ECRITE
+        // AILLEURS : voir « Changer_de_vehicule_retire_ce_que_le_nouveau_ne_permet_pas »
+        // dans CapacitesTests. Elles restent au dossier et cessent simplement
+        // d'etre exercables — c'est Habilite() qui croise le declare et le
+        // materiel au moment du dispatch. Le livreur qui reprend sa moto demain
+        // n'a donc rien a redemander.
+        Raise(new DriverVehicleDeclared(Id, vehicle.Type, vehicle.Plate, etaitValide, actor, now));
     }
 
     /// <summary>
@@ -291,6 +406,78 @@ public sealed class DriverAggregate : AggregateRoot
     /// decision d'ops sur la personne, pas un verdict sur des papiers :
     /// resoumettre ne doit pas la lever. Seul ops la leve.
     /// </summary>
+    /// <summary>
+    /// Declare ce que ce livreur veut pouvoir faire.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// REMPLACE, N'AJOUTE PAS. Une declaration dit l'ensemble de ce que le
+    /// livreur exerce, pas un ajout a une liste dont il aurait perdu le compte.
+    /// Retirer une habilitation doit etre aussi simple que l'accorder — sinon
+    /// elle ne se retire jamais.
+    ///
+    /// CHAQUE CAPACITE EST CONFRONTEE AU VEHICULE DECLARE, et le refus nomme
+    /// celle qui bloque. Sans cela, un cycliste cochant « transport de
+    /// personnes » verrait sa declaration acceptee et n'en comprendrait les
+    /// consequences qu'en ne recevant jamais la moindre course de personnes —
+    /// un silence impossible a diagnostiquer depuis un telephone.
+    ///
+    /// ON NE VERIFIE PAS LA CAPACITE EN PLACES ICI, seulement le TYPE. Un
+    /// livreur peut s'habiliter au transport de personnes avant d'avoir declare
+    /// combien sa voiture en porte ; c'est le dispatch qui exigera les deux, par
+    /// Vehicle.PeutTransporterDesPersonnes. Refuser des maintenant obligerait a
+    /// remplir les deux ecrans dans un ordre precis, sans le dire.
+    ///
+    /// UN DOSSIER VALIDE SE DECLARE LIBREMENT, ET SANS REPASSER A L'EXAMEN.
+    /// Tranche le 3 octobre 2026. La difference avec le vehicule est entiere :
+    /// changer de vehicule produit un objet que PERSONNE n'a vu, alors que
+    /// cocher « transport de personnes » ne fait qu'exercer ce que le vehicule
+    /// DEJA VERIFIE autorise — la table de Vehicle.Autorise s'en porte garante,
+    /// et elle est verifiee ci-dessous. Un livreur en voiture validee qui veut
+    /// prendre des passagers n'apporte aucune piece nouvelle a examiner.
+    ///
+    /// LA SUSPENSION RESTE UN MUR, comme pour le vehicule : c'est la personne
+    /// qui est ecartee.
+    /// </remarks>
+    public void DeclareCapabilities(
+        IReadOnlyCollection<DriverCapability> capabilities,
+        Actor actor,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (VerificationStatus == VerificationStatus.Suspended)
+        {
+            throw new DomainException(
+                DriverErrorCodes.ApplicationNotEditable,
+                "Ce compte est suspendu : contactez HBA.");
+        }
+
+        var demandees = capabilities
+            .Where(c => c != DriverCapability.Unspecified)
+            .ToHashSet();
+
+        foreach (var capacite in demandees)
+        {
+            if (!Vehicle.Autorise(capacite))
+            {
+                throw new DomainException(
+                    DriverErrorCodes.CapabilityNotAllowedByVehicle,
+                    $"Un vehicule de type {Vehicle.Type} ne permet pas : {capacite}.");
+            }
+        }
+
+        _capabilities.Clear();
+
+        foreach (var capacite in demandees)
+        {
+            _capabilities.Add(capacite);
+        }
+
+        Raise(new DriverCapabilitiesDeclared(Id, [.. demandees], actor, now));
+    }
+
     public void SubmitForReview(Actor actor, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(actor);

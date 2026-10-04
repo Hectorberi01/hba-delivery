@@ -64,6 +64,19 @@ public sealed class DeliveryIntegrationEventPublisher : IDeliveryIntegrationEven
         RecuDeCourse(outbox, delivery, domainEvent);
         CodeDeRemise(outbox, delivery, domainEvent);
 
+        // DEUX MODELES DU CATALOGUE N'AVAIENT AUCUN PRODUCTEUR DEPUIS L'ORIGINE.
+        //
+        // « delivery_assigned » et « delivery_completed » existaient, redigés et
+        // testés, et personne ne les publiait : un client n'a JAMAIS ete prevenu
+        // qu'un livreur avait pris son colis, ni qu'il avait ete remis. Il recevait
+        // seulement le recu par courriel, et uniquement s'il avait une adresse.
+        //
+        // CE N'ETAIT PAS UN OUBLI DE CABLAGE : SendSms exigeait un numero, et ce
+        // service ne connait que le CustomerId de son client. Le champ « subject_id »
+        // ajoute au contrat le 1er octobre 2026 est ce qui rend ces deux envois
+        // possibles — Notification demande le numero a l'annuaire.
+        AvisAuClient(outbox, delivery, domainEvent);
+
         var message = Map(delivery, domainEvent);
         if (message is null)
         {
@@ -209,6 +222,87 @@ public sealed class DeliveryIntegrationEventPublisher : IDeliveryIntegrationEven
     }
 
     /// <summary>
+    /// Previent le client que son colis avance.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// RIEN NE PART POUR UNE COURSE SANS CLIENT. Une course d'un partenaire B2B ou de
+    /// HBA Express n'a pas de compte a prevenir ; « IsCustomerOrdered » est exactement
+    /// cette question, et c'est la meme garde que le recu.
+    ///
+    /// L'AFFECTATION A BESOIN DU LIVREUR, ET IL PEUT MANQUER. Delivery garde un
+    /// instantane du livreur affecte, mais il est nul si Driver etait injoignable a
+    /// l'affectation : pas de nom, pas de telephone, donc pas de message — un SMS
+    /// « {driver} prend en charge » avec un nom vide ne dit rien.
+    /// </remarks>
+    private static void AvisAuClient(
+        IOutbox outbox,
+        DeliveryAggregate delivery,
+        IDomainEvent domainEvent)
+    {
+        if (!delivery.IsCustomerOrdered || string.IsNullOrWhiteSpace(delivery.CustomerId))
+        {
+            return;
+        }
+
+        switch (domainEvent)
+        {
+            case DomainEvents.DriverAssigned when delivery.Driver is { } livreur:
+                AvisSms(outbox, delivery, domainEvent, 0x21, "delivery_assigned", new()
+                {
+                    ["driver"] = livreur.DisplayName,
+                    ["reference"] = delivery.Reference,
+                    ["phone"] = livreur.Phone,
+                });
+                break;
+
+            // LE SMS EN PLUS DU RECU, ET NON A SA PLACE. Les deux ne disent pas la
+            // meme chose : le SMS annonce l'evenement et arrive tout de suite, le recu
+            // se garde. C'est aussi pourquoi le catalogue en fait deux modeles — reunis,
+            // le courriel serait devenu un REPLI du SMS et ne serait jamais parti.
+            case DomainEvents.DeliveryCompleted:
+                AvisSms(outbox, delivery, domainEvent, 0x22, "delivery_completed", new()
+                {
+                    ["reference"] = delivery.Reference,
+                });
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    private static void AvisSms(
+        IOutbox outbox,
+        DeliveryAggregate delivery,
+        IDomainEvent domainEvent,
+        byte marque,
+        string modele,
+        Dictionary<string, string> variables)
+    {
+        var commande = new NotificationCommand
+        {
+            Envelope = EnveloppeDeCommande(delivery, domainEvent, "hba.notification.v1.SendSms", marque),
+            SendSms = new SendSms
+            {
+                // LE COMPTE, PAS LE NUMERO : Notification le resout chez Directory.
+                SubjectId = delivery.CustomerId,
+                TemplateId = modele,
+            },
+        };
+
+        commande.SendSms.Variables.Add(variables);
+
+        // CLE DE PARTITION : LA COURSE. L'ordre qui compte est celui des messages
+        // d'UNE MEME course — « un livreur a pris votre colis » avant « il est remis ».
+        outbox.Enqueue(
+            KafkaTopics.NotificationCommands,
+            delivery.Id.ToString(),
+            commande.Envelope.EventType,
+            commande);
+    }
+
+    /// <summary>
     /// L'enveloppe de la commande d'envoi.
     /// </summary>
     ///
@@ -341,6 +435,10 @@ public sealed class DeliveryIntegrationEventPublisher : IDeliveryIntegrationEven
             DriverEarning = MapMoney(e.DriverEarning.Amount),
             OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
             Reference = delivery.Reference,
+
+            // VIDE POUR UN PARTENAIRE OU UN COMMERÇANT, et Rating n'ouvre alors
+            // aucune notation : personne n'a ete servi en son nom propre.
+            CustomerId = delivery.CustomerId ?? string.Empty,
         }),
 
         // « DriverUnassigned » EMPRUNTE « DeliveryCancelled », ET C'EST LE SEUL
@@ -381,6 +479,14 @@ public sealed class DeliveryIntegrationEventPublisher : IDeliveryIntegrationEven
             // liberer — sans quoi il resterait en mission sur une course qui
             // n'existe plus.
             DriverId = delivery.Driver?.DriverId ?? string.Empty,
+
+            // LA RETENUE VIENT DE L'EVENEMENT, PAS DE L'AGREGAT, et la nuance
+            // compte : c'est le domaine qui a decide qu'elle est nulle sans
+            // livreur affecte. La relire ici dans Pricing.CancellationFee
+            // republierait le montant de la grille meme quand personne ne s'est
+            // deplace, et Payment crediterait un livreur qui n'existe pas.
+            CancellationFee = MapMoney(e.CancellationFeeXof),
+            Reference = delivery.Reference,
         }),
 
         DomainEvents.DeliveryFailed e => Wrap(delivery, e, "hba.delivery.v1.DeliveryFailed", m => m.Failed = new Contracts.Delivery.V1.DeliveryFailed
@@ -389,6 +495,11 @@ public sealed class DeliveryIntegrationEventPublisher : IDeliveryIntegrationEven
             Reason = e.Reason,
             OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
             DriverId = delivery.Driver?.DriverId ?? string.Empty,
+
+            // MEME REGLE QUE L'ANNULATION, ET C'EST LA DECISION DU POINT 34 : un
+            // livreur qui declare un incident s'est deplace et a porte le colis.
+            CancellationFee = MapMoney(e.CancellationFeeXof),
+            Reference = delivery.Reference,
         }),
 
         DomainEvents.NoDriverFound e => Wrap(delivery, e, "hba.delivery.v1.NoDriverFound", m => m.NoDriverFound = new Contracts.Delivery.V1.NoDriverFound
@@ -452,7 +563,11 @@ public sealed class DeliveryIntegrationEventPublisher : IDeliveryIntegrationEven
         DeliverySource.HbaExpress => Source.HbaExpress,
         DeliverySource.HbaFood => Source.HbaFood,
         DeliverySource.PartnerApi => Source.PartnerApi,
-        DeliverySource.MerchantPortal => Source.ClientApp,
+        // CETTE LIGNE DISAIT « APP CLIENT » POUR UNE COMMANDE DE COMMERCANT,
+        // faute d'une valeur pour le dire. Le contrat commun en a une depuis le
+        // 2 octobre 2026 : un commercant qui commande lui-meme ne se compte
+        // plus comme un client particulier.
+        DeliverySource.MerchantPortal => Source.MerchantPortal,
         _ => Source.Unspecified,
     };
 

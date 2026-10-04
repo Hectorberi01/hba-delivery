@@ -68,7 +68,11 @@ class BlocSupport extends StatelessWidget {
         // produit — mais elle ne remplace pas l'ecran.
         const _Document(
           icone: Icons.description_outlined,
-          teinte: Color(0xFFFCEADC),
+          // LE JETON, PAS LA VALEUR : ces deux teintes etaient ecrites en dur
+          // et portaient l'ancienne palette orange. Elles ont donc survecu au
+          // changement de style du 2 octobre 2026 sans suivre — exactement ce
+          // que tokens.dart interdit.
+          teinte: HbaColors.primarySoft,
           couleurIcone: HbaColors.primary,
           document: conditionsClient,
           enLigne: Reglages.conditions,
@@ -76,7 +80,7 @@ class BlocSupport extends StatelessWidget {
         const SizedBox(height: HbaSpacing.sm),
         const _Document(
           icone: Icons.shield_outlined,
-          teinte: Color(0xFFFBEFDC),
+          teinte: HbaColors.warningSoft,
           couleurIcone: HbaColors.warning,
           document: confidentialiteClient,
           enLigne: Reglages.confidentialite,

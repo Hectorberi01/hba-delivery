@@ -1,6 +1,7 @@
 import 'package:hba_core/hba_core.dart';
 
 import '../../core/file_actions.dart';
+import 'course_models.dart';
 import 'models.dart';
 
 /// Ce que devient une offre qu'on accepte.
@@ -11,13 +12,32 @@ import 'models.dart';
 /// propagation entre Dispatch et Delivery. Un seul « null » pour les deux
 /// faisait annoncer une defaite au livreur qui venait de gagner.
 class Acceptation {
-  const Acceptation({this.mission, this.perdue = false});
+  const Acceptation({this.mission, this.course, this.perdue = false});
 
-  /// La course, quand elle est deja lisible. Null pendant le decalage.
+  /// La livraison, quand elle est deja lisible. Null pendant le decalage.
   final Mission? mission;
+
+  /// La course de personnes, quand c'en etait une. L'UN OU L'AUTRE, JAMAIS LES
+  /// DEUX : une offre porte une nature, et c'est elle qui dit lequel des deux
+  /// champs a ete rempli.
+  final CourseLivreur? course;
 
   /// Vrai seulement si le serveur a refuse : quelqu'un d'autre l'a prise.
   final bool perdue;
+
+  /// La mission est-elle lisible, quelle que soit sa nature ?
+  bool get lisible => mission != null || course != null;
+}
+
+/// Ce qu'une action de COURSE renvoie. Meme forme qu'[Issue], autre modele.
+class IssueDeCourse {
+  const IssueDeCourse({this.course, this.miseEnFile = false});
+
+  /// La course telle que le serveur la rend. Nulle quand l'action est en file.
+  final CourseLivreur? course;
+
+  /// L'action attend le reseau. Elle partira toute seule.
+  final bool miseEnFile;
 }
 
 /// Acces aux offres et aux courses.
@@ -60,10 +80,26 @@ class MissionRepository {
         idempotencyKey: ApiClient.newIdempotencyKey(),
       );
 
+  /// Envoie un point au service Location.
+  ///
+  /// LE CAP, LA VITESSE ET LA PRECISION SONT FACULTATIFS, ET LE NUL N'EST PAS
+  /// ZERO. Un telephone a l'arret ne rend aucun cap ; zero degre, lui, veut dire
+  /// « plein nord ». On n'envoie donc QUE ce que le GPS a donne : un champ absent
+  /// du corps JSON dit au serveur « le telephone n'a rien dit », et c'est la
+  /// difference qui empeche toutes les motos immobiles de pointer vers le nord sur
+  /// la carte de l'exploitation.
+  ///
+  /// GEOLOCATOR LES DONNAIT DEJA. Les trois etaient dans l'objet Position depuis
+  /// toujours, et cette methode n'en transmettait aucun : deux d'entre eux
+  /// existaient meme au contrat gRPC de Driver sans que personne ne les remplisse.
+  /// C'est pour cela qu'aucune carte n'a jamais pu orienter une fleche.
   Future<void> pushPosition({
     required double latitude,
     required double longitude,
     required DateTime capturedAt,
+    double? headingDegrees,
+    double? speedMps,
+    double? accuracyMeters,
   }) =>
       _api.post(
         '/position',
@@ -71,6 +107,9 @@ class MissionRepository {
           'latitude': latitude,
           'longitude': longitude,
           'capturedAt': capturedAt.toUtc().toIso8601String(),
+          if (headingDegrees != null) 'headingDegrees': headingDegrees,
+          if (speedMps != null) 'speedMps': speedMps,
+          if (accuracyMeters != null) 'accuracyMeters': accuracyMeters,
         },
         idempotencyKey: ApiClient.newIdempotencyKey(),
       );
@@ -87,7 +126,12 @@ class MissionRepository {
   /// SEUL LE 409 SIGNIFIE « PERDUE ». C'est le serveur qui tranche, et il le
   /// dit par un code. Tout le reste — y compris une course encore invisible —
   /// veut dire que l'offre est gagnee.
-  Future<Acceptation> acceptOffer(String offerId) async {
+  ///
+  /// CE QU'ON ATTEND DEPEND DE LA NATURE DE L'OFFRE, et le confondre coutait
+  /// quatre secondes et un ecran vide : « GET /missions » ne rendra JAMAIS une
+  /// course de personnes, donc attendre la dedans apres avoir accepte un passager
+  /// revenait a attendre pour rien avant d'annoncer qu'on ne trouve rien.
+  Future<Acceptation> acceptOffer(String offerId, {bool course = false}) async {
     try {
       await _api.post(
         '/offers/$offerId/accept',
@@ -111,8 +155,13 @@ class MissionRepository {
     // rapide », et le livreur s'entendait dire qu'il venait de perdre la
     // course qu'il avait sous les yeux.
     for (var essai = 0; essai < 6; essai += 1) {
-      final mission = await currentMission();
-      if (mission != null) return Acceptation(mission: mission);
+      if (course) {
+        final acceptee = await courseActive();
+        if (acceptee != null) return Acceptation(course: acceptee);
+      } else {
+        final mission = await currentMission();
+        if (mission != null) return Acceptation(mission: mission);
+      }
 
       await Future<void>.delayed(const Duration(milliseconds: 700));
     }
@@ -203,6 +252,68 @@ class MissionRepository {
   Future<BilanDeFile> viderLaFile() => _file.vider(_api);
 
   Future<int> get actionsEnAttente => _file.nombre;
+
+  /// La course de personnes en cours, s'il y en a une.
+  ///
+  /// 200 AVEC null, PAS 404 : « aucune course » est l'etat ordinaire d'un
+  /// chauffeur en ligne, et la passerelle le dit ainsi. UNE SEULE, AU
+  /// SINGULIER — il ne conduit qu'un vehicule.
+  Future<CourseLivreur?> courseActive() async {
+    final data = await _api.get('/rides/active');
+    final brut = data['ride'];
+
+    if (brut is! Map) return null;
+
+    final course = CourseLivreur.lire(brut.cast<String, dynamic>());
+    return course.etat.estOuverte ? course : null;
+  }
+
+  /// Declare l'etape suivante d'une course.
+  Future<IssueDeCourse> avancerLaCourse(String courseId, EtapeDeCourse etape) =>
+      _actionDeCourse(courseId, etape.verbe, const <String, Object?>{});
+
+  /// Renonce a une course acceptee.
+  Future<IssueDeCourse> annulerLaCourse(String courseId, {String motif = ''}) =>
+      _actionDeCourse(courseId, 'cancel', {if (motif.isNotEmpty) 'reason': motif});
+
+  /// Une action de course, mise en file si le reseau manque.
+  ///
+  /// AUCUN « occurredAt » ICI, CONTRAIREMENT AUX LIVRAISONS, et ce n'est pas un
+  /// oubli : le contrat de Ride ne porte pas d'horodatage client — ses routes
+  /// n'acceptent meme aucun corps. Une etape mise en file et partie vingt minutes
+  /// plus tard sera donc datee de l'instant ou le serveur la recoit, pas de celui
+  /// ou le chauffeur a appuye. Pour une livraison, le service borne et accepte un
+  /// horodatage du telephone ; ici il faudrait l'ajouter au contrat.
+  ///
+  /// LE REJEU PEUT ETRE REFUSE, ET C'EST ACCEPTABLE. Ride ne lit pas la cle
+  /// d'idempotence : un « demarrer » rejoue sur une course deja demarree est une
+  /// transition invalide, que le service refuse franchement. Un refus visible vaut
+  /// mieux qu'une seconde transition silencieuse.
+  Future<IssueDeCourse> _actionDeCourse(
+    String courseId,
+    String verbe,
+    Map<String, Object?> corps,
+  ) async {
+    final chemin = '/rides/$courseId/$verbe';
+
+    // Une action est identifiee par la course et l'etape : la rejouer ne peut
+    // pas en declarer deux.
+    final cle = 'course-$verbe:$courseId';
+
+    try {
+      final data = await _api.post(chemin, body: corps, idempotencyKey: cle);
+      return IssueDeCourse(course: CourseLivreur.lire(data));
+    } on OfflineException {
+      await _file.pousser(ActionEnFile(
+        chemin: chemin,
+        corps: corps,
+        cleIdempotence: cle,
+        creeeLe: DateTime.now(),
+      ));
+
+      return const IssueDeCourse(miseEnFile: true);
+    }
+  }
 
   Future<Issue> _action(
     String missionId,

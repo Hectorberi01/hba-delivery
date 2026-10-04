@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package hba.notification.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Hba.Contracts.Notification.V1";
+
+// LA PREMIERE API DE NOTIFICATION, ET ELLE NE SERT QU'A LIRE.
+//
+// Le service reste commande par Kafka : on ne lui demande pas d'envoyer un
+// message par un appel synchrone, on lui en depose un (voir
+// notification_events.proto). Ce service-ci repond a une autre question, celle
+// que le support pose tous les jours : « ce code est-il parti, et qu'en a dit
+// l'operateur ? »
+service NotificationService {
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+
+  // L'etat des canaux : lequel a un fournisseur, lequel n'en a pas.
+  //
+  // AUCUN SECRET N'EN SORT. On rend le NOM de l'adaptateur et un booleen, pas
+  // la cle d'API : savoir que le canal SMS n'a aucun fournisseur n'apprend
+  // rien a qui l'ignore, et c'est ce qui explique un journal plein
+  // d'« ignore ».
+  //
+  // CE QUE LE SERVICE SAIT ET QUE PERSONNE D'AUTRE NE SAIT. La passerelle ne
+  // lit pas la configuration de Notification : seul Notification sait ce qu'il
+  // a reellement resolu au demarrage.
+  rpc GetChannelStatus(GetChannelStatusRequest) returns (GetChannelStatusResponse);
+}
+
+// Memes valeurs que NotificationChannel du domaine. Le prefixe est obligatoire
+// en proto3 : les valeurs d'enumeration vivent dans le paquet, pas dans leur
+// enumeration.
+enum NotificationChannel {
+  NOTIFICATION_CHANNEL_UNSPECIFIED = 0;
+  NOTIFICATION_CHANNEL_SMS = 1;
+  NOTIFICATION_CHANNEL_WHATSAPP = 2;
+  NOTIFICATION_CHANNEL_PUSH = 3;
+  NOTIFICATION_CHANNEL_EMAIL = 4;
+}
+
+enum NotificationStatus {
+  NOTIFICATION_STATUS_UNSPECIFIED = 0;
+  NOTIFICATION_STATUS_PENDING = 1;
+  NOTIFICATION_STATUS_SENT = 2;
+  NOTIFICATION_STATUS_FAILED = 3;
+
+  // Aucun fournisseur n'est branche sur ce canal. Ce n'est pas un echec
+  // d'envoi : c'est une decision qui n'a pas ete prise.
+  NOTIFICATION_STATUS_SKIPPED = 4;
+}
+
+message GetChannelStatusRequest {
+}
+
+message GetChannelStatusResponse {
+  repeated ChannelStatus channels = 1;
+}
+
+message ChannelStatus {
+  NotificationChannel channel = 1;
+  // Nom de l'adaptateur resolu — « OvhSmsSender », « UnconfiguredSender ».
+  string adapter = 2;
+  // Faux : les messages de ce canal sont consignes « ignores » et ne partent
+  // pas. Ce n'est pas une panne, c'est une decision qui n'a pas ete prise.
+  bool configured = 3;
+}
+
+message ListNotificationsRequest {
+  // Zero vaut 50. Au-dela de 200, ramene a 200.
+  int32 page_size = 1;
+  int32 offset = 2;
+
+  // UNSPECIFIED ne filtre pas.
+  NotificationChannel channel = 3;
+  NotificationStatus status = 4;
+
+  // Fin du numero, ou numero complet : le support tape ce que le client vient
+  // de lui dicter. La comparaison se fait sur la fin, parce que c'est tout ce
+  // que la liste affiche.
+  string recipient_ends_with = 5;
+
+  string template_id = 6;
+}
+
+message ListNotificationsResponse {
+  repeated SentNotification notifications = 1;
+
+  // Total AVANT pagination, pour que « 50 affiches » veuille dire quelque chose.
+  int32 total = 2;
+}
+
+// Une trace d'envoi. LE CONTENU RENDU N'EN FAIT PAS PARTIE et n'est pas
+// conserve : un code de connexion lisible des mois plus tard serait une base
+// de secrets perimes. On garde le modele et le destinataire.
+message SentNotification {
+  string id = 1;
+  NotificationChannel channel = 2;
+
+  // MASQUE : quatre derniers chiffres seulement. Assez pour reconnaitre le
+  // numero qu'un client vient de donner au telephone, pas assez pour repartir
+  // avec l'annuaire. Meme regle que l'annuaire des clients.
+  string recipient_masked = 3;
+
+  string template_id = 4;
+  NotificationStatus status = 5;
+
+  // L'operateur qui a pris le message, et sa reference — c'est elle qui permet
+  // de rapprocher une facture.
+  string provider = 6;
+  string provider_message_id = 7;
+
+  // Le refus de l'operateur, tel qu'il l'a formule. Vide quand tout va bien.
+  string error = 8;
+
+  int32 attempts = 9;
+  string correlation_id = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp completed_at = 12;
+}

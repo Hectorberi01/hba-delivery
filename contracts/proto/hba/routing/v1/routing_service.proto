@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package hba.routing.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/geo.proto";
+
+option csharp_namespace = "Hba.Contracts.Routing.V1";
+
+// Routing est le SEUL service qui connaisse un fournisseur d'itinéraires.
+//
+// POURQUOI IL EXISTE. Jusqu'au 1er octobre 2026, Pricing mesurait les trajets
+// LUI-MÊME, à vol d'oiseau (HaversineRouteEngine). Ce n'était pas un oubli mais
+// un adaptateur provisoire — son propre commentaire annonçait qu'OSRM le
+// remplacerait. Deux choses ont rendu ce remplacement urgent : le prix est
+// désormais FERME à la commande, donc une mesure fausse est une facture fausse ;
+// et le dispatch doit comparer les ETA de plusieurs chauffeurs, ce qu'une ligne
+// droite ne sait pas faire.
+//
+// AUCUN SERVICE MÉTIER NE CONNAÎT LE FOURNISSEUR. Ni Pricing, ni Dispatch, ni
+// Ride ne savent qu'OSRM existe. C'est la condition pour en changer — Google,
+// Mapbox — sans toucher à une règle de prix ou de dispatch.
+//
+// CE SERVICE N'A PAS DE BASE DE DONNÉES, et c'est le premier du dépôt dans ce
+// cas. Il ne possède aucune donnée : il calcule, il met en cache dans Redis, il
+// oublie. Lui donner un schéma reviendrait à stocker des itinéraires qui
+// périment au premier chantier.
+service RoutingService {
+  rpc CalculateRoute(CalculateRouteRequest) returns (Route);
+
+  // La matrice sert au dispatch : comparer N chauffeurs à UN point d'enlèvement
+  // en un seul appel, au lieu de N appels séquentiels pendant qu'un client
+  // attend.
+  rpc CalculateMatrix(CalculateMatrixRequest) returns (RouteMatrix);
+}
+
+// Le profil de déplacement.
+//
+// IL NE RECOPIE PAS VehicleType, ET C'EST VOLONTAIRE. Un tricycle et une
+// voiture roulent sur les mêmes voies : ils partagent un profil. Le vélo, lui,
+// emprunte des passages qu'aucun moteur ne concède à une voiture. Ce qui compte
+// ici est la FAÇON DE CIRCULER, pas le véhicule — et OSRM ne connaît de toute
+// façon que trois profils.
+enum RouteProfile {
+  ROUTE_PROFILE_UNSPECIFIED = 0;
+  ROUTE_PROFILE_CAR = 1;
+  ROUTE_PROFILE_MOTORCYCLE = 2;
+  ROUTE_PROFILE_BICYCLE = 3;
+}
+
+message CalculateRouteRequest {
+  hba.common.v1.GeoPoint origin = 1;
+  hba.common.v1.GeoPoint destination = 2;
+  RouteProfile profile = 3;
+
+  // Le tracé coûte plusieurs kilo-octets et ne sert qu'à dessiner une carte :
+  // le devis et le dispatch n'en ont aucun usage. Absent par défaut.
+  bool include_polyline = 4;
+}
+
+message Route {
+  int32 distance_meters = 1;
+  int32 duration_seconds = 2;
+
+  // Tracé encodé (polyline Google), vide si non demandé.
+  string encoded_polyline = 3;
+
+  // Qui a répondu : "osrm", "haversine", plus tard "google" ou "mapbox".
+  string provider = 4;
+
+  google.protobuf.Timestamp calculated_at = 5;
+
+  // CE DRAPEAU EST LE PLUS IMPORTANT DE CE CONTRAT.
+  //
+  // Vrai quand la mesure vient du REPLI à vol d'oiseau, le fournisseur étant
+  // injoignable. La distance est alors SOUS-ESTIMÉE — d'un tiers environ en
+  // ville, davantage quand le trajet contourne la lagune.
+  //
+  // L'APPELANT DOIT EN FAIRE QUELQUE CHOSE. Un devis ferme calculé sur un repli
+  // facture moins que la course ne coûte, et personne ne s'en aperçoit avant la
+  // fin du mois. Le taire aurait été le vrai danger : un service qui dégrade en
+  // silence est pire qu'un service qui échoue.
+  bool from_fallback = 6;
+}
+
+message CalculateMatrixRequest {
+  repeated hba.common.v1.GeoPoint origins = 1;
+  repeated hba.common.v1.GeoPoint destinations = 2;
+  RouteProfile profile = 3;
+}
+
+message MatrixCell {
+  int32 distance_meters = 1;
+  int32 duration_seconds = 2;
+
+  // Faux quand aucun chemin ne relie les deux points — une île, une erreur de
+  // saisie, un point tombé dans la lagune. Distance et durée n'ont alors aucun
+  // sens, et un zéro les ferait passer pour le meilleur candidat.
+  bool reachable = 3;
+}
+
+// Une ligne par origine, dans l'ordre de la requête.
+message MatrixRow {
+  repeated MatrixCell cells = 1;
+}
+
+message RouteMatrix {
+  repeated MatrixRow rows = 1;
+  string provider = 2;
+  google.protobuf.Timestamp calculated_at = 3;
+  bool from_fallback = 4;
+}

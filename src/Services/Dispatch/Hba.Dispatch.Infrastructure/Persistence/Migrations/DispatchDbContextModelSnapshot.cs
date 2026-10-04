@@ -205,10 +205,6 @@ namespace Hba.Dispatch.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("current_wave_opened_at");
 
-                    b.Property<Guid>("DeliveryId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("delivery_id");
-
                     b.Property<long>("DriverEarningXof")
                         .HasColumnType("bigint")
                         .HasColumnName("driver_earning_xof");
@@ -219,6 +215,14 @@ namespace Hba.Dispatch.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("pickup_landmark");
 
+                    b.Property<Guid>("ReferenceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reference_id");
+
+                    b.Property<int>("ServiceType")
+                        .HasColumnType("integer")
+                        .HasColumnName("service_type");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
@@ -226,6 +230,12 @@ namespace Hba.Dispatch.Infrastructure.Persistence.Migrations
                     b.Property<int>("TripDistanceMeters")
                         .HasColumnType("integer")
                         .HasColumnName("trip_distance_meters");
+
+                    b.Property<int>("VehicleType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("vehicle_type");
 
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
@@ -237,8 +247,9 @@ namespace Hba.Dispatch.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("DeliveryId")
-                        .IsUnique();
+                    b.HasIndex("ServiceType", "ReferenceId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_dispatches_mission");
 
                     b.HasIndex("Status", "CurrentWaveOpenedAt");
 
@@ -271,7 +282,6 @@ namespace Hba.Dispatch.Infrastructure.Persistence.Migrations
                     b.OwnsMany("Hba.Dispatch.Domain.Dispatching.Offer", "Offers", b1 =>
                         {
                             b1.Property<Guid>("Id")
-                                .ValueGeneratedOnAdd()
                                 .HasColumnType("uuid")
                                 .HasColumnName("id");
 

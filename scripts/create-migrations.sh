@@ -32,6 +32,9 @@ SERVICES=(
   "Driver:src/Services/Driver"
   "Dispatch:src/Services/Dispatch"
   "Media:src/Services/Media"
+  "Billing:src/Services/Billing"
+  "Ride:src/Services/Ride"
+  "Rating:src/Services/Rating"
 )
 
 # CONTROLE PREALABLE, ET IL A UNE HISTOIRE. « dotnet ef » exige que le PROJET

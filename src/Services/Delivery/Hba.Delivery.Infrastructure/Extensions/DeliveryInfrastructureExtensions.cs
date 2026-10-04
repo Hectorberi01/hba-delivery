@@ -8,8 +8,10 @@ using Hba.BuildingBlocks.Messaging.Outbox;
 using Hba.BuildingBlocks.Persistence;
 using Hba.Contracts.Billing.V1;
 using Hba.Contracts.Driver.V1;
+using Hba.Contracts.Location.V1;
 using Hba.Contracts.Payment.V1;
 using Hba.Contracts.Pricing.V1;
+using Hba.Contracts.Routing.V1;
 using Hba.Delivery.Application.Ports;
 using Hba.Delivery.Infrastructure.Clients;
 using Hba.Delivery.Infrastructure.Persistence;
@@ -92,6 +94,16 @@ public static class DeliveryInfrastructureExtensions
         var driver = new Uri(configuration["Services:Driver"] ?? "http://driver:8081");
         var billing = new Uri(configuration["Services:Billing"] ?? "http://billing:8081");
 
+        // LOCATION ET ROUTING NE SERVENT QU'A L'ESTIMATION D'ARRIVEE, et c'est
+        // pour cela que leur echeance est la plus courte du service : DEUX
+        // SECONDES. Cette mesure est un agrement pose sur la lecture d'une
+        // livraison — un client qui regarde ou en est son colis ne doit pas
+        // attendre cinq secondes de plus parce qu'un moteur d'itineraire rame.
+        // Passe l'echeance, l'appel est abandonne, la duree est nulle, et
+        // l'application retombe sur la distance qu'elle calcule seule.
+        var locationUri = new Uri(configuration["Services:Location"] ?? "http://location:8081");
+        var routingUri = new Uri(configuration["Services:Routing"] ?? "http://routing:8081");
+
         services.AddHbaGrpcClient<PricingService.PricingServiceClient>(pricing, TimeSpan.FromSeconds(3));
 
         // PAYMENT EST LE SEUL A SORTIR DU RESEAU. Ouvrir un paiement demande
@@ -109,10 +121,14 @@ public static class DeliveryInfrastructureExtensions
         // les courses du meme donneur d'ordre derriere lui.
         services.AddHbaGrpcClient<BillingService.BillingServiceClient>(billing, TimeSpan.FromSeconds(3));
 
+        services.AddHbaGrpcClient<LocationService.LocationServiceClient>(locationUri, TimeSpan.FromSeconds(2));
+        services.AddHbaGrpcClient<RoutingService.RoutingServiceClient>(routingUri, TimeSpan.FromSeconds(2));
+
         services.AddScoped<IPricingClient, PricingGrpcClient>();
         services.AddScoped<IPaymentClient, PaymentGrpcClient>();
         services.AddScoped<IBillingClient, BillingGrpcClient>();
         services.AddScoped<IDriverDirectory, DriverGrpcDirectory>();
+        services.AddScoped<IMesureurDItineraire, MesureurDItineraireParRouting>();
 
         // L'AFFECTATION DU LIVREUR NAIT D'UN EVENEMENT, PAS D'UNE REQUETE :
         // il faut une identite propre pour appeler Driver. Voir ADR 0018.

@@ -32,11 +32,33 @@ public static class DriverErrorCodes
 
     public const string MissingVehiclePlate = "MISSING_VEHICLE_PLATE";
 
+    /// <summary>
+    /// Des places passagers ont ete declarees sur un vehicule qui n'en
+    /// transporte pas. Voir la table de Vehicle.
+    /// </summary>
+    public const string VehicleCannotCarryPassengers = "VEHICLE_CANNOT_CARRY_PASSENGERS";
+
+    /// <summary>
+    /// Une habilitation demandee que le vehicule declare ne permet pas
+    /// d'exercer.
+    /// </summary>
+    public const string CapabilityNotAllowedByVehicle = "CAPABILITY_NOT_ALLOWED_BY_VEHICLE";
+
     /// <summary>Le dossier ne peut pas partir a l'examen : il lui manque une piece.</summary>
     public const string IncompleteApplication = "INCOMPLETE_APPLICATION";
 
     /// <summary>Le dossier est deja en cours d'examen, ou deja valide.</summary>
     public const string ApplicationNotEditable = "APPLICATION_NOT_EDITABLE";
+
+    /// <summary>
+    /// Le vehicule ne se change pas pendant une mission.
+    ///
+    /// LE CLIENT ATTEND LE VEHICULE QU'ON LUI A ANNONCE. Changer de moto a
+    /// voiture au milieu d'une course rendrait faux ce que son ecran de suivi
+    /// affiche, et la retenue d'annulation se calculerait sur un trajet qui
+    /// n'est plus le meme.
+    /// </summary>
+    public const string VehicleLockedDuringMission = "VEHICLE_LOCKED_DURING_MISSION";
 
     /// <summary>
     /// Deux ecritures concurrentes sur le meme dossier : celle-ci a perdu.

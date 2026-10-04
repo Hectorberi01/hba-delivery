@@ -1,16 +1,21 @@
 using Hba.Payment.Application.Common.Interfaces;
 using Hba.Payment.Domain.Earnings;
+using Hba.Payment.Domain.Payments;
 using Microsoft.EntityFrameworkCore;
 
 namespace Hba.Payment.Infrastructure.Persistence.Repositories;
 
 internal sealed class DriverLedgerRepository(PaymentDbContext context) : IDriverLedgerRepository
 {
-    public Task<DriverLedgerEntry?> FindDeliveryEarningAsync(
-        Guid deliveryId,
+    public Task<DriverLedgerEntry?> FindMissionEntryAsync(
+        LedgerEntryKind kind,
+        ServiceType serviceType,
+        Guid referenceId,
         CancellationToken cancellationToken)
         => context.DriverLedgerEntries.FirstOrDefaultAsync(
-            e => e.DeliveryId == deliveryId && e.Kind == LedgerEntryKind.DeliveryEarning,
+            e => e.ServiceType == serviceType
+                 && e.ReferenceId == referenceId
+                 && e.Kind == kind,
             cancellationToken);
 
     public async Task<long> DueForPayoutAsync(

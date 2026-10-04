@@ -16,6 +16,32 @@ dependencies:
     path: ../hba_core
   flutter_riverpod: ^2.5.1
   go_router: ^14.2.7
+
+  # DECLARE, ALORS QU'IL L'ETAIT DEJA EN FAIT — et c'est le meme constat que celui
+  # ecrit dans le pubspec de hba_core a propos de Flutter.
+  #
+  # « lien_maps.dart » importe dio directement : il lui faut « BaseOptions », que
+  # hba_core ne reexporte pas (il n'ouvre que Dio, FormData et MultipartFile). Cette
+  # application compilait donc grace a une dependance TRANSITIVE, empruntee a
+  # hba_core sans etre ecrite — exactement ce que signale « flutter analyze » depuis
+  # le debut.
+  #
+  # LE JOUR OU hba_core CHANGERAIT DE CLIENT HTTP, client_app aurait cesse de
+  # compiler pour une raison sans lien visible avec le changement. La version suit
+  # celle de hba_core, a dessein : deux versions de dio dans le meme arbre
+  # resoudraient vers une seule, choisie par le gestionnaire et non par nous.
+  dio: ^5.7.0
+
+  # DECLARE POUR LA MEME RAISON QUE dio JUSTE AU-DESSUS, et la lecon vient du meme
+  # endroit : « lib/core/paiement_en_attente.dart » importe directement
+  # FlutterSecureStorage, que hba_core ne reexporte pas. Compiler grace a une
+  # dependance transitive, c'est cesser de compiler le jour ou hba_core change de
+  # stockage, pour une raison sans lien visible avec le changement.
+  #
+  # LA VERSION SUIT CELLE DE hba_core, a dessein : deux versions du meme paquet
+  # dans l'arbre resoudraient vers une seule, choisie par le gestionnaire.
+  flutter_secure_storage: ^9.2.2
+
   google_maps_flutter: ^2.18.1
   geolocator: ^13.0.1
   url_launcher: ^6.3.1
@@ -49,3 +75,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # LES DEUX METIERS, EN IMAGE. Un dossier et non deux lignes : la liste
+  # grandira avec les services, et declarer chaque fichier a la main finit
+  # toujours par en oublier un — qui ne manque qu'a l'execution, sur l'appareil.
+  assets:
+    - assets/services/

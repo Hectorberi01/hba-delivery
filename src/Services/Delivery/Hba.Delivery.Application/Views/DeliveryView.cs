@@ -1,3 +1,4 @@
+using Hba.Delivery.Application.Ports;
 using Hba.Delivery.Domain.Deliveries;
 
 namespace Hba.Delivery.Application.Views;
@@ -81,6 +82,48 @@ public sealed record DeliveryView
 
     /// <summary>Vrai quand le remboursement constaté est partiel.</summary>
     public bool RefundPartial { get; init; }
+
+    /// <summary>
+    /// Ce qui serait retenu si le donneur d'ordre annulait MAINTENANT. Zéro tant
+    /// qu'aucun livreur n'est affecté, et zéro pour toujours si la grille de la
+    /// zone ne prévoit pas de retenue.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ELLE EST ICI POUR ÊTRE AFFICHÉE AVANT LA CONFIRMATION. L'écran promettait
+    /// que « les conditions de remboursement vous seront confirmées par le
+    /// service » — une promesse que personne ne tenait, faute de politique
+    /// d'annulation. Elle est tranchée depuis le 2 octobre 2026, et ce champ est
+    /// ce qui permet enfin de dire un chiffre.
+    ///
+    /// LE DONNEUR D'ORDRE ET LE BACK-OFFICE SEULEMENT. Un livreur n'a pas à voir
+    /// ce que le client paierait pour annuler ; ce qu'il touche, lui, apparaît sur
+    /// son relevé une fois l'annulation faite.
+    /// </remarks>
+    public long? CancellationFeeDueXof { get; init; }
+
+    /// <summary>
+    /// L'itinéraire qui reste au livreur, et la durée qui en découle. Nul quand
+    /// on ne sait pas.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LA CIBLE CHANGE AVEC L'ÉTAT : le point de collecte avant l'enlèvement, le
+    /// destinataire après. Un seul champ, deux cibles — l'appelant n'a pas à
+    /// choisir, le service sait où en est la mission.
+    ///
+    /// NUL N'EST PAS UN CAS RARE : aucun livreur affecté, aucune position encore
+    /// remontée, Routing injoignable, mission close. L'appelant DOIT traiter ce
+    /// cas.
+    ///
+    /// IL N'EST JAMAIS CONSERVÉ (point 43) : recalculé à la lecture, oublié
+    /// aussitôt. Une suite d'itinéraires gardés serait la piste que le point 37
+    /// refuse.
+    ///
+    /// LE DONNEUR D'ORDRE ET LE BACK-OFFICE SEULEMENT. Le livreur a sa propre
+    /// navigation et n'a que faire de sa propre heure d'arrivée.
+    /// </remarks>
+    public RouteActive? Itineraire { get; init; }
 }
 
 public sealed record LocationView(

@@ -7,12 +7,15 @@ using Hba.BuildingBlocks.Messaging.Inbox;
 using Hba.BuildingBlocks.Messaging.Outbox;
 using Hba.BuildingBlocks.Persistence;
 using Hba.Contracts.Driver.V1;
+using Hba.Contracts.Location.V1;
+using Hba.Contracts.Routing.V1;
 using Hba.Dispatch.Application.Common.Interfaces;
 using Hba.Dispatch.Infrastructure.Persistence;
 using Hba.Dispatch.Infrastructure.Persistence.Reads;
 using Hba.Dispatch.Infrastructure.Persistence.Repositories;
 using Hba.Dispatch.Infrastructure.Services.Drivers;
 using Hba.Dispatch.Infrastructure.Services.Locking;
+using Hba.Dispatch.Infrastructure.Services.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -70,7 +73,33 @@ public static class DependencyInjection
             new Uri(configuration["Services:Driver"] ?? "http://driver:8081"),
             TimeSpan.FromSeconds(5));
 
+        // LOCATION, POUR LA GEOGRAPHIE. Depuis le 1er octobre 2026, Driver ne sait plus
+        // ou sont les livreurs : DriverFinder interroge Location pour les plus proches,
+        // puis Driver pour savoir lesquels sont eligibles.
+        //
+        // MEME ECHEANCE QUE DRIVER, ET PLUS LONGUE QUE CELLE DE ROUTING. Ces deux appels
+        // sont sur le chemin de la premiere offre et AUCUN DES DEUX N'EST FACULTATIF :
+        // sans la geographie il n'y a pas de candidats, sans l'eligibilite on proposerait
+        // une course a n'importe qui. Le classement par temps de trajet, lui, peut
+        // echouer sans consequence — d'ou ses deux secondes.
+        services.AddHbaGrpcClient<LocationService.LocationServiceClient>(
+            new Uri(configuration["Services:Location"] ?? "http://location:8081"),
+            TimeSpan.FromSeconds(5));
+
         services.AddScoped<IDriverFinder, DriverFinder>();
+
+        // ROUTING, POUR CLASSER LES CANDIDATS PAR TEMPS DE TRAJET REEL (etape 5).
+        //
+        // L'ECHEANCE EST COURTE A DESSEIN, ET PLUS COURTE QUE CELLE DE DRIVER.
+        // Cet appel est sur le chemin de la premiere offre : un classement qui
+        // ferait attendre le client cinq secondes couterait plus qu'il ne
+        // rapporte. Passe le delai, le classeur garde l'ordre de proximite — il
+        // est concu pour ne jamais bloquer une vague.
+        services.AddHbaGrpcClient<RoutingService.RoutingServiceClient>(
+            new Uri(configuration["Services:Routing"] ?? "http://routing:8081"),
+            TimeSpan.FromSeconds(2));
+
+        services.AddScoped<IEtaRanker, RoutingEtaRanker>();
 
         // Lecture agregee : une porte separee du depot.
         services.AddScoped<IDispatchStatsReader, DispatchStatsReader>();

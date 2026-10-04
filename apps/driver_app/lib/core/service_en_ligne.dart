@@ -7,7 +7,7 @@ import 'plantages.dart';
 /// LE PROBLÈME, ET CE N'EST PAS CELUI QU'ON CROIT. Un livreur en ligne qui
 /// range son téléphone cesse d'exister pour le moteur au bout de deux minutes :
 /// le service Driver écarte des recherches toute position plus vieille que
-/// `DriverLocations:FreshnessSeconds`. On croit qu'il faut une notification
+/// `Location:FreshnessSeconds`. On croit qu'il faut une notification
 /// poussée pour l'atteindre ; il faut d'abord qu'il RESTE ÉLIGIBLE, sans quoi
 /// il n'y a aucune offre à lui pousser.
 ///

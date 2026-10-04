@@ -18,11 +18,14 @@ namespace Hba.Dispatch.Application.Features.Dispatching.Commands;
 /// tenir juste, au lieu d'un chemin pour le demarrage et d'un autre pour la
 /// suite, qui divergeraient au premier correctif.
 /// </summary>
-public sealed record AdvanceDispatchCommand(Guid DeliveryId) : ICommand<bool>;
+public sealed record AdvanceDispatchCommand(
+    ServiceType ServiceType,
+    Guid ReferenceId) : ICommand<bool>;
 
 public sealed class AdvanceDispatchHandler(
     IDispatchRepository dispatches,
     IDriverFinder drivers,
+    IEtaRanker eta,
     IUnitOfWork unitOfWork,
     IOptions<DispatchOptions> options,
     IClock clock,
@@ -35,7 +38,7 @@ public sealed class AdvanceDispatchHandler(
         ArgumentNullException.ThrowIfNull(command);
 
         var dispatch = await dispatches
-            .GetByDeliveryIdAsync(command.DeliveryId, cancellationToken)
+            .GetByReferenceAsync(command.ServiceType, command.ReferenceId, cancellationToken)
             .ConfigureAwait(false);
 
         if (dispatch is null || !dispatch.IsOpen)
@@ -78,8 +81,9 @@ public sealed class AdvanceDispatchHandler(
             // avait personne. Les confondre rendrait les journaux muets sur
             // la seule question qui compte.
             logger.LogInformation(
-                "Abandon pour la livraison {DeliveryId} : plafond de {Plafond} livreurs sollicites atteint.",
-                dispatch.DeliveryId,
+                "Abandon pour la mission {Nature} {ReferenceId} : plafond de {Plafond} chauffeurs sollicites atteint.",
+                dispatch.ServiceType,
+                dispatch.ReferenceId,
                 _options.MaxDriversSolicited);
 
             return true;
@@ -106,11 +110,27 @@ public sealed class AdvanceDispatchHandler(
             // des livreurs puis en jeter la moitie deja sollicites rendrait
             // des vagues plus maigres que demande. Le contrat prevoit
             // « exclude_driver_ids » exactement pour ca.
+            // ON DEMANDE UN VIVIER, PAS LE NOMBRE EXACT D'OFFRES A POSER.
+            //
+            // Demander autant de candidats que d'offres revient a prendre le plus
+            // proche A VOL D'OISEAU, ce que rend Redis GEO — et le plus proche a
+            // vol d'oiseau n'est pas le plus proche en temps. On en demande donc
+            // quelques-uns de plus pour pouvoir les classer, sans jamais en
+            // solliciter plus que la vague n'en prevoit.
+            //
+            // L'HABILITATION ET LE VEHICULE PARTENT AVEC LA QUESTION. C'est ce qui
+            // empeche de proposer un passager a un chauffeur qui n'en transporte
+            // pas : Driver seul connait les dossiers, et filtrer apres coup
+            // rendrait des vagues plus maigres que demande.
+            var vivier = Math.Max(_options.DriversPerWave, _options.EtaCandidatePool);
+
             var candidats = await drivers
                 .FindAvailableNearbyAsync(
                     dispatch.Pickup,
                     rayon,
-                    _options.DriversPerWave,
+                    vivier,
+                    dispatch.CapaciteExigee,
+                    dispatch.VehicleType,
                     [.. dispatch.SolicitedDriverIds],
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -120,14 +140,31 @@ public sealed class AdvanceDispatchHandler(
                 continue;
             }
 
-            var offres = dispatch.OpenWave(candidats, _options.OfferLifetime, acteur, now);
+            // ETAPE 5 : LE CLASSEMENT PAR TEMPS DE TRAJET REEL.
+            //
+            // IL NE PEUT PAS FAIRE ECHOUER LA VAGUE. Routing indisponible, ou
+            // rendant une mesure degradee, ne change rien au fait qu'il faut
+            // proposer la mission a quelqu'un : le classeur rend alors la liste
+            // dans son ordre d'origine, qui est celui de la proximite. Voir le
+            // point 36 — une mesure degradee doit se savoir, pas s'arreter.
+            var classes = await eta
+                .ClasserAsync(candidats, dispatch.Pickup, dispatch.VehicleType, cancellationToken)
+                .ConfigureAwait(false);
+
+            // ON NE SOLLICITE QUE CE QUE LA VAGUE PREVOIT. Le vivier servait a
+            // choisir, pas a elargir la diffusion : chaque offre immobilise un
+            // chauffeur pendant tout le delai de reponse.
+            var retenus = classes.Take(_options.DriversPerWave).ToList();
+
+            var offres = dispatch.OpenWave(retenus, _options.OfferLifetime, acteur, now);
 
             await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             logger.LogInformation(
-                "Tentative {Vague} pour la livraison {DeliveryId} : {Offres} offre(s) dans un rayon de {Rayon} m.",
+                "Tentative {Vague} pour la mission {Nature} {ReferenceId} : {Offres} offre(s) dans un rayon de {Rayon} m.",
                 prochaine,
-                dispatch.DeliveryId,
+                dispatch.ServiceType,
+                dispatch.ReferenceId,
                 offres.Count,
                 rayon);
 
@@ -140,9 +177,10 @@ public sealed class AdvanceDispatchHandler(
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         logger.LogInformation(
-            "Aucun livreur pour la livraison {DeliveryId} apres {Tentatives} tentative(s), "
+            "Aucun chauffeur pour la mission {Nature} {ReferenceId} apres {Tentatives} tentative(s), "
                 + "perimetre de {Rayon} m epuise.",
-            dispatch.DeliveryId,
+            dispatch.ServiceType,
+            dispatch.ReferenceId,
             dispatch.CurrentWave,
             _options.WaveRadiiMeters.Length > 0
                 ? _options.WaveRadiiMeters[^1]

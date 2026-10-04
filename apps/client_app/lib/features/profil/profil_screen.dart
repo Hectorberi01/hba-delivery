@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hba_core/hba_core.dart';
 import 'package:hba_ui/hba_ui.dart';
 
@@ -16,10 +17,17 @@ import 'whatsapp.dart';
 
 /// Le compte du client.
 ///
-/// PAS DE FLECHE DE RETOUR, ET CE N'EST PAS UN OUBLI DE LA MAQUETTE. Le profil
-/// est un ONGLET de la navigation en arc : il n'y a rien derriere lui. Une
-/// fleche qui ne ramene nulle part — ou qui ramene a l'accueil alors que
-/// l'accueil est un autre onglet — apprend au client que ce bouton ment.
+/// IL PORTE MAINTENANT UNE FLECHE DE RETOUR, ET ELLE EST HONNETE. Le profil
+/// etait un ONGLET de la navigation en arc : rien derriere lui, donc pas de
+/// fleche. Depuis le retrait de l'arc le 2 octobre 2026, il s'ouvre EMPILE sur
+/// l'accueil, par le portrait du haut ; la fleche que Flutter ajoute alors
+/// ramene vraiment la ou l'on etait.
+///
+/// C'EST AUSSI DEVENU LA PORTE DU RESTE DE L'APPLICATION. « Mes courses » et
+/// « Aide » n'ont plus d'onglet : on y entre d'ici, et de nulle part ailleurs.
+/// Deux lignes en haut de l'ecran, avant les reglages du compte — quelqu'un qui
+/// cherche sa derniere commande ne doit pas avoir a traverser ses adresses
+/// favorites pour la trouver.
 ///
 /// LE TELEPHONE NE SE MODIFIE PAS ICI. C'est l'identifiant du compte, celui par
 /// lequel arrive le code de connexion ; le changer serait changer de compte.
@@ -77,6 +85,39 @@ class ProfilScreen extends ConsumerWidget {
                 const SizedBox(height: HbaSpacing.md),
                 const _BanniereCourriel(),
               ],
+
+              // LE PROFIL EST LE HUB DE L'APPLICATION, depuis le 4 octobre
+              // 2026. L'accueil est une carte plein ecran et n'a qu'une porte —
+              // le menu en haut a gauche, qui ouvre cet ecran. Tout ce que le
+              // client vient chercher hors d'une commande en cours part d'ici :
+              // ses informations, ses commandes, son wallet.
+              const SizedBox(height: HbaSpacing.lg),
+              const HbaSection('Mon activité'),
+              HbaTuile(
+                icone: Icons.receipt_long_outlined,
+
+                // « MES COMMANDES » ET NON « MES COURSES ». Le mot « course »
+                // designe deja le transport de personnes dans ce depot ; au
+                // singulier il disait les deux, et sur cet ecran il ne pouvait
+                // qu'induire en erreur.
+                titre: 'Mes commandes',
+                detail: 'Colis envoyés et trajets passés',
+                onTap: () => context.push('/courses'),
+              ),
+              const SizedBox(height: HbaSpacing.sm),
+              HbaTuile(
+                icone: Icons.account_balance_wallet_outlined,
+                titre: 'Mon wallet',
+                detail: 'Vos avoirs ZEDJO',
+                onTap: () => context.push('/wallet'),
+              ),
+              const SizedBox(height: HbaSpacing.sm),
+              HbaTuile(
+                icone: Icons.help_outline,
+                titre: 'Aide',
+                detail: 'Les questions qui reviennent',
+                onTap: () => context.push('/aide'),
+              ),
 
               const SizedBox(height: HbaSpacing.lg),
               const HbaSection('Adresses favorites'),

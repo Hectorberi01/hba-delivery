@@ -68,6 +68,21 @@ public sealed class Zone : AggregateRoot
         Name = name.Trim();
     }
 
+    /// <summary>
+    /// Change la priorité qui départage les chevauchements.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ELLE MANQUAIT, ET SON ABSENCE SE SERAIT VUE AU PREMIER REDESSIN. Une zone
+    /// pouvait naître avec sa priorité et ne plus jamais en changer : découper une
+    /// ville se fait par essais — on dessine un centre, puis on s'aperçoit qu'il
+    /// doit passer devant la périphérie qui l'englobe.
+    ///
+    /// AUCUNE VALEUR N'EST INTERDITE, pas même négative : « passe après tout le
+    /// reste » est une intention légitime, et le départage ne demande qu'un ordre.
+    /// </remarks>
+    public void Reprioritise(int priority) => Priority = priority;
+
     public void Deactivate() => IsActive = false;
 
     public void Activate() => IsActive = true;

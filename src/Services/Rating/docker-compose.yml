@@ -1,0 +1,58 @@
+# Deploiement du service rating. IL SE DEPLOIE SEUL.
+#
+# Ce fichier ne depend d'aucun autre : pas d'`extends`, pas d'`include`, pas de
+# `depends_on` vers une base ou un broker qu'il ne possede pas. Les reseaux sont
+# EXTERNES — la pile d'infrastructure les cree une fois — et tout ce qui change
+# d'un environnement a l'autre passe par le .env pose a cote.
+#
+#   cd src/Services/Rating && docker compose up -d
+#
+# CE SERVICE N'APPELLE PERSONNE. Il consomme deux flux Kafka — les fins de
+# course et les remises de colis — et repond a la passerelle. Aucune adresse de
+# service, donc aucun jeton de service : c'est le seul du depot dans ce cas avec
+# Routing, et c'est ce qui rend son .env si court.
+
+name: hba-rating
+
+services:
+  rating:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-rating:${HBA_TAG:-latest}
+
+    # `build` sert au poste de developpement et a la CI. Un serveur qui n'a pas
+    # l'arborescence utilise l'image et ne construit rien.
+    build:
+      context: ../../..
+      dockerfile: src/Services/Rating/Hba.Rating.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      # SANS CETTE LIGNE, le service retombe sur appsettings.json, qui porte un
+      # mot de passe de developpement. La forme :? fait REFUSER le demarrage par
+      # Compose, avant tout conteneur — sans elle, une variable absente devient
+      # la chaine vide et la base partirait ouverte a hba/hba.
+      ConnectionStrings__RatingDb: ${RATINGDB_CONNECTION:?RATINGDB_CONNECTION absent - renseignez-le dans le .env du service}
+
+      # SANS KAFKA, AUCUNE NOTATION NE S'OUVRE. C'est la fin d'une mission qui
+      # les cree, et elle n'arrive que par la. Le service repondrait quand meme
+      # aux lectures — avec une base vide, indefiniment.
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9094}
+
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # FUSEAU METIER (ADR 0019). Les instants circulent en UTC ; c'est ici que
+      # le service apprend dans quel calendrier decouper les journees.
+      Time__ZoneId: ${HBA_TIMEZONE:-Africa/Porto-Novo}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

@@ -93,7 +93,40 @@ réseaux, répétée dans chaque fichier.
 ### OSRM
 
 Le routage est derrière le profil `routing` parce qu'il demande un fichier de
-données à télécharger et à pré-traiter une fois :
+données à télécharger et à pré-traiter une fois.
+
+**Tant que ce n'est pas fait, `Routing:Provider` vaut `haversine` et TOUTES les
+mesures de la plateforme sont à vol d'oiseau** — sous-estimées d'environ un
+tiers en ville. Pricing fige des prix fermes dessus, et Dispatch compare des
+ETA qui ignorent les ponts et la lagune.
+
+Une seule commande fait tout, et elle est reprenable — chaque passe déjà faite
+est sautée :
+
+```bash
+make carte REGION=ile-de-france   # le banc d'essai
+make carte REGION=benin           # le terrain (défaut)
+```
+
+**La région se choisit parce que l'essai a lieu en France et le déploiement au
+Bénin.** Une carte du Bénin ne route rien à Aubervilliers : OSRM accroche les
+points au réseau le plus proche qu'il connaisse, à quatre mille kilomètres, et
+rend `NoRoute` ou une absurdité. Les deux cartes coexistent dans
+`deploy/.data/osrm` ; rebasculer de l'une à l'autre ne retélécharge rien. La
+carte retenue est écrite dans `deploy/.env` (`OSRM_CARTE`), que Compose lit tout
+seul — sans quoi un `docker compose up` lancé à la main plus tard rechargerait
+la carte par défaut sans l'annoncer.
+
+L'Île-de-France plutôt que la France entière : le fichier national pèse
+plusieurs gigaoctets et son extraction en demande plusieurs dizaines en
+mémoire ; sur un portable, la passe se fait tuer sans message clair.
+
+La commande télécharge le fichier, enchaîne les trois passes, démarre OSRM,
+**vérifie qu'un itinéraire réel dans la région revient en `Ok`** et affiche sa
+distance et sa durée, et bascule alors seulement `Routing:Provider` sur `osrm`.
+Il reste à recréer le service : `make rebuild D=src/Services/Routing`.
+
+Les mêmes étapes à la main, si besoin :
 
 ```bash
 mkdir -p deploy/.data/osrm && cd deploy/.data/osrm

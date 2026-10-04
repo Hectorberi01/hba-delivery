@@ -8,9 +8,18 @@ using Microsoft.Extensions.Options;
 namespace Hba.Driver.Api.Messaging;
 
 /// <summary>
-/// L'etat operationnel du livreur suit les offres : reserve quand une offre
+/// L'etat operationnel du chauffeur suit les offres : reserve quand une offre
 /// part vers lui, libere quand elle s'eteint, en mission quand il gagne.
 /// </summary>
+///
+/// <remarks>
+/// CE CONSOMMATEUR NE REGARDE PAS LA NATURE DE LA MISSION, ET IL A RAISON. Depuis
+/// le 1er octobre 2026 le topic porte des offres de colis ET de courses de
+/// personnes ; pour Driver, les deux veulent dire la meme chose — ce chauffeur
+/// est pris, puis libre. L'identifiant de la mission ne l'interesse pas non plus :
+/// seul le driver_id compte. Delivery et Ride, eux, doivent filtrer, parce qu'ils
+/// vont chercher la mission en base.
+/// </remarks>
 public sealed class DispatchEventsConsumer(
     IServiceScopeFactory scopeFactory,
     IOptions<KafkaOptions> options,

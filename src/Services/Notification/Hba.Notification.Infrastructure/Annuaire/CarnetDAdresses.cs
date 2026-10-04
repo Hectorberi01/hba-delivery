@@ -49,7 +49,29 @@ public sealed class CarnetDAdresses(
     IServiceTokenProvider jetons,
     ILogger<CarnetDAdresses> journal) : ICarnetDAdresses
 {
-    public async Task<Adresse> CourrielAsync(Guid subjectId, CancellationToken cancellationToken)
+    public Task<Adresse> CourrielAsync(Guid subjectId, CancellationToken cancellationToken)
+        => DemanderAsync(subjectId, fiche => Adresse.De(fiche.Email), Adresse.Absente, Adresse.Injoignable, cancellationToken);
+
+    public Task<Numero> TelephoneAsync(Guid subjectId, CancellationToken cancellationToken)
+        => DemanderAsync(subjectId, fiche => Numero.De(fiche.Phone), Numero.Absent, Numero.Injoignable, cancellationToken);
+
+    /// <summary>
+    /// Le même appel pour les deux coordonnées, et la même façon d'échouer.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// MUTUALISÉ PARCE QUE LA PARTIE DÉLICATE N'EST PAS LA LECTURE DU CHAMP,
+    /// c'est tout ce qui l'entoure : le jeton de service, la distinction entre
+    /// une fiche absente et un annuaire muet, et le refus de lever. Deux copies
+    /// de ce bloc auraient divergé au premier correctif, et c'est précisément ce
+    /// bloc qui a déjà été faux une fois.
+    /// </remarks>
+    private async Task<T> DemanderAsync<T>(
+        Guid subjectId,
+        Func<Customer, T> lire,
+        T absente,
+        T injoignable,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -60,13 +82,13 @@ public sealed class CarnetDAdresses(
                 headers: entetes,
                 cancellationToken: cancellationToken);
 
-            return Adresse.De(fiche.Email);
+            return lire(fiche);
         }
         catch (RpcException erreur) when (erreur.StatusCode == StatusCode.NotFound)
         {
             // Une fiche absente n'est pas une panne : le compte peut avoir ete
             // efface entre la course et l'envoi du recu.
-            return Adresse.Absente;
+            return absente;
         }
         catch (RpcException erreur)
         {
@@ -80,7 +102,7 @@ public sealed class CarnetDAdresses(
             // manquait : l'appelant consignait « le compte n'a pas de
             // courriel » pour une panne d'annuaire, et personne ne pouvait plus
             // voir la vraie cause dans les journaux.
-            return Adresse.Injoignable;
+            return injoignable;
         }
     }
 }

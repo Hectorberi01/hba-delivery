@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Hba.Routing.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Hba.Routing.Application/Hba.Routing.Application.csproj" />
+    <ProjectReference Include="../Hba.Routing.Domain/Hba.Routing.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- NI EF CORE NI NPGSQL, ET C'EST LE PROPRE DE CE SERVICE : il ne possede
+       aucune donnee. Il calcule, il met en cache dans Redis, il oublie. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+
+</Project>

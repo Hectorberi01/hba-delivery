@@ -1,4 +1,5 @@
 using Hba.Payment.Domain.Earnings;
+using Hba.Payment.Domain.Payments;
 
 namespace Hba.Payment.Application.Common.Interfaces;
 
@@ -8,8 +9,9 @@ public sealed record LedgerEntryView(
     LedgerEntryKind Kind,
     LedgerDirection Direction,
     long AmountXof,
-    Guid? DeliveryId,
-    string DeliveryReference,
+    ServiceType ServiceType,
+    Guid? ReferenceId,
+    string ReferenceLabel,
     Guid? PayoutId,
     DateTimeOffset OccurredAt);
 

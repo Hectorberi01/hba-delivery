@@ -16,9 +16,54 @@ service DriverService {
   rpc GetDriverPublicProfile(GetDriverRequest) returns (DriverPublicProfile);
   rpc GoOnline(GoOnlineRequest) returns (Driver);
   rpc GoOffline(GoOfflineRequest) returns (Driver);
-  rpc UpdateLocation(UpdateLocationRequest) returns (UpdateLocationResponse);
-  // Livreurs disponibles autour d'un point, pour le moteur de dispatch.
-  rpc FindAvailableNearby(FindAvailableNearbyRequest) returns (FindAvailableNearbyResponse);
+
+  // LES POSITIONS ONT QUITTÉ CE SERVICE le 1er octobre 2026. UpdateLocation,
+  // FindAvailableNearby et ListDriverPositions sont partis dans
+  // hba.location.v1.LocationService. Driver répond « qui est le chauffeur » ;
+  // Location répond « où est-il ». Ce qui reste ici, ci-dessous, est le versant
+  // « qui » du croisement que l'appelant fait lui-même.
+
+  // Parmi CES chauffeurs, lesquels peuvent recevoir une offre ?
+  //
+  // C'EST LA MOITIÉ D'UNE RECHERCHE DE PROXIMITÉ, et l'autre moitié est chez
+  // Location. L'appelant demande d'abord les identifiants les plus proches, puis
+  // pose cette question : qui est vérifié, en ligne, libre, sur le bon véhicule et
+  // habilité pour cette nature de mission. Driver ne reçoit aucune coordonnée et
+  // n'en rend aucune.
+  //
+  // L'ORDRE D'ENTRÉE N'EST PAS CONSERVÉ EN SORTIE, et l'appelant ne doit pas s'y
+  // fier : c'est une lecture par identifiants, pas un classement. Le classement par
+  // distance appartient à celui qui a interrogé Location.
+  rpc FilterAvailableDrivers(FilterAvailableDriversRequest) returns (FilterAvailableDriversResponse);
+
+  // Ces livreurs-là, tels que la CARTE DU CLIENT a le droit de les montrer.
+  //
+  // POURQUOI ELLE NE PASSE PLUS PAR FilterAvailableDrivers. Depuis le 3 octobre
+  // 2026, la carte du client montre TOUS les livreurs du rayon, en distinguant
+  // ceux qui peuvent prendre la mission (point 24, troisième révision). Le filtre
+  // ne convient donc plus : il écarte précisément ceux qu'il faut afficher en
+  // éteint.
+  //
+  // ET POURQUOI PAS GetDriverSummaries NON PLUS : celle-là rend un nom et un
+  // téléphone, et elle est réservée au back-office. Un client n'a droit ni à
+  // l'un ni à l'autre — jamais, pas même pendant une mission qui n'est pas la
+  // sienne.
+  //
+  // CE QU'ELLE REND, ET RIEN DE PLUS : le véhicule et la disponibilité. Pas de
+  // nom, pas de plaque, pas de téléphone. L'identifiant ne sert qu'à recoller la
+  // position chez l'appelant, et la passerelle le jette avant le client.
+  rpc GetDriverPins(GetDriverPinsRequest) returns (GetDriverPinsResponse);
+
+  // Qui sont CES chauffeurs ? Nom, véhicule, états — par identifiants, en un appel.
+  //
+  // POUR LA CARTE DE L'EXPLOITATION, qui montre aussi les chauffeurs en course ou
+  // hors ligne : elle ne peut donc pas passer par FilterAvailableDrivers, qui ne
+  // rend que les offrables. Elle lit les positions chez Location, puis nomme les
+  // chauffeurs ici.
+  //
+  // RÉSERVÉ À admin, ops, support ET finance, vérifié dans le service et pas
+  // seulement à la passerelle : un nom et un téléphone ne sont pas un profil public.
+  rpc GetDriverSummaries(GetDriverSummariesRequest) returns (GetDriverSummariesResponse);
   // --- Constitution du dossier par le livreur lui-même (ADR 0021) ---
   //
   // LE DÉPÔT D'UNE PIÈCE N'EST PAS ICI, et c'est délibéré : les octets
@@ -27,6 +72,7 @@ service DriverService {
   // est motivée dans l'ADR 0021 — un binaire qui traverse gRPC traverse aussi
   // les intercepteurs de trace, où une pièce d'identité n'a rien à faire.
   rpc DeclareVehicle(DeclareVehicleRequest) returns (Driver);
+  rpc DeclareCapabilities(DeclareCapabilitiesRequest) returns (Driver);
   // Envoie le dossier à l'examen. Refuse un dossier incomplet.
   rpc SubmitApplication(SubmitApplicationRequest) returns (Driver);
   // Les pièces d'un livreur, avec une URL signée à courte durée par pièce.
@@ -62,27 +108,16 @@ service DriverService {
   // Back-office : les effectifs. Même réserve que l'annuaire.
   rpc GetDriverStats(GetDriverStatsRequest) returns (DriverStats);
 
-  // Back-office : où se trouvent les livreurs en ce moment.
+  // « CE livreur peut-il recevoir une offre ? »
   //
-  // CE N'EST PAS FindAvailableNearby SANS CENTRE. Celui-ci sert au dispatch
-  // et ne rend que des candidats à une course ; celui-là sert à regarder, et
-  // rend aussi les livreurs en course ou réservés. Les deux lisent le même
-  // index, avec des questions différentes.
+  // IL NE REÇOIT PLUS DE POINT DE RÉFÉRENCE ET NE REND PLUS DE DISTANCE depuis que
+  // les positions ont quitté ce service. Driver rend le verdict qui lui appartient
+  // — dossier, état, mission en cours — et l'appelant ajoute la question de la
+  // position en interrogeant Location. DRIVER_POSITION_STALE n'est donc plus un
+  // motif que Driver sache prononcer : c'est devenu le verdict de celui qui croise.
   //
-  // LA DONNÉE DIT OÙ UNE PERSONNE SE TIENT. Réservée à admin, ops, support
-  // et finance, vérifié dans le service et pas seulement à la passerelle.
-  rpc ListDriverPositions(ListDriverPositionsRequest) returns (ListDriverPositionsResponse);
-
-  // « Puis-je proposer une course à CE livreur, depuis CE point ? »
-  //
-  // CE N'EST PAS FindAvailableNearby AVEC UN FILTRE. La recherche de
-  // proximité répond « les N plus proches d'ici » : aucun rayon, aucune
-  // limite ne garantit qu'un livreur nommé figure dans sa réponse, et les
-  // augmenter jusqu'à ce qu'il apparaisse reviendrait à balayer la ville pour
-  // interroger une ligne.
-  //
-  // Sert à l'affectation manuelle par l'exploitation, et à griser le bouton
-  // AVANT qu'on appuie dessus.
+  // Sert à l'affectation manuelle par l'exploitation, et à griser le bouton AVANT
+  // qu'on appuie dessus.
   rpc CheckDriverAvailability(CheckDriverAvailabilityRequest) returns (DriverAvailability);
 }
 
@@ -120,6 +155,17 @@ message Vehicle {
   hba.common.v1.VehicleType type = 1;
   string plate = 2;
   int32 capacity_grams = 3;
+
+  // Déclaratifs : ils servent au client à reconnaître le véhicule qui arrive,
+  // pas à autoriser quoi que ce soit. « La voiture bleue » se lit à trente
+  // mètres, une immatriculation non.
+  string brand = 4;
+  string model = 5;
+  string color = 6;
+
+  // Places passagers, conducteur non compris. ZÉRO VAUT « AUCUNE », pas
+  // « inconnu » : un véhicule qui n'a pas déclaré de place n'en prend pas.
+  int32 passenger_capacity = 7;
 }
 
 message Driver {
@@ -133,6 +179,10 @@ message Driver {
   google.protobuf.Timestamp verified_at = 8;
   // Motif de REJECTED / SUSPENDED.
   string status_reason = 9;
+
+  // Ce que ce livreur a déclaré exercer. VIDE VEUT DIRE « LE COLIS » : c'est le
+  // socle, il ne se déclare pas.
+  repeated hba.common.v1.DriverCapability capabilities = 10;
 }
 
 message DriverPublicProfile {
@@ -141,6 +191,18 @@ message DriverPublicProfile {
   string phone = 3;
   hba.common.v1.VehicleType vehicle_type = 4;
   string vehicle_plate = 5;
+
+  // AJOUTES POUR LE TRANSPORT DE PERSONNES, et utiles au colis aussi. Le
+  // vehicule portait deja ces trois champs (voir Vehicle) mais ils s'arretaient
+  // dans le service : le profil public, lui, ne rendait que le type et la
+  // plaque. Un passager qui attend au bord d'une rue de Cotonou cherche « la
+  // voiture blanche », pas une immatriculation illisible a trente metres.
+  //
+  // VIDES POUR LES LIVREURS QUI NE LES ONT PAS DECLARES : ce sont des champs
+  // declaratifs, ils n'autorisent rien.
+  string vehicle_brand = 6;
+  string vehicle_model = 7;
+  string vehicle_color = 8;
 }
 
 message GetDriverRequest {
@@ -156,45 +218,65 @@ message GoOfflineRequest {
   string driver_id = 1;
 }
 
-// Les positions vont dans Redis GEO. Aucun point n'est écrit en base
-// relationnelle à chaque rafraîchissement.
-message UpdateLocationRequest {
-  string driver_id = 1;
-  hba.common.v1.GeoPoint position = 2;
-  google.protobuf.Timestamp captured_at = 3;
-  double heading_degrees = 4;
-  double speed_mps = 5;
-}
+// ---- Le croisement : Driver répond « qui », Location répond « où » ----------
+//
+// AUCUNE COORDONNÉE N'ENTRE NI NE SORT D'ICI. C'est ce qui distingue ces deux
+// appels de la recherche de proximité qu'ils ont remplacée : ils prennent une
+// liste d'identifiants et rendent ce que la base sait d'eux.
 
-message UpdateLocationResponse {
-  bool ok = 1;
-}
+message FilterAvailableDriversRequest {
+  // Les candidats, tels que Location les a rendus. Vide, la réponse est vide : ce
+  // n'est pas « tous les livreurs ».
+  repeated string driver_ids = 1;
 
-message FindAvailableNearbyRequest {
-  hba.common.v1.GeoPoint center = 1;
-  int32 radius_meters = 2;
-  hba.common.v1.VehicleType vehicle_type = 3;
-  int32 limit = 4;
-  // Livreurs à ne pas reproposer (vagues précédentes).
-  repeated string exclude_driver_ids = 5;
-}
+  // Le véhicule exigé par la mission. NON PRÉCISÉ VAUT « n'importe lequel » — c'est
+  // le cas de toutes les livraisons de colis, dont l'événement ne transporte pas le
+  // poids : filtrer sur un type qu'on ne connaît pas inventerait une règle.
+  hba.common.v1.VehicleType vehicle_type = 2;
 
-message NearbyDriver {
-  string driver_id = 1;
-  int32 distance_meters = 2;
-  hba.common.v1.GeoPoint position = 3;
-
-  // Le véhicule, pour que la carte du client montre une moto, un vélo, un
-  // tricycle ou une voiture — et non quatre pastilles identiques.
+  // L'habilitation exigée par la mission.
   //
-  // IL NE SORT PAS D'ICI TEL QUEL. Ce message sert AUSSI au dispatch, qui a
-  // besoin de l'identifiant ; c'est la passerelle cliente qui ne garde que la
-  // position et ce champ. Point 24, révisé le 30 septembre 2026.
-  hba.common.v1.VehicleType vehicle_type = 4;
+  // NON PRÉCISÉE VAUT « LIVRAISON DE COLIS », et ce n'est pas un défaut arbitraire :
+  // c'est ce que faisaient tous les appelants avant que les habilitations existent.
+  // Un cycliste ne doit pas recevoir une course de personnes parce qu'un appelant a
+  // oublié le champ.
+  hba.common.v1.DriverCapability required_capability = 3;
 }
 
-message FindAvailableNearbyResponse {
-  repeated NearbyDriver drivers = 1;
+message EligibleDriver {
+  string driver_id = 1;
+
+  // Le véhicule, pour que la carte du client montre une moto, un vélo, un tricycle
+  // ou une voiture — et non quatre pastilles identiques. Point 24, révisé le
+  // 30 septembre 2026.
+  //
+  // IL VIENT DE LA BASE, PAS DE L'INDEX GÉOGRAPHIQUE : Location ne sait pas avec
+  // quoi roule chacun, et n'a pas à le savoir.
+  hba.common.v1.VehicleType vehicle_type = 2;
+}
+
+message FilterAvailableDriversResponse {
+  repeated EligibleDriver drivers = 1;
+}
+
+message GetDriverSummariesRequest {
+  repeated string driver_ids = 1;
+}
+
+message DriverSummary {
+  string driver_id = 1;
+  string display_name = 2;
+  VerificationStatus verification_status = 3;
+  OperationalStatus operational_status = 4;
+  hba.common.v1.VehicleType vehicle_type = 5;
+}
+
+message GetDriverSummariesResponse {
+  // UN IDENTIFIANT INCONNU EST SIMPLEMENT ABSENT DE LA RÉPONSE, sans erreur. Les
+  // identifiants viennent d'un index Redis qui peut garder la trace d'un compte
+  // supprimé en base ; faire échouer la carte entière pour un point orphelin serait
+  // une panne là où il suffit de ne pas le dessiner.
+  repeated DriverSummary drivers = 1;
 }
 
 message ReviewKycRequest {
@@ -234,60 +316,39 @@ message ListDriversResponse {
   int32 total = 2;
 }
 
-message ListDriverPositionsRequest {
-  // Plafond de points rendus. Zéro vaut la valeur par défaut du service ; au
-  // delà de mille, le service ramène à mille — une carte ne se lit plus, et
-  // la charge Redis n'a pas à dépendre d'un paramètre client.
-  int32 limit = 1;
-}
-
-message DriverPosition {
-  string driver_id = 1;
-  string display_name = 2;
-  double latitude = 3;
-  double longitude = 4;
-  // Instant de RÉCEPTION du point par le service, pas l'heure du téléphone :
-  // une horloge mal réglée ferait paraître neuve une position ancienne.
-  google.protobuf.Timestamp seen_at = 5;
-  OperationalStatus operational_status = 6;
-  hba.common.v1.VehicleType vehicle_type = 7;
-}
-
-message ListDriverPositionsResponse {
-  repeated DriverPosition positions = 1;
-  // La fenêtre qui définit la liste. « 14 livreurs » ne veut rien dire sans
-  // « vus dans les 120 dernières secondes » : sans elle, le client afficherait
-  // un effectif là où il n'y a qu'un compte de points récents.
-  int32 freshness_seconds = 2;
-}
-
 message CheckDriverAvailabilityRequest {
   string driver_id = 1;
-  // Point de référence de la distance — le lieu de collecte de la course
-  // qu'on envisage de proposer. Obligatoire : une distance sans origine ne
-  // veut rien dire.
-  hba.common.v1.GeoPoint reference = 2;
+
+  // LE POINT DE RÉFÉRENCE A DISPARU, ET SON NUMÉRO EST RÉSERVÉ. Driver ne mesure
+  // plus de distance : il ne sait plus où sont les gens. Réserver le 2 empêche qu'un
+  // champ futur réutilise ce numéro et reçoive, d'un binaire ancien, un point GPS
+  // qu'il interpréterait comme autre chose.
+  reserved 2;
 }
 
 message DriverAvailability {
   string driver_id = 1;
   string display_name = 2;
   bool offerable = 3;
+
   // Renseigné si offerable = false : DRIVER_NOT_FOUND, DRIVER_NOT_VERIFIED,
-  // DRIVER_NOT_AVAILABLE, DRIVER_POSITION_STALE.
+  // DRIVER_NOT_AVAILABLE.
   //
-  // UN BOOLÉEN SEUL NE SUFFIT PAS : les quatre raisons appellent quatre
-  // gestes différents — valider un dossier, attendre la fin d'une course,
-  // rappeler quelqu'un, ou ne rien faire parce que le téléphone est éteint.
+  // UN BOOLÉEN SEUL NE SUFFIT PAS : les motifs appellent des gestes différents —
+  // valider un dossier, attendre la fin d'une course, rappeler quelqu'un.
+  //
+  // DRIVER_POSITION_STALE N'EST PLUS PRONONCÉ ICI. Ce motif-là appartient désormais
+  // à celui qui croise : il interroge Location, et conclut lui-même que le téléphone
+  // est éteint. Driver qui le dirait prétendrait savoir où se trouve quelqu'un.
   string reason = 4;
+
   VerificationStatus verification_status = 5;
   OperationalStatus operational_status = 6;
-  // Les trois champs suivants ne sont renseignés que si une position RÉCENTE
-  // existe, c'est-à-dire exactement quand reason n'est pas
-  // DRIVER_POSITION_STALE.
-  int32 distance_meters = 7;
-  hba.common.v1.GeoPoint position = 8;
-  google.protobuf.Timestamp seen_at = 9;
+
+  // LA DISTANCE, LA POSITION ET L'HORODATAGE SONT PARTIS AVEC ELLE. Leurs numéros
+  // restent réservés pour la même raison que le 2 ci-dessus : un ancien appelant
+  // enverrait ou lirait des coordonnées là où un champ neuf attendrait autre chose.
+  reserved 7, 8, 9;
 }
 
 message GetDriverStatsRequest {
@@ -337,9 +398,26 @@ message DeclareVehicleRequest {
   string driver_id = 1;
   hba.common.v1.VehicleType type = 2;
   // Obligatoire ici, contrairement à l'inscription : ops la compare à la
-  // carte grise.
+  // carte grise. SAUF POUR UN VÉLO, qui n'en porte pas.
   string plate = 3;
   int32 capacity_grams = 4;
+
+  string brand = 5;
+  string model = 6;
+  string color = 7;
+
+  // Refusé si le type de véhicule ne transporte pas de personnes : le service
+  // répond VEHICLE_CANNOT_CARRY_PASSENGERS plutôt que d'ignorer la valeur.
+  int32 passenger_capacity = 8;
+}
+
+message DeclareCapabilitiesRequest {
+  string driver_id = 1;
+
+  // L'ENSEMBLE COMPLET, PAS UN AJOUT. Ce qui n'est pas dans cette liste est
+  // retiré : retirer une habilitation doit être aussi simple que l'accorder,
+  // sinon elle ne se retire jamais.
+  repeated hba.common.v1.DriverCapability capabilities = 2;
 }
 
 message SubmitApplicationRequest {
@@ -399,4 +477,52 @@ message DriverApplication {
   // la règle est métier : chaque client qui la recalculerait finirait par en
   // avoir sa propre version.
   bool can_submit = 9;
+
+  // Ce que ce livreur a déclaré exercer. VIDE VEUT DIRE « LE COLIS » : c'est le
+  // socle, il ne se déclare pas.
+  //
+  // AJOUTÉ LE 1er OCTOBRE 2026 (point 38). Le dossier ne portait pas les
+  // habilitations : l'application n'avait aucun moyen d'afficher ce que le
+  // livreur avait déclaré, ni de recocher ses cases au retour sur l'écran.
+  repeated hba.common.v1.DriverCapability capabilities = 12;
+
+  // Ce que le VÉHICULE DÉCLARÉ permet, habilité ou non.
+  //
+  // CALCULÉ PAR LE SERVICE, pour la même raison que `required_documents` et
+  // `can_submit` : la table véhicule → habilitations est une règle métier, et
+  // chaque client qui la recalculerait finirait par en avoir sa propre version.
+  // Une application qui l'aurait codée en dur proposerait « transport de
+  // personnes » à un cycliste, et le refus n'arriverait qu'à l'enregistrement.
+  //
+  // IL CONTIENT LE COLIS, lui aussi : ce champ répond à « que permet ce
+  // véhicule », pas à « que faut-il afficher ». Le colis étant le socle, c'est
+  // à l'interface de ne pas le proposer comme une case à cocher.
+  repeated hba.common.v1.DriverCapability allowed_capabilities = 13;
+}
+
+message GetDriverPinsRequest {
+  // Les candidats, tels que Location les a rendus. Vide, la réponse est vide :
+  // ce n'est pas « tous les livreurs ».
+  repeated string driver_ids = 1;
+}
+
+message DriverPin {
+  // IL NE SORT PAS DE LA PASSERELLE. Il sert à recoller chaque pastille à sa
+  // position ; la frontière du client le jette. Voir point 24 : un identifiant
+  // stable permettrait de reconnaître le même livreur d'un jour sur l'autre.
+  string driver_id = 1;
+
+  hba.common.v1.VehicleType vehicle_type = 2;
+
+  // Peut-il prendre une mission maintenant ? Dossier valide, en ligne, libre, et
+  // habilité au colis.
+  //
+  // IL NE DIT PAS POURQUOI, et c'est volontaire : « indisponible » couvre la
+  // mission en cours, la déconnexion récente et le dossier redevenu invalide.
+  // Rendre la raison en dirait bien plus sur chacun que ce que la carte demande.
+  bool available = 3;
+}
+
+message GetDriverPinsResponse {
+  repeated DriverPin pins = 1;
 }

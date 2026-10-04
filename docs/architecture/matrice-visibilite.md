@@ -7,9 +7,11 @@ implémentée à deux endroits précis du service Delivery, et nulle part ailleu
 |---|---|---|---|---|---|---|
 | Prix et détail du devis | Oui | Non | Sa rémunération seulement | Si donneur d'ordre | Oui | Oui |
 | Téléphone du livreur | Pendant la mission | Par SMS pendant la mission | — | Pendant la mission | Non | Oui |
+| **Position du livreur AFFECTÉ, en direct** | **Pendant la mission, depuis le 01/10/2026** | **Non** | — | **Non** | **Non** | Oui |
 | Adresse de destination | Oui | Oui | Après acceptation | Oui | Oui | Oui |
 | OTP de remise | Oui | Oui | Non (il le saisit) | Non | Non | Non |
 | Documents KYC livreur | Non | Non | Les siens | Non | Non | Oui (URL signée) |
+| Habilitations du livreur | Non | Non | Les siennes | Non | Non | Oui |
 
 ## Les deux points d'application
 
@@ -117,6 +119,24 @@ véhicule** — et rien d'autre.
 | plaque | non | oui |
 | identifiant | **jamais** | — |
 
+Et, **depuis le 03/10/2026**, un champ de plus — et surtout un filtre en moins :
+
+| Champ | Avant `DRIVER_ASSIGNED` | Après |
+| --- | --- | --- |
+| **disponibilité** | **oui, depuis le 03/10/2026** | — |
+
+- **LA CARTE MONTRE DÉSORMAIS TOUS LES LIVREURS DU RAYON, disponibles ou non.**
+  Elle ne rendait que les offrables ; c'était un choix de la passerelle, jamais
+  une règle de ce document. Le client voit donc aussi, en point éteint, un
+  livreur **en mission pour quelqu'un d'autre**. C'est le vrai élargissement.
+- **Ce qui le borne est inchangé** : ni identifiant, ni nom, ni plaque. Le
+  point 37 accorde au client servi un livreur NOMMÉ qu'il suit du début à la
+  fin ; ici personne n'est nommé, et rien ne relie un point d'aujourd'hui à un
+  point d'hier.
+- **La disponibilité ne dit pas la raison.** « Indisponible » couvre la mission,
+  la déconnexion récente et le dossier redevenu invalide. Rendre la raison
+  supposerait que Driver la donne par livreur, ce qui en dirait bien plus sur
+  chacun.
 - **L'identifiant n'est jamais rendu, et c'est ce qui borne tout le reste** : il
   permettrait de reconnaître le même livreur d'un jour sur l'autre, donc de
   suivre ses horaires et ses trajets. Deux livreurs à moto restent
@@ -132,6 +152,98 @@ véhicule** — et rien d'autre.
 Les deux applications partagent le dessin des épingles (`Epingles`, dans
 `hba_ui`) et, depuis cette décision, ce qu'elles y mettent : le même véhicule en
 relief sur les deux cartes.
+
+### 5. Le suivi en direct — point 37, tranché le 1er octobre 2026
+
+**La matrice était MUETTE sur ce point, et le silence n'est pas une
+autorisation.** Elle disait quand le client voit le *téléphone* du livreur
+affecté — pendant la mission — et ce qu'il voit des livreurs *non affectés* —
+une position anonyme et un type de véhicule, point 24. Elle ne disait rien de la
+**position du livreur affecté**, parce qu'avant la phase 8 personne ne pouvait
+la lui montrer : l'écran de suivi affichait un nom, un véhicule, un code de
+remise, et aucune carte.
+
+**Décision : le client voit la position en direct du livreur affecté à sa
+mission, du moment de l'affectation à la clôture. Et rien avant, rien après.**
+
+| | Avant `DRIVER_ASSIGNED` | Pendant la mission | Après la clôture |
+| --- | --- | --- | --- |
+| position du livreur affecté | *il n'y en a pas* | **oui, en direct** | **non** |
+| cap, vitesse | *il n'y en a pas* | **non** | non |
+| précision GPS | *il n'y en a pas* | **non** | non |
+| historique du trajet | *il n'y en a pas* | **non** | **non** |
+
+Le raisonnement, dans l'ordre où il a été fait :
+
+- **Ce que le client gagne.** Savoir si le livreur arrive dans deux minutes ou
+  dans vingt, sans appeler. C'est la question qu'il pose au téléphone quand il
+  n'a pas la carte, et chaque appel évité est un appel que le livreur ne prend
+  pas en roulant.
+- **Ce qu'il voyait déjà.** Le nom, le téléphone, la plaque et le véhicule de
+  cette personne précise. La position en direct n'ouvre donc pas l'identité :
+  elle est déjà ouverte. Elle ajoute le **déplacement** d'un homme déjà nommé —
+  ce qui reste une divulgation réelle, et c'est pourquoi elle est bornée.
+- **Ce que les bornes protègent.** La position s'éteint à la clôture, en même
+  temps que le téléphone du livreur. Sans cela, un client qui garde l'écran
+  ouvert suivrait un livreur chez son client suivant, puis chez lui. C'est
+  exactement la dérive que le point 24 refuse pour les livreurs non affectés, et
+  elle serait pire ici : la personne est nommée.
+- **Pourquoi ni le cap, ni la vitesse, ni la précision.** Ils ne répondent à
+  aucune question du client — « où est-il » suffit à décider d'attendre — et la
+  vitesse d'un homme au travail est une donnée de surveillance. L'exploitation
+  les voit, parce qu'elle doit comprendre pourquoi une course traîne ; le client
+  n'a pas à savoir si le livreur roule à 15 ou à 45.
+- **Pourquoi pas d'historique.** Rien n'est conservé : le flux est un instant,
+  pas une piste. Le dépôt ne stocke aucun trajet, et la phase 9 a écarté
+  l'historique précisément pour ne pas avoir à répondre à cette question.
+
+**Le destinataire n'y a pas droit, et c'est volontaire.** Il reçoit son OTP par
+SMS et le téléphone du livreur par SMS ; il n'a pas de compte, pas d'écran, et
+suivre quelqu'un sur une carte demande d'être identifié. Le commerçant non plus :
+il remet un colis, il ne l'escorte pas.
+
+**Où c'est appliqué.** `CustomerHub`, dans le service `Hba.Realtime` : un client
+ne reçoit le flux d'une mission qu'après vérification auprès du service
+propriétaire — Ride ou Delivery — que la mission est la sienne ET qu'un livreur
+y est affecté. L'abonnement n'est jamais accordé sur la parole du client, et il
+est révoqué quand la mission se clôt.
+
+## Les avis et les notes — service Rating (point 41, 3 octobre 2026)
+
+**Le client voit : ses propres missions à noter, et la note qu'il a posée.** Rien
+d'autre. La liste des avis en attente ne porte **aucun identifiant de livreur**,
+ni avant, ni après : le point 24 réserve l'identité du livreur à l'affectation,
+et la fin de la mission ne la rouvre pas. Le client note sa COURSE ; Rating sait
+à qui la note revient, parce qu'il l'a écrit lui-même au moment où la mission
+s'est achevée, depuis l'événement du service propriétaire.
+
+**Le client ne voit la note d'aucun livreur.** Aucune route cliente ne la rend —
+ni avant l'affectation, ni après. La question est ouverte au point 41, et le
+silence n'est pas une autorisation.
+
+**Le livreur voit : sa moyenne, et ses avis un par un.** Sans identifiant de
+client, et sans la date de naissance de la rancune : il apprend ce qu'on lui
+reproche, pas QUI le lui reproche. Une note nominative se règle entre quatre
+yeux, et un avis qui se règle ne sert plus à rien. La mission, elle, est nommée
+par sa nature et sa date — sans quoi « deux étoiles » ne se rattache à aucun
+trajet, donc ne se corrige pas.
+
+**La moyenne n'est montrée que quand elle tient debout**, et c'est le SERVICE qui
+le dit, par un booléen. Le seuil ne se rejoue dans aucune application : trois
+écrans avec trois seuils finiraient par se contredire, et le livreur lirait
+« 4,0 » là où le client lit « pas encore de note ».
+
+**Le dispatch ne lit pas les notes.** Une note basse ne désactive personne et
+n'influence pas l'attribution. C'est une décision, pas un oubli, et les deux
+applications l'écrivent à l'écran du livreur pour qu'il ne la devine pas de
+travers.
+
+**Où c'est appliqué.** Dans les handlers de `Hba.Rating.Application`, jamais dans
+la passerelle : `ListPendingReviews` et `SubmitReview` reprennent le sujet du
+jeton quand l'appelant est un client, `GetDriverRating` et `ListDriverReviews`
+reprennent le `driver_id` du jeton quand l'appelant est un livreur. Un
+identifiant passé dans la requête ne dit pas qui appelle, et un back-office — qui
+traite les réclamations — est le seul à pouvoir nommer quelqu'un.
 
 ## Ce qui est volontairement absent
 

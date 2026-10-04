@@ -85,6 +85,14 @@ public static class DeliveryViewMapper
             // course ne concerne ni le livreur, ni un partenaire tiers.
             RefundedAt = isBackOffice || isCustomer || isMerchant ? delivery.RefundedAt : null,
             RefundPartial = (isBackOffice || isCustomer || isMerchant) && delivery.RefundPartial,
+
+            // LA REGLE N'EST PAS RECOPIEE ICI : on appelle celle de l'agregat, la
+            // meme qui remplit l'evenement d'annulation. C'est ce qui garantit que
+            // le chiffre affiche est exactement celui qui sera preleve.
+            CancellationFeeDueXof =
+                isBackOffice || isCustomer || isMerchant || isPartner
+                    ? delivery.RetenueDue()
+                    : null,
         };
     }
 

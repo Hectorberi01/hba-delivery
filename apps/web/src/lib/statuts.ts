@@ -89,6 +89,71 @@ export const COULEUR_TON: Record<TonStatut, string> = {
   neutre: 'var(--color-encre-3)',
 };
 
+/* --- Notifications. Memes valeurs que notification_service.proto. --- */
+
+export const CANAUX: Record<number, string> = {
+  0: 'Inconnu',
+  1: 'SMS',
+  2: 'WhatsApp',
+  3: 'Push',
+  4: 'E-mail',
+};
+
+export function lireCanal(brut: unknown): string {
+  const numero = typeof brut === 'number' ? brut : Number(brut);
+  return CANAUX[Number.isInteger(numero) ? numero : 0] ?? CANAUX[0];
+}
+
+/**
+ * « IGNORE » N'EST PAS UN ECHEC, et c'est tout l'interet de le distinguer :
+ * aucun fournisseur n'est branche sur ce canal, donc rien n'est parti — ce
+ * n'est pas la faute du reseau, c'est une decision qui reste a prendre.
+ */
+const ENVOIS: Record<number, { libelle: string; ton: TonStatut }> = {
+  0: { libelle: 'Inconnu', ton: 'neutre' },
+  1: { libelle: 'En attente', ton: 'encours' },
+  2: { libelle: 'Envoyé', ton: 'bon' },
+  3: { libelle: 'Échoué', ton: 'critique' },
+  4: { libelle: 'Ignoré', ton: 'attention' },
+};
+
+export function lireEnvoi(brut: unknown): { libelle: string; ton: TonStatut } {
+  const numero = typeof brut === 'number' ? brut : Number(brut);
+  return ENVOIS[Number.isInteger(numero) ? numero : 0] ?? ENVOIS[0];
+}
+
+/* --- Comptes. Memes valeurs que identity_service.proto, memes entiers. --- */
+
+/**
+ * « Suppression demandee » N'EST PAS UNE SUSPENSION, et le proto le dit deja :
+ * un compte suspendu ne se connecte plus, celui-la le doit — c'est en se
+ * reconnectant que son titulaire annule. Deux libelles distincts, donc, et
+ * deux tons.
+ */
+const COMPTES: Record<number, { libelle: string; ton: TonStatut }> = {
+  0: { libelle: 'Inconnu', ton: 'neutre' },
+  1: { libelle: 'Actif', ton: 'bon' },
+  2: { libelle: 'Suspendu', ton: 'critique' },
+  3: { libelle: 'Suppression demandée', ton: 'attention' },
+};
+
+const COMPTES_PAR_NOM: Record<string, number> = {
+  ACCOUNT_STATUS_UNSPECIFIED: 0,
+  ACCOUNT_STATUS_ACTIVE: 1,
+  ACCOUNT_STATUS_SUSPENDED: 2,
+  ACCOUNT_STATUS_PENDING_DELETION: 3,
+};
+
+export function lireStatutCompte(brut: unknown): { libelle: string; ton: TonStatut } {
+  if (typeof brut === 'number') return COMPTES[brut] ?? COMPTES[0];
+  if (typeof brut === 'string') {
+    if (COMPTES_PAR_NOM[brut] !== undefined) return COMPTES[COMPTES_PAR_NOM[brut]];
+    const numerique = Number(brut);
+    if (Number.isInteger(numerique)) return COMPTES[numerique] ?? COMPTES[0];
+  }
+  return COMPTES[0];
+}
+
 /* --- Livreurs. Memes valeurs que driver_service.proto, memes entiers. --- */
 
 export type TonLivreur = 'bon' | 'attention' | 'critique' | 'encours' | 'neutre';

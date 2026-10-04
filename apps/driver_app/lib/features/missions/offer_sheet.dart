@@ -158,7 +158,11 @@ class _OfferSheetState extends State<OfferSheet> {
                     children: [
                       Expanded(
                         child: Text(
-                          'Nouvelle course',
+                          // LA NATURE EST DANS LE TITRE, parce que c'est la
+                          // premiere chose a savoir : un passager qui attend au
+                          // bord de la route et un colis a prendre dans une
+                          // boutique ne demandent pas les memes gestes.
+                          offer.estUneCourse ? 'Nouveau passager' : 'Nouvelle course',
                           style: theme.textTheme.headlineMedium,
                         ),
                       ),
@@ -223,10 +227,13 @@ class _OfferSheetState extends State<OfferSheet> {
                   // L'adresse de destination n'est pas affichee : elle n'est
                   // pas dans l'offre, et elle n'arrive qu'apres acceptation.
                   Text(
-                    "L'adresse de livraison s'affiche dès que vous acceptez.",
+                    offer.estUneCourse
+                        ? "L'adresse de destination s'affiche dès que vous acceptez."
+                        : "L'adresse de livraison s'affiche dès que vous acceptez.",
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: HbaColors.inkMuted),
                   ),
+
                   const SizedBox(height: HbaSpacing.lg),
                 ],
               ),

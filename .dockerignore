@@ -1,0 +1,71 @@
+# CE QUI NE DOIT PAS PARTIR DANS LE CONTEXTE DE BUILD.
+#
+# IL N'Y EN AVAIT AUCUN JUSQU'AU 1er OCTOBRE 2026, et le defaut s'est paye d'un
+# coup : « make relancer » a rempli le disque de Docker Desktop au sixieme
+# service sur quatorze, sur un « no space left on device » en copiant un
+# centos8-librdkafka.so des tests de Billing.
+#
+# LE CONTEXTE PESAIT 8,3 Go, ENVOYE QUATORZE FOIS. Dont :
+#   — apps/      6,5 Go, et AUCUN Dockerfile ne le copie (Flutter, Pods, .gradle,
+#                node_modules) ;
+#   — bin/ obj/  1,8 Go au total, que l'image recompile depuis les sources de
+#                toute facon — on envoyait donc le resultat pour le jeter ;
+#   — tests/     191 Mo, qu'aucune image ne publie.
+#
+# CE QUE LES DOCKERFILES COPIENT VRAIMENT, et donc tout ce qu'il faut garder :
+# global.json, Directory.*.props/targets, contracts/, src/BuildingBlocks/,
+# src/Services/<X>/ et src/Gateways/Hba.Gateway/. Rien d'autre.
+#
+# UN .dockerignore A LA RACINE SUFFIT POUR LES QUATORZE, parce que tous les
+# composes declarent « context: ../../.. » — Docker lit le .dockerignore du
+# CONTEXTE, pas celui du dossier du Dockerfile.
+
+# ---- Sorties de compilation .NET -------------------------------------------
+#
+# ELLES NE SONT PAS SEULEMENT INUTILES, ELLES SONT NUISIBLES. Un obj/ d'hote
+# porte des chemins absolus du Mac et un project.assets.json resolu pour une
+# autre plateforme ; copie dans l'image, il peut faire reutiliser a « dotnet
+# restore » une resolution qui ne vaut pas pour linux-musl-arm64.
+**/bin/
+**/obj/
+**/TestResults/
+*.user
+.vs/
+.idea/
+
+# ---- Applications mobiles et web -------------------------------------------
+#
+# AUCUN DOCKERFILE NE LES COPIE. Elles se construisent avec Flutter et Node, pas
+# dans ces images ; leurs artefacts pesaient a eux seuls les quatre cinquiemes du
+# contexte.
+apps/
+
+# ---- Tests ------------------------------------------------------------------
+#
+# AUCUNE IMAGE N'EN PUBLIE. Les projets de test sous src/Services/<X>/tests/ sont
+# exclus par la ligne suivante : ils ne sont pas references par le .csproj de
+# l'API, donc « dotnet restore » ne les cherche jamais — mais leurs bin/ etaient
+# bien copies, et c'est l'un d'eux qui a sature le disque.
+tests/
+**/tests/
+
+# ---- Donnees locales et secrets --------------------------------------------
+#
+# deploy/.data PORTE LES CARTES OSRM PRE-TRAITEES, qui se comptent en gigaoctets
+# une fois le Benin extrait. Rien a faire dans une image de service.
+deploy/.data/
+.ngrok/
+.apercu/
+**/.env.local
+**/*.pem
+**/*.key
+ios/Flutter/Secrets.xcconfig
+
+# ---- Dépôt et divers --------------------------------------------------------
+.git/
+.gitignore
+.github/
+.DS_Store
+**/.DS_Store
+*.md
+docs/

@@ -32,6 +32,7 @@ public static class KafkaTopics
     public const string DeliveryEvents = "hba.delivery.events.v1";
     public const string DispatchEvents = "hba.dispatch.events.v1";
     public const string DriverEvents = "hba.driver.events.v1";
+    public const string RideEvents = "hba.ride.events.v1";
     public const string PaymentEvents = "hba.payment.events.v1";
     public const string PricingEvents = "hba.pricing.events.v1";
     public const string BillingEvents = "hba.billing.events.v1";

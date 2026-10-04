@@ -62,11 +62,11 @@ public sealed class CreateDeliveryHandler(
                 // Elle restait en attente jusqu'à son abandon automatique, et
                 // reprendre était impossible.
                 //
-                // REDEMANDER L'INTENTION NE FACTURE RIEN DEUX FOIS : la même clé
-                // d'idempotence rend chez Payment la MEME intention et la MEME
-                // adresse (CreatePaymentIntentHandler, rejeu explicite). On ne
-                // rouvre donc pas une transaction, on retrouve la sienne.
-                var reprise = await ReprendreIntentionAsync(known, command.IdempotencyKey!, cancellationToken)
+                // REDEMANDER L'INTENTION NE FACTURE RIEN DEUX FOIS, ET NE FAIT
+                // PLUS SONNER DEUX FOIS : la même clé d'idempotence rend chez
+                // Payment la MEME intention, sans rouvrir de transaction ni
+                // repousser de demande sur le téléphone du client.
+                var reprise = await ReprendreIntentionAsync(known, command, cancellationToken)
                     .ConfigureAwait(false);
 
                 return new CreateDeliveryResult(
@@ -85,6 +85,9 @@ public sealed class CreateDeliveryHandler(
 
             if (duplicate is not null)
             {
+                // AUCUNE ADRESSE ICI, ET C'EST SANS CONSEQUENCE : ce chemin est
+                // celui d'un PARTENAIRE, dont le compte prepaye est debite sans
+                // page de paiement.
                 return new CreateDeliveryResult(
                     DeliveryViewMapper.ToView(duplicate, caller),
                     duplicate.PaymentIntentId,
@@ -212,21 +215,17 @@ public sealed class CreateDeliveryHandler(
             // donc chez l'expediteur, la boutique ou le voisin qui remet le
             // colis, et le client qui commandait ne voyait jamais rien arriver.
             //
-            // LE NUMERO VIENT DU JETON, ET IL EST BIEN LE SIEN : on n'entre ici
-            // que par la branche « customer » de ResolveOrderer, ou
-            // CustomerId EST le sujet du jeton. Un partenaire ou un commercant
-            // n'y passe pas.
-            var payeur = caller.Phone;
-
-            if (string.IsNullOrWhiteSpace(payeur))
-            {
-                // UN REFUS QUI NOMME LA CAUSE, PLUTOT QU'UN PAIEMENT ENVOYE AU
-                // HASARD. Retomber sur un autre numero ferait payer quelqu'un
-                // d'autre, ce qui est exactement le defaut qu'on corrige ici.
-                throw new DomainException(
-                    "MISSING_PAYER_PHONE",
-                    "Le jeton ne porte pas de téléphone : reconnectez-vous pour payer.");
-            }
+            // LE NUMERO DU CORPS S'IL Y EN A UN, SINON CELUI DU JETON. Il ne
+            // fait que preremplir la page du fournisseur : le client peut en
+            // saisir un autre, et c'est celui-la qui sera debite.
+            //
+            // CE N'EST PAS UN RETOUR AU DEFAUT FAUTIF : ce qui avait ete corrige,
+            // c'etait « command.Pickup.Phone » — le contact AU POINT DE COLLECTE,
+            // qui faisait preremplir la page avec le telephone de l'expediteur.
+            // Le jeton, lui, porte bien celui du client qui commande.
+            var payeur = string.IsNullOrWhiteSpace(command.PayerPhone)
+                ? caller.Phone ?? string.Empty
+                : command.PayerPhone;
 
             intent = await payments
                 .CreateIntentAsync(
@@ -430,24 +429,29 @@ public sealed class CreateDeliveryHandler(
     }
 
     /// <summary>
-    /// Retrouve l'adresse de paiement d'une livraison déjà créée, ou null s'il
-    /// n'y a rien à reprendre.
+    /// Relance la demande de paiement d'une livraison déjà créée, s'il y a
+    /// quelque chose à reprendre.
     /// </summary>
     ///
     /// <remarks>
     /// TROIS CONDITIONS, ET CHACUNE ECARTE UN CAS REEL. Une livraison de
     /// PARTENAIRE n'a pas de client et ne passe pas par FedaPay. Une livraison
-    /// DEJA PAYEE n'a plus besoin d'adresse — la redonner enverrait le client
-    /// vers une page qu'il a déjà réglée. Et une livraison sans intention
-    /// rattachée n'en a jamais eu.
+    /// DEJA PAYEE n'a plus rien à reprendre — relancer solliciterait un client
+    /// qui a déjà réglé. Et une livraison sans intention rattachée n'en a jamais
+    /// eu.
+    ///
+    /// ELLE REND L'ADRESSE, ET C'EST TOUT SON INTÉRÊT. L'appel idempotent à
+    /// Payment retrouve l'intention déjà ouverte et sa page : le client qui
+    /// réessaie retombe donc sur la MÊME page de paiement, sans qu'une seconde
+    /// transaction soit ouverte.
     ///
     /// UN ECHEC NE FAIT PAS ECHOUER LA REPRISE : si Payment est injoignable, le
-    /// client récupère quand même sa livraison, sans adresse. L'écran le lui
-    /// dira ; refuser tout serait pire.
+    /// client récupère quand même sa livraison. L'écran le lui dira ; refuser
+    /// tout serait pire.
     /// </remarks>
     private async Task<string?> ReprendreIntentionAsync(
         DeliveryAggregate delivery,
-        string idempotencyKey,
+        CreateDeliveryCommand command,
         CancellationToken cancellationToken)
     {
         if (delivery.CustomerId is null
@@ -457,18 +461,15 @@ public sealed class CreateDeliveryHandler(
             return null;
         }
 
-        var payeur = caller.Phone;
-
-        if (string.IsNullOrWhiteSpace(payeur))
-        {
-            return null;
-        }
+        var payeur = string.IsNullOrWhiteSpace(command.PayerPhone)
+            ? caller.Phone ?? string.Empty
+            : command.PayerPhone;
 
         try
         {
-            var intent = await payments
+            var reprise = await payments
                 .CreateIntentAsync(
-                    idempotencyKey,
+                    command.IdempotencyKey ?? delivery.Id.ToString(),
                     delivery.Id,
                     delivery.CustomerId,
                     payeur,
@@ -476,13 +477,13 @@ public sealed class CreateDeliveryHandler(
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            return intent.RedirectUrl;
+            return reprise.RedirectUrl;
         }
         catch (Exception exception)
         {
             // ON JOURNALISE, ON N'AVALE PAS EN SILENCE. Sans cette ligne, un
             // Payment injoignable se traduirait pour le client par un écran qui
-            // dit « impossible d'ouvrir la page », et par rien du tout côté
+            // dit « le paiement n'a pas pu s'ouvrir », et par rien du tout côté
             // serveur : personne ne saurait jamais pourquoi.
             journal.LogWarning(
                 exception,

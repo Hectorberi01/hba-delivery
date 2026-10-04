@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hba_core/hba_core.dart';
+import 'package:hba_ui/hba_ui.dart';
 
 import 'delivery_providers.dart';
 import 'models.dart';
@@ -12,9 +13,18 @@ import 'models.dart';
 /// remboursement, ce sont deux promesses faites au client le jour ou l'une des
 /// deux bouge seule.
 ///
-/// AUCUN MONTANT N'EST ANNONCE. La politique d'annulation n'est pas tranchee,
-/// et promettre un remboursement que le service ne fera pas serait pire que de
-/// ne rien dire.
+/// LE MONTANT EST ANNONCE DEPUIS LE 2 OCTOBRE 2026, ET C'EST TOUT CE QUI A
+/// CHANGE ICI. Le dialogue disait « les conditions de remboursement vous seront
+/// confirmees par le service » — une promesse que personne ne tenait, faute de
+/// politique d'annulation (point 3). Elle est tranchee : le service calcule ce
+/// qui serait retenu et l'envoie dans la fiche.
+///
+/// LA REGLE N'EST PAS REJOUEE ICI. « retenueAnnulation » est le resultat du
+/// meme appel qui remplit l'evenement d'annulation cote service ; l'ecran ne
+/// decide pas si un livreur est affecte, ni combien la grille retient. Un
+/// « if (course.driver != null) » dans ce fichier mettrait la regle a deux
+/// endroits, et le jour ou l'un bougerait l'ecran promettrait autre chose que
+/// ce qui serait preleve.
 Future<void> annulerLaCourse(
   BuildContext context,
   WidgetRef ref,
@@ -29,9 +39,18 @@ Future<void> annulerLaCourse(
     context: context,
     builder: (contexteDialogue) => AlertDialog(
       title: const Text('Annuler la livraison ?'),
-      content: const Text(
-        "Le livreur ne viendra pas. Les conditions de remboursement vous "
-        "seront confirmées par le service.",
+
+      // ZERO N'EST PAS « INCONNU », C'EST « GRATUIT », et les deux phrases
+      // disent donc des choses opposees. Le cas gratuit est le plus frequent —
+      // aucun livreur affecte — et c'est une bonne nouvelle a annoncer, pas un
+      // silence a garder.
+      content: Text(
+        course.retenueAnnulation > 0
+            ? 'Le livreur ne viendra pas. Il est déjà en route : '
+                '${Xof.format(course.retenueAnnulation)} seront retenus pour son '
+                'déplacement, le reste vous sera remboursé.'
+            : "Le livreur ne viendra pas. L'annulation est gratuite et vous "
+                'serez remboursé intégralement.',
       ),
       actions: [
         TextButton(

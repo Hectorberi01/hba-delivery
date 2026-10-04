@@ -2,17 +2,25 @@ using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Messaging.Kafka;
 using Hba.Contracts.Delivery.V1;
 using Hba.Dispatch.Application.Features.Dispatching.Commands;
+using Hba.Dispatch.Domain.Dispatching;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace Hba.Dispatch.Api.Messaging;
 
 /// <summary>
-/// Entree du moteur.
+/// Entree du moteur pour les COLIS.
 ///
-/// « DeliveryConfirmed » EST LE SEUL DECLENCHEUR de la recherche d'un livreur,
-/// comme l'ecrit le flux de livraison. Aucune application, aucun appel direct
-/// ne peut ouvrir une recherche : il faut que le paiement soit arrive.
+/// « DeliveryConfirmed » EST LE SEUL DECLENCHEUR de la recherche d'un livreur
+/// pour un colis, comme l'ecrit le flux de livraison. Aucune application, aucun
+/// appel direct ne peut ouvrir une recherche : il faut que le paiement soit
+/// arrive.
+///
+/// LES COURSES DE PERSONNES ONT LEUR PROPRE CONSOMMATEUR depuis le 1er octobre
+/// 2026, et il envoie les memes commandes avec ServiceType.Ride. Deux
+/// consommateurs plutot qu'un parce que les deux topics portent des contrats
+/// differents : un seul lirait deux formes de messages sans que le type ne le
+/// dise.
 /// </summary>
 public sealed class DeliveryEventsConsumer(
     IServiceScopeFactory scopeFactory,
@@ -58,7 +66,10 @@ public sealed class DeliveryEventsConsumer(
             if (Guid.TryParse(identifiant, out var closeId))
             {
                 await dispatcherTot
-                    .SendAsync(new CancelDispatchCommand(closeId, message.PayloadCase.ToString()), cancellationToken)
+                    .SendAsync(
+                        new CancelDispatchCommand(
+                            ServiceType.Delivery, closeId, message.PayloadCase.ToString()),
+                        cancellationToken)
                     .ConfigureAwait(false);
             }
 
@@ -82,6 +93,7 @@ public sealed class DeliveryEventsConsumer(
 
         await dispatcherTot.SendAsync(
             new StartDispatchCommand(
+                ServiceType.Delivery,
                 deliveryId,
                 confirmed.Pickup.Point.Latitude,
                 confirmed.Pickup.Point.Longitude,

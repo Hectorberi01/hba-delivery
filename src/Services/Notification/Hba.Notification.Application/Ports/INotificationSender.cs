@@ -58,6 +58,24 @@ public interface INotificationSender
 public interface ICarnetDAdresses
 {
     Task<Adresse> CourrielAsync(Guid subjectId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Le téléphone d'un compte.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// IL MANQUAIT, ET DEUX MODÈLES SONT RESTÉS MORTS À CAUSE DE ÇA.
+    /// « delivery_assigned » et « delivery_completed » n'ont jamais eu de
+    /// producteur : Delivery ne connaît que le CustomerId de son client, et la
+    /// commande d'envoi exigeait un numéro. Aucun client n'a jamais été prévenu
+    /// qu'un livreur avait pris son colis.
+    ///
+    /// DEUX MÉTHODES PLUTÔT QU'UNE QUI RENDRAIT LES DEUX. Un message part sur un
+    /// canal, donc a besoin d'une seule des deux coordonnées : les demander
+    /// ensemble ferait lire un courriel pour envoyer un SMS, et l'absence de
+    /// l'autre se lirait comme un échec.
+    /// </remarks>
+    Task<Numero> TelephoneAsync(Guid subjectId, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -88,7 +106,56 @@ public sealed record Adresse(string? Courriel, bool Indisponible = false)
         => string.IsNullOrWhiteSpace(courriel) ? Absente : new Adresse(courriel);
 }
 
+/// <summary>
+/// Ce que l'annuaire a répondu pour un téléphone.
+/// </summary>
+///
+/// <remarks>
+/// UN TYPE À PART ET NON <see cref="Adresse"/> RÉUTILISÉE, parce qu'un champ
+/// nommé « Valeur » rendrait chaque appel ambigu : on ne saurait plus, en
+/// lisant, si l'objet porte un courriel ou un numéro. Six lignes dupliquées
+/// contre une confusion permanente, le choix est fait.
+///
+/// LES TROIS ÉTATS SONT LES MÊMES, et la distinction est la même aussi :
+/// « absent » est le cas ordinaire d'un compte sans numéro, « injoignable » est
+/// une panne de l'annuaire. Les confondre faisait accuser le client d'une panne
+/// de Directory.
+/// </remarks>
+public sealed record Numero(string? Telephone, bool Indisponible = false)
+{
+    public static readonly Numero Absent = new(Telephone: null);
+
+    public static readonly Numero Injoignable = new(Telephone: null, Indisponible: true);
+
+    public static Numero De(string? telephone)
+        => string.IsNullOrWhiteSpace(telephone) ? Absent : new Numero(telephone);
+}
+
+/// <summary>
+/// Ce que le journal sait filtrer. UN NULL NE FILTRE PAS — c'est la différence
+/// entre « tous les canaux » et « le canal inconnu », que le proto exprime par
+/// UNSPECIFIED et que le handler traduit ici.
+/// </summary>
+public sealed record FiltreDuJournal(
+    NotificationChannel? Canal,
+    NotificationStatus? Statut,
+    string? FinDuDestinataire,
+    string? ModeleId,
+    int Limite,
+    int Decalage);
+
+/// <summary>
+/// Une page du journal, et le total AVANT pagination : sans lui, « 50 lignes »
+/// ne dit pas si on en a vu la moitié ou la totalité.
+/// </summary>
+public sealed record PageDuJournal(IReadOnlyList<SentNotification> Lignes, int Total);
+
 public interface ISentNotificationRepository
 {
     void Add(SentNotification notification);
+
+    /// <summary>
+    /// Les envois les plus récents d'abord : un journal se lit par la fin.
+    /// </summary>
+    Task<PageDuJournal> ListerAsync(FiltreDuJournal filtre, CancellationToken cancellationToken);
 }

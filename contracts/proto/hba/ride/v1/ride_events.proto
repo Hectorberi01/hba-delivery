@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package hba.ride.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/envelope.proto";
+import "hba/common/v1/geo.proto";
+import "hba/common/v1/money.proto";
+import "hba/ride/v1/ride_service.proto";
+
+option csharp_namespace = "Hba.Contracts.Ride.V1";
+
+// Topic : hba.ride.events.v1 — clé de partition : ride_id.
+//
+// UN SEUL TOPIC POUR TOUT LE SERVICE, le type précis voyageant dans
+// l'enveloppe. C'est la convention du dépôt — un flux par service — confirmée
+// au point 35 contre la proposition d'un topic par événement.
+//
+// DEUX FAITS DU DOMAINE NE SORTENT PAS, ET C'EST DÉLIBÉRÉ.
+// RideRequested reste dedans : entre la demande et la recherche il y a le
+// paiement, et aucun autre service n'a affaire à une course impayée. RideStarted
+// reste dedans aussi : le passager voit le départ par son application, pas par
+// Kafka, et aucun service ne décide quoi que ce soit là-dessus. Le jour où un
+// consommateur en a besoin, ils s'ajoutent en 19 et 20 sans casse — l'inverse
+// n'est pas vrai : un numéro publié ne se retire plus.
+message RideEvent {
+  hba.common.v1.EventEnvelope envelope = 1;
+
+  oneof payload {
+    RideDriverSearchStarted search_started = 10;
+    RideDriverAssigned driver_assigned = 11;
+    RideDriverArriving driver_arriving = 12;
+    RideDriverArrived driver_arrived = 13;
+    RideCompleted completed = 14;
+    RideCancelled cancelled = 15;
+    RideNoDriverAvailable no_driver_available = 16;
+  }
+}
+
+// C'EST CET ÉVÉNEMENT QUE DISPATCH ÉCOUTE, et non la demande : déclencher la
+// recherche sur la demande enverrait des chauffeurs vers une course impayée.
+//
+// LE TYPE DE VÉHICULE ET LE POINT DE PRISE EN CHARGE SONT PORTÉS ICI parce que
+// Dispatch en a besoin pour composer ses vagues, et qu'un consommateur qui
+// doit rappeler l'émetteur pour agir sur un message n'est plus découplé.
+message RideDriverSearchStarted {
+  string ride_id = 1;
+  string customer_id = 2;
+  RideVehicleType vehicle_type = 3;
+  hba.common.v1.GeoPoint pickup = 4;
+
+  // La destination voyage, MAIS LE DISPATCH NE LA MET PAS DANS L'OFFRE. Le
+  // référentiel est explicite : le chauffeur « ne voit l'adresse exacte de
+  // destination qu'après acceptation » — c'est ce qui empêche de trier les
+  // courses par quartier d'arrivée.
+  hba.common.v1.GeoPoint destination = 5;
+
+  google.protobuf.Timestamp occurred_at = 6;
+
+  // La distance du trajet, telle que Pricing l'a mesurée pour établir le prix.
+  // Elle s'affiche dans l'offre : un chauffeur décide aussi sur la longueur.
+  int32 distance_meters = 7;
+
+  // CE QUE TOUCHERA LE CHAUFFEUR, ET C'EST SUR CE MONTANT QU'IL ACCEPTE.
+  //
+  // IL VIENT DU DEVIS, PAS D'UN CALCUL LOCAL : Pricing le fixe en même temps que
+  // le prix du passager, et la course le fige. Sans ce champ, l'offre affichait
+  // zéro franc — un chauffeur n'accepte pas une course à zéro, et le dispatch
+  // aurait tourné à vide sans que rien ne soit en panne.
+  hba.common.v1.Money driver_earning = 8;
+}
+
+message RideDriverAssigned {
+  string ride_id = 1;
+  string driver_id = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}
+
+message RideDriverArriving {
+  string ride_id = 1;
+  string driver_id = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}
+
+message RideDriverArrived {
+  string ride_id = 1;
+  string driver_id = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}
+
+// LE MONTANT EST PORTÉ PARCE QUE BILLING EN VIT : la commission se calcule
+// dessus, et l'obliger à rappeler Ride pour chaque course terminée en ferait un
+// consommateur couplé à la disponibilité de l'émetteur.
+message RideCompleted {
+  string ride_id = 1;
+  string customer_id = 2;
+  string driver_id = 3;
+  hba.common.v1.Money final_price = 4;
+  google.protobuf.Timestamp occurred_at = 5;
+
+  // CE QUE TOUCHE LE CHAUFFEUR, ET CE N'EST PAS final_price.
+  //
+  // Le premier est ce que paie le passager ; celui-ci est la part du chauffeur,
+  // figée par Pricing à la commande. L'écart est la commission de HBA. Créditer le
+  // grand livre avec final_price reviendrait à donner au chauffeur la totalité de
+  // la course — l'erreur ne se verrait qu'au moment où l'argent manque.
+  hba.common.v1.Money driver_earning = 6;
+}
+
+// LE CHAUFFEUR EST PORTÉ, ET VIDE S'IL N'Y EN AVAIT PAS. C'est lui qu'il faut
+// libérer : sans ce champ, Driver devrait interroger Ride pour savoir s'il y
+// avait quelqu'un à remettre en ligne.
+message RideCancelled {
+  string ride_id = 1;
+  string customer_id = 2;
+  string driver_id = 3;
+  string reason = 4;
+
+  google.protobuf.Timestamp occurred_at = 5;
+
+  // Retenue due au chauffeur, ZÉRO QUAND AUCUN N'ÉTAIT AFFECTÉ.
+  //
+  // ELLE EST ICI PARCE QUE PAYMENT NE PEUT PAS LA CALCULER : le montant est figé
+  // dans le devis au taux de la grille du jour (point 3, tranché le 2 octobre
+  // 2026), et Payment n'a ni le devis, ni le droit de lire la base de Ride, ni la
+  // moindre grille tarifaire.
+  //
+  // ELLE SERT DEUX FOIS : à créditer le chauffeur de son déplacement, et à
+  // déduire d'autant le remboursement recommandé au passager.
+  hba.common.v1.Money cancellation_fee = 6;
+}
+
+message RideNoDriverAvailable {
+  string ride_id = 1;
+  string customer_id = 2;
+  google.protobuf.Timestamp occurred_at = 3;
+}

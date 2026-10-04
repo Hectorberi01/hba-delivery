@@ -145,8 +145,12 @@ export default function PageVersements() {
         ))}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Carte>
+      {/* LA PAGE NE DEFILE PLUS, LA LISTE SI. Meme motif que les tarifs, les
+          zones et les commandes : ce qui sert a choisir reste a l'ecran, et
+          seul ce qu'on parcourt bouge. Sans cela, le dossier de droite partait
+          vers le bas des que la file de gauche s'allongeait. */}
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <Carte className="flex min-h-0 flex-col overflow-y-auto">
           <TitreDeCarte
             titre={vue.libelle}
             sous={
@@ -177,12 +181,16 @@ export default function PageVersements() {
           )}
         </Carte>
 
+        {/* LE DOSSIER DEFILE DE SON COTE, pour la meme raison que la liste : une
+            demande longue ne doit pas pousser la file hors de l'ecran. */}
         {courante ? (
-          <Dossier
-            demande={courante}
-            nom={noms.get(courante.driverId)}
-            recharger={file.recharger}
-          />
+          <div className="min-h-0 overflow-y-auto">
+            <Dossier
+              demande={courante}
+              nom={noms.get(courante.driverId)}
+              recharger={file.recharger}
+            />
+          </div>
         ) : null}
       </div>
     </>

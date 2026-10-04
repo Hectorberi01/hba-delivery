@@ -164,6 +164,8 @@ class _DossierScreenState extends ConsumerState<DossierScreen> {
                 const SizedBox(height: HbaSpacing.md),
                 _Vehicule(dossier: d),
                 const SizedBox(height: HbaSpacing.md),
+                _Habilitations(dossier: d),
+                const SizedBox(height: HbaSpacing.md),
                 Text('Pièces', style: theme.textTheme.titleMedium),
                 const SizedBox(height: HbaSpacing.sm),
 
@@ -325,9 +327,47 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
   late String _type = _types.containsKey(_depuisDossier())
       ? _depuisDossier()
       : 'MOTORCYCLE';
+  /// Les vehicules qui ne prennent pas de passagers.
+  ///
+  /// ELLE DOUBLE UNE REGLE DU DOMAINE, ET C'EST ASSUME. La liste du service
+  /// (capacitesPossibles) decrit le vehicule DEJA ENREGISTRE ; ici il faut
+  /// decider si le champ existe pour le type EN COURS DE SAISIE, avant tout
+  /// enregistrement. Le risque est borne : si cette liste se trompe, le service
+  /// refuse par VEHICLE_CANNOT_CARRY_PASSENGERS et le refus s'affiche sous le
+  /// formulaire. Au 1er octobre 2026, moto, voiture et tricycle prennent des
+  /// passagers ; camionnette et velo, non.
+  static const _sansPassagers = {'VAN', 'BICYCLE'};
+
+  bool get _passagersPossibles => !_sansPassagers.contains(_type);
+
   late final _plaque = TextEditingController(text: widget.dossier.plaque);
+
+  /// LA CHARGE SE SAISIT EN KILOS, PAS EN GRAMMES. Le service compte en
+  /// grammes — l'unite entiere de tout le depot — mais personne ne declare
+  /// « 50 000 » pour cinquante kilos.
+  late final _charge = TextEditingController(
+    text: widget.dossier.capaciteGrammes > 0
+        ? '${widget.dossier.capaciteGrammes ~/ 1000}'
+        : '',
+  );
+
+  late final _places = TextEditingController(
+    text: widget.dossier.placesPassager > 0 ? '${widget.dossier.placesPassager}' : '',
+  );
+
+  /// Marque, modele et couleur. DECLARATIFS : ils n'autorisent rien, ils servent
+  /// au client a reconnaitre le vehicule qui arrive. « La voiture blanche » se
+  /// lit a trente metres, une immatriculation non — et c'est pour cela que le
+  /// profil public les rend. Jusqu'au soir du 1er octobre 2026 aucun ecran ne
+  /// les saisissait : ils restaient vides pour toujours.
+  late final _marque = TextEditingController(text: widget.dossier.marque);
+  late final _modele = TextEditingController(text: widget.dossier.modele);
+  late final _couleur = TextEditingController(text: widget.dossier.couleur);
+
   bool _envoi = false;
   String? _erreur;
+
+  static int _entier(String texte) => int.tryParse(texte.trim()) ?? 0;
 
   String _depuisDossier() => switch (widget.dossier.vehiculeType) {
         'Car' => 'CAR',
@@ -340,6 +380,11 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
   @override
   void dispose() {
     _plaque.dispose();
+    _charge.dispose();
+    _places.dispose();
+    _marque.dispose();
+    _modele.dispose();
+    _couleur.dispose();
     super.dispose();
   }
 
@@ -357,6 +402,16 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
             // etait saisi avant un changement de type ; l'envoyer inscrirait
             // une immatriculation de moto sur un velo.
             plaque: _plaqueAttendue ? _plaque.text.trim() : '',
+            capaciteGrammes: _entier(_charge.text) * 1000,
+
+            // ZERO POUR UN VEHICULE QUI NE PREND PERSONNE, et non le contenu
+            // du champ : il garde ce qui y etait saisi avant un changement de
+            // type, exactement comme la plaque juste au-dessus.
+            placesPassager: _passagersPossibles ? _entier(_places.text) : 0,
+
+            marque: _marque.text.trim(),
+            modele: _modele.text.trim(),
+            couleur: _couleur.text.trim(),
           );
       ref.invalidate(dossierProvider);
     } on ApiException catch (erreur) {
@@ -371,7 +426,11 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final fige = widget.dossier.valide || widget.dossier.suspendu;
+    // SEULE LA SUSPENSION GELE DESORMAIS. Un dossier valide se modifie depuis
+    // le 3 octobre 2026 ; ce qu'il en coute est dit par le bandeau ci-dessous,
+    // pas par un champ grise.
+    final fige = widget.dossier.suspendu;
+    final renvoieALExamen = widget.dossier.valide;
 
     return HbaCard(
       padding: const EdgeInsets.all(HbaSpacing.lg),
@@ -433,6 +492,84 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
               hintText: 'AB 1234 RB',
             ),
           ),
+          const SizedBox(height: HbaSpacing.md),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _marque,
+                  enabled: !fige,
+                  inputFormatters: [LengthLimitingTextInputFormatter(64)],
+                  decoration: const InputDecoration(
+                    labelText: 'Marque',
+                    hintText: 'ex. Toyota',
+                  ),
+                ),
+              ),
+              const SizedBox(width: HbaSpacing.sm),
+              Expanded(
+                child: TextField(
+                  controller: _modele,
+                  enabled: !fige,
+                  inputFormatters: [LengthLimitingTextInputFormatter(64)],
+                  decoration: const InputDecoration(
+                    labelText: 'Modèle',
+                    hintText: 'ex. Corolla',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: HbaSpacing.md),
+
+          // LA COULEUR EST CE QUI SE VOIT LE PLUS LOIN. Un client qui attend au
+          // bord d'une rue cherche « la voiture blanche » ; c'est elle, et non
+          // la plaque, qui lui fait lever la main au bon moment.
+          TextField(
+            controller: _couleur,
+            enabled: !fige,
+            inputFormatters: [LengthLimitingTextInputFormatter(32)],
+            decoration: const InputDecoration(
+              labelText: 'Couleur',
+              hintText: 'ex. blanche',
+            ),
+          ),
+          const SizedBox(height: HbaSpacing.md),
+          TextField(
+            controller: _charge,
+            enabled: !fige,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(4),
+            ],
+            decoration: const InputDecoration(
+              labelText: 'Charge utile (kg)',
+              hintText: 'Facultatif',
+            ),
+          ),
+
+          // LE CHAMP DE PLACES DISPARAIT PLUTOT QUE DE SE GRISER, comme la
+          // plaque : une camionnette ne prend pas de passagers, et il n'y a
+          // rien a y saisir, jamais. Ce que le vehicule permet est dit une
+          // seule fois, dans la carte des activites juste en dessous.
+          if (_passagersPossibles) ...[
+            const SizedBox(height: HbaSpacing.md),
+            TextField(
+              controller: _places,
+              enabled: !fige,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(2),
+              ],
+              decoration: const InputDecoration(
+                labelText: 'Places passagers',
+                hintText: 'Sans compter la vôtre',
+              ),
+            ),
+          ],
           if (_erreur != null) ...[
             const SizedBox(height: HbaSpacing.sm),
             Text(
@@ -446,15 +583,29 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
             // pourquoi il n'y en a pas coute une ligne et repond a la
             // question avant qu'elle ne se pose.
             const _Bandeau(
-              texte: 'Le véhicule ne se modifie plus. Si vous en avez change, '
-                  'HBA doit rouvrir votre dossier : la plaque enregistrée est '
-                  'celle qu\'ops a comparée à votre carte grise.',
+              texte: 'Votre compte est suspendu : le véhicule ne se modifie '
+                  'pas. Contactez HBA.',
             ),
             const SizedBox(height: HbaSpacing.sm),
-            const _DemanderAHba(sujet: 'Changement de véhicule'),
-          ] else
+            const _DemanderAHba(sujet: 'Compte suspendu'),
+          ] else ...[
+            if (renvoieALExamen) ...[
+              // LE PRIX EST DIT AVANT LE GESTE, PAS APRES. Un livreur qui
+              // corrige la couleur de sa voiture et se retrouve hors ligne sans
+              // avoir ete prevenu croit l'application cassee — et il a perdu sa
+              // journee. La phrase est longue parce que la consequence l'est.
+              const _Bandeau(
+                texte: 'Votre dossier est validé. Enregistrer un changement le '
+                    'renverra à l\'examen : vous ne recevrez plus de courses '
+                    'tant qu\'HBA n\'aura pas revu vos pièces. Ne le faites que '
+                    'si votre véhicule a réellement changé.',
+              ),
+              const SizedBox(height: HbaSpacing.sm),
+            ],
             HbaButton(
-              label: 'Enregistrer le véhicule',
+              label: renvoieALExamen
+                  ? 'Enregistrer et repasser à l\'examen'
+                  : 'Enregistrer le véhicule',
               tone: HbaButtonTone.neutral,
               busy: _envoi,
 
@@ -463,6 +614,201 @@ class _VehiculeState extends ConsumerState<_Vehicule> {
               onPressed: _plaqueAttendue && _plaque.text.trim().isEmpty
                   ? null
                   : _enregistrer,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Ce que le livreur declare exercer.
+///
+/// LE COLIS NE SE COCHE PAS : il est le socle. « Habilite » le rend vrai sans
+/// declaration, et un dossier vide n'est pas un livreur sans metier — c'est le
+/// metier d'origine. L'ecran n'affiche donc que ce qui s'AJOUTE au socle, et le
+/// dit en une ligne.
+///
+/// LA LISTE DES CASES VIENT DU SERVICE, jamais de cette application. La table
+/// vehicule vers habilitations est une regle metier : la recopier ici en aurait
+/// fait une seconde version, qui aurait propose « transport de personnes » a un
+/// cycliste. Sans la liste du service, l'ecran se tait plutot que de deviner.
+///
+/// UNE CARTE SEPAREE DU VEHICULE, AVEC SON PROPRE BOUTON, parce que ce sont deux
+/// appels distincts cote serveur : enregistrer un vehicule et declarer des
+/// activites ne reussissent ni n'echouent ensemble.
+class _Habilitations extends ConsumerStatefulWidget {
+  const _Habilitations({required this.dossier});
+
+  final Dossier dossier;
+
+  @override
+  ConsumerState<_Habilitations> createState() => _HabilitationsState();
+}
+
+class _HabilitationsState extends ConsumerState<_Habilitations> {
+  /// Les libelles, par nom normalise. Le colis n'y figure pas : voir la classe.
+  static const _libelles = {
+    'FOODDELIVERY': 'Restauration',
+    'PASSENGERTRANSPORT': 'Transport de personnes',
+  };
+
+  static const _explications = {
+    'FOODDELIVERY': 'Les commandes des commerces HBA Food.',
+    'PASSENGERTRANSPORT': 'Les courses de personnes. Elle demande aussi une '
+        'place passager déclarée sur votre véhicule.',
+  };
+
+  /// Le nom, reduit a ses lettres en majuscules.
+  ///
+  /// DEUX ORTHOGRAPHES CIRCULENT DANS CE DEPOT — « PassengerTransport » dans les
+  /// reponses, « PASSENGER_TRANSPORT » dans les contrats. Normaliser pour
+  /// AFFICHER, et renvoyer au serveur la chaine qu'il a lui-meme donnee : un
+  /// changement d'orthographe cote serveur ne casse alors rien ici.
+  static String _cle(String nom) =>
+      nom.replaceAll(RegExp('[^A-Za-z]'), '').toUpperCase();
+
+  /// Les choix en cours, dans l'orthographe du serveur.
+  late final Set<String> _choix = {...widget.dossier.capacites};
+
+  bool _envoi = false;
+  String? _erreur;
+
+  /// Ce que le vehicule permet, moins le socle.
+  List<String> get _proposables =>
+      [for (final c in widget.dossier.capacitesPossibles) if (_libelles.containsKey(_cle(c))) c];
+
+  /// Ce qui partira au serveur.
+  ///
+  /// FILTRE PAR CE QUE LE VEHICULE PERMET, et pas seulement par ce qui est
+  /// coche. Un livreur qui declare « transport de personnes » puis change son
+  /// vehicule pour une camionnette garderait sinon un choix devenu impossible,
+  /// invisible a l'ecran — et le refus du service nommerait une habilitation
+  /// dont plus aucun interrupteur ne parle.
+  ///
+  /// DANS L'ORTHOGRAPHE DU SERVEUR : on renvoie la chaine recue, pas la notre.
+  List<String> get _aEnvoyer => [
+        for (final c in _proposables)
+          if (_choix.any((x) => _cle(x) == _cle(c))) c,
+      ];
+
+  bool get _modifie {
+    final declarees = widget.dossier.capacites.map(_cle).toSet();
+    final choisies = _aEnvoyer.map(_cle).toSet();
+    return declarees.length != choisies.length || !declarees.containsAll(choisies);
+  }
+
+  Future<void> _enregistrer() async {
+    setState(() {
+      _envoi = true;
+      _erreur = null;
+    });
+
+    try {
+      await ref.read(dossierRepositoryProvider).declarerHabilitations(_aEnvoyer);
+      ref.invalidate(dossierProvider);
+    } on ApiException catch (erreur) {
+      if (mounted) setState(() => _erreur = erreur.message);
+    } on OfflineException {
+      if (mounted) setState(() => _erreur = 'Pas de réseau.');
+    } finally {
+      if (mounted) setState(() => _envoi = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // LES ACTIVITES SE DECLARENT LIBREMENT SUR UN DOSSIER VALIDE depuis le
+    // 3 octobre 2026, et SANS repasser a l'examen : cocher « transport de
+    // personnes » n'apporte aucune piece nouvelle, et le vehicule qui
+    // l'autorise a deja ete verifie. Seule la suspension gele.
+    final fige = widget.dossier.suspendu;
+    final proposables = _proposables;
+
+    return HbaCard(
+      padding: const EdgeInsets.all(HbaSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Mes activités', style: theme.textTheme.titleMedium),
+          const SizedBox(height: HbaSpacing.xs),
+          Text(
+            'La livraison de colis est comprise : elle ne se déclare pas.',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: HbaSpacing.md),
+
+          // SANS VEHICULE DECLARE, LE SERVICE N'AUTORISE RIEN et la liste
+          // revient vide. Le dire vaut mieux qu'une carte vide, qui se lit
+          // comme un ecran casse.
+          if (proposables.isEmpty)
+            Text(
+              widget.dossier.vehiculeDeclare
+                  ? "Votre véhicule ne permet aucune activité en plus du colis."
+                  : "Enregistrez d'abord votre véhicule : c'est lui qui "
+                      'détermine les activités possibles.',
+              style: theme.textTheme.bodySmall,
+            )
+          else
+            for (final capacite in proposables) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _libelles[_cle(capacite)] ?? capacite,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        Text(
+                          _explications[_cle(capacite)] ?? '',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: _choix.any((c) => _cle(c) == _cle(capacite)),
+                    onChanged: fige
+                        ? null
+                        : (actif) => setState(() {
+                              _choix.removeWhere((c) => _cle(c) == _cle(capacite));
+                              if (actif) _choix.add(capacite);
+                            }),
+                  ),
+                ],
+              ),
+              const SizedBox(height: HbaSpacing.sm),
+            ],
+          if (_erreur != null) ...[
+            const SizedBox(height: HbaSpacing.xs),
+            Text(
+              _erreur!,
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+            ),
+          ],
+          if (fige) ...[
+            const SizedBox(height: HbaSpacing.sm),
+
+            // MEME RAISON QUE POUR LE VEHICULE : cacher le bouton sans rien
+            // dire laisse croire a un ecran incomplet.
+            const _Bandeau(
+              texte: 'Votre compte est suspendu : vos activités ne se modifient '
+                  'pas. Contactez HBA.',
+            ),
+            const SizedBox(height: HbaSpacing.sm),
+            const _DemanderAHba(sujet: 'Compte suspendu'),
+          ] else if (proposables.isNotEmpty)
+            HbaButton(
+              label: 'Enregistrer mes activités',
+              tone: HbaButtonTone.neutral,
+              busy: _envoi,
+
+              // RIEN A ENVOYER SI RIEN N'A CHANGE : le bouton reste gris
+              // plutot que de rejouer la meme declaration.
+              onPressed: _modifie ? _enregistrer : null,
             ),
         ],
       ),

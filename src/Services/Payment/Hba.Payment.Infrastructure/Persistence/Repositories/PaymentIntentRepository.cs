@@ -19,9 +19,15 @@ internal sealed class PaymentIntentRepository(PaymentDbContext context) : IPayme
     /// « Vivante » veut dire : encore payable, ou deja payee. Une intention en
     /// echec n'en est pas une — le client doit pouvoir reessayer.
     /// </summary>
-    public Task<PaymentIntent?> FindActiveByDeliveryAsync(Guid deliveryId, CancellationToken cancellationToken)
+    public Task<PaymentIntent?> FindActiveByReferenceAsync(
+        ServiceType serviceType,
+        Guid referenceId,
+        PaymentPurpose purpose,
+        CancellationToken cancellationToken)
         => context.PaymentIntents
-            .Where(p => p.DeliveryId == deliveryId
+            .Where(p => p.ServiceType == serviceType
+                        && p.ReferenceId == referenceId
+                        && p.Purpose == purpose
                         && (p.Status == PaymentStatus.Pending || p.Status == PaymentStatus.Succeeded))
             .OrderByDescending(p => p.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);

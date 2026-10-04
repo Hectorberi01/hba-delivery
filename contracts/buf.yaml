@@ -5,7 +5,41 @@ lint:
   use:
     - STANDARD
   except:
+    # Le paquet porte deja « .v1 » ; ce suffixe-la en demande un second.
     - PACKAGE_VERSION_SUFFIX
+
+    # LES TROIS SUIVANTES SONT ECARTEES LE 2 OCTOBRE 2026, et pour une seule
+    # raison : elles contredisent une regle de conception du depot, pas un defaut.
+    #
+    # ICI, UN RPC REND L'ENTITE. GetDelivery rend « Delivery », CancelDelivery
+    # rend « Delivery », ConsumeQuote rend « Quote ». C'est delibere : l'appelant
+    # recoit l'etat courant de la chose qu'il vient de lire ou de modifier, et il
+    # n'a pas a deballer une enveloppe pour l'atteindre.
+    #
+    # CE QUE LES REGLES EXIGERAIENT A LA PLACE. Un message « GetDeliveryResponse »,
+    # un « CancelDeliveryResponse », un « MarkPickedUpResponse »... chacun ne
+    # contenant qu'un « Delivery », et tous distincts puisque la troisieme regle
+    # interdit d'en partager un entre deux RPC. Quelque quatre-vingt-dix types
+    # supplementaires, repercutes dans le C# genere, le Dart des deux applications
+    # et le TypeScript de la console, pour zero changement de comportement.
+    #
+    # CE QUI RESTE COUVERT, ET QUI EST CE QUI ATTRAPE LES VRAIES ERREURS : la
+    # casse des champs, le prefixe des valeurs d'enumeration, le nommage des
+    # fichiers et des paquets, l'ordre des imports. Ce sont ces regles-la qui
+    # relisent un champ qu'on ajoute, et elles sont toujours actives.
+    #
+    # « make lint-proto » ECHOUAIT DEPUIS LA PREMIERE VERSION DE CE FICHIER
+    # (22 septembre 2026) : la cible n'avait simplement jamais ete lancee, buf
+    # n'etant pas installe. Ces trois lignes sont ce qui la rend utilisable.
+    #
+    # POUR REVENIR EN ARRIERE, il suffit de supprimer les trois lignes — et de
+    # renommer quatre-vingt-dix messages.
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_STANDARD_NAME
+
+  # AUCUNE EXCEPTION LIGNE A LIGNE : les regles ecartees le sont ici, en un seul
+  # endroit, ou on peut les compter.
   disallow_comment_ignores: true
 breaking:
   use:

@@ -12,6 +12,9 @@ using Hba.Payment.Application.Features.Earnings.Queries;
 using Hba.Payment.Application.Features.Payouts.Commands;
 using Hba.Payment.Application.Features.Payouts.Queries;
 using Hba.Payment.Application.Features.Payments.Queries;
+using Hba.Payment.Application.Features.Refunds;
+using Hba.Payment.Application.Features.Refunds.Commands;
+using Hba.Payment.Application.Features.Refunds.Queries;
 using Hba.Payment.Domain.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using CommonMoney = Hba.Contracts.Common.V1.Money;
@@ -20,8 +23,13 @@ using DomainLedgerKind = Hba.Payment.Domain.Earnings.LedgerEntryKind;
 using DomainMethod = Hba.Payment.Domain.Payments.PaymentMethod;
 using DomainPayoutStatus = Hba.Payment.Domain.Payouts.PayoutStatus;
 using DomainStatus = Hba.Payment.Domain.Payments.PaymentStatus;
+using DomainRefundStatus = Hba.Payment.Domain.Refunds.RefundDueStatus;
+using DomainServiceType = Hba.Payment.Domain.Payments.ServiceType;
 using ProtoMethod = Hba.Contracts.Payment.V1.PaymentMethod;
 using ProtoPayoutStatus = Hba.Contracts.Payment.V1.PayoutStatus;
+using ProtoServiceType = Hba.Contracts.Common.V1.ServiceType;
+using ProtoRefundDue = Hba.Contracts.Payment.V1.RefundDue;
+using ProtoRefundStatus = Hba.Contracts.Payment.V1.RefundDueStatus;
 using ProtoStatus = Hba.Contracts.Payment.V1.PaymentStatus;
 
 namespace Hba.Payment.Api.Grpc;
@@ -56,12 +64,40 @@ public sealed class PaymentGrpcService(IDispatcher dispatcher, ITimeCalendar cal
         var view = await dispatcher.SendAsync(
             new CreatePaymentIntentCommand(
                 request.IdempotencyKey,
-                ParseId(request.DeliveryId, "delivery_id"),
+                Nature(request.ServiceType),
+                ParseId(request.ReferenceId, "reference_id"),
                 request.PayerId,
                 request.PayerPhone,
                 request.Amount.Amount,
-                ToDomain(request.Method),
-                string.IsNullOrWhiteSpace(request.ReturnUrl) ? null : request.ReturnUrl),
+                ToDomain(request.Method)),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(view);
+    }
+
+    /// <summary>
+    /// Ouvre le paiement d'un pourboire (point 42).
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LE BENEFICIAIRE N'EST PAS DANS LA REQUETE, et c'est tout le point : le
+    /// handler le lit dans le grand livre, ou la remuneration de la mission a
+    /// inscrit le chauffeur qui l'a faite.
+    /// </remarks>
+    public override async Task<PaymentIntent> CreateTipIntent(
+        CreateTipIntentRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var view = await dispatcher.SendAsync(
+            new CreateTipIntentCommand(
+                request.IdempotencyKey,
+                Nature(request.ServiceType),
+                ParseId(request.ReferenceId, "reference_id"),
+                request.PayerPhone,
+                request.AmountXof),
             context.CancellationToken).ConfigureAwait(false);
 
         return ToProto(view);
@@ -193,11 +229,12 @@ public sealed class PaymentGrpcService(IDispatcher dispatcher, ITimeCalendar cal
             Direction = ToProto(e.Direction),
             AmountXof = e.AmountXof,
 
-            // LA COURSE EST VIDE POUR UN VERSEMENT, et c'est la chaine vide
+            // LA MISSION EST VIDE POUR UN VERSEMENT, et c'est la chaine vide
             // qui le dit : un Guid.Empty rendu « 00000000-… » se lirait comme
-            // une course.
-            DeliveryId = e.DeliveryId?.ToString() ?? string.Empty,
-            DeliveryReference = e.DeliveryReference,
+            // une mission.
+            ReferenceId = e.ReferenceId?.ToString() ?? string.Empty,
+            ReferenceLabel = e.ReferenceLabel,
+            ServiceType = Nature(e.ServiceType),
             PayoutId = e.PayoutId?.ToString() ?? string.Empty,
             OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
         }));
@@ -360,6 +397,8 @@ public sealed class PaymentGrpcService(IDispatcher dispatcher, ITimeCalendar cal
     {
         DomainLedgerKind.DeliveryEarning => LedgerEntryKind.DeliveryEarning,
         DomainLedgerKind.Payout => LedgerEntryKind.Payout,
+        DomainLedgerKind.Compensation => LedgerEntryKind.Compensation,
+        DomainLedgerKind.Tip => LedgerEntryKind.Tip,
         _ => LedgerEntryKind.Unspecified,
     };
 
@@ -370,10 +409,166 @@ public sealed class PaymentGrpcService(IDispatcher dispatcher, ITimeCalendar cal
         _ => LedgerDirection.Unspecified,
     };
 
+    // ---- Remboursements a faire ---------------------------------------------
+    //
+    // CES TROIS APPELS NE DEPLACENT PAS D'ARGENT, et c'est a garder en tete en
+    // lisant ce qui suit : FedaPay n'expose pas de remboursement par API. L'argent
+    // part du tableau de bord marchand, par un geste humain ; ici on tient le
+    // cahier qui dit qu'il doit partir, puis qu'il est parti.
+
+    public override async Task<ListRefundsDueResponse> ListRefundsDue(
+        ListRefundsDueRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var page = await dispatcher.QueryAsync(
+            new ListRefundsDueQuery(
+                // UN STATUT NON PRECISE VAUT « A TRAITER », pas « tous ». C'est la
+                // question de la finance en ouvrant l'ecran, et le defaut protobuf
+                // d'un enum est justement zero.
+                EtatDemande(request.Status),
+                NatureDemandee(request.ServiceType),
+                request.PageSize,
+                request.Offset),
+            context.CancellationToken).ConfigureAwait(false);
+
+        var reponse = new ListRefundsDueResponse { Total = page.Total };
+        reponse.Items.AddRange(page.Items.Select(ToProto));
+
+        return reponse;
+    }
+
+    public override async Task<ProtoRefundDue> SettleRefundDue(
+        SettleRefundDueRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var vue = await dispatcher.SendAsync(
+            new SettleRefundDueCommand(
+                ParseId(request.RefundDueId, "refund_due_id"),
+                request.SettledAmount,
+                string.IsNullOrWhiteSpace(request.Note) ? null : request.Note),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(vue);
+    }
+
+    public override async Task<ProtoRefundDue> DismissRefundDue(
+        DismissRefundDueRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var vue = await dispatcher.SendAsync(
+            new DismissRefundDueCommand(
+                ParseId(request.RefundDueId, "refund_due_id"),
+                request.Note),
+            context.CancellationToken).ConfigureAwait(false);
+
+        return ToProto(vue);
+    }
+
+    /// <summary>
+    /// L'etat demande. NON PRECISE VAUT « A TRAITER » : voir ListRefundsDue.
+    /// </summary>
+    private static DomainRefundStatus? EtatDemande(ProtoRefundStatus status) => status switch
+    {
+        ProtoRefundStatus.Pending => DomainRefundStatus.Pending,
+        ProtoRefundStatus.Settled => DomainRefundStatus.Settled,
+        ProtoRefundStatus.Dismissed => DomainRefundStatus.Dismissed,
+        _ => DomainRefundStatus.Pending,
+    };
+
+    /// <summary>
+    /// La nature demandee. NON PRECISEE VAUT « LES DEUX », et c'est l'inverse de
+    /// l'exigence qui vaut a l'ecriture : un filtre absent ne filtre pas, alors
+    /// qu'une mission sans nature serait ambigue.
+    /// </summary>
+    private static DomainServiceType? NatureDemandee(ProtoServiceType nature) => nature switch
+    {
+        ProtoServiceType.Delivery => DomainServiceType.Delivery,
+        ProtoServiceType.Ride => DomainServiceType.Ride,
+        _ => null,
+    };
+
+    private static ProtoRefundDue ToProto(RefundDueView vue)
+    {
+        var ligne = new ProtoRefundDue
+        {
+            Id = vue.Id.ToString(),
+            ServiceType = Nature(vue.ServiceType),
+            ReferenceId = vue.ReferenceId.ToString(),
+            PaymentIntentId = vue.PaymentIntentId.ToString(),
+            PayerId = vue.PayerId,
+            AmountCollected = vue.AmountCollected,
+            Reason = vue.Reason,
+            Status = Etat(vue.Status),
+            CreatedAt = Timestamp.FromDateTimeOffset(vue.CreatedAt),
+            ResolvedBy = vue.ResolvedBy ?? string.Empty,
+            Note = vue.Note ?? string.Empty,
+        };
+        if (vue.RecommendedRefund is not null)
+        {
+            ligne.RecommendedRefund = vue.RecommendedRefund.Value;
+        }
+
+        if (vue.SettledAmount is not null)
+        {
+            ligne.SettledAmount = vue.SettledAmount.Value;
+        }
+
+        if (vue.ResolvedAt is not null)
+        {
+            ligne.ResolvedAt = Timestamp.FromDateTimeOffset(vue.ResolvedAt.Value);
+        }
+
+        return ligne;
+    }
+
+    private static ProtoRefundStatus Etat(DomainRefundStatus status) => status switch
+    {
+        DomainRefundStatus.Pending => ProtoRefundStatus.Pending,
+        DomainRefundStatus.Settled => ProtoRefundStatus.Settled,
+        DomainRefundStatus.Dismissed => ProtoRefundStatus.Dismissed,
+        _ => ProtoRefundStatus.Unspecified,
+    };
+
+    /// <summary>
+    /// La nature de la mission, exigee et non devinee.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// UN APPEL SANS NATURE EST REFUSE, PAS INTERPRETE COMME UNE LIVRAISON. Le
+    /// defaut protobuf d'un enum est zero : traiter zero comme « livraison » ferait
+    /// qu'un appelant distrait paie la livraison qui porte l'identifiant d'une
+    /// course. Mieux vaut un argument invalide tout de suite.
+    /// </remarks>
+    private static DomainServiceType Nature(ProtoServiceType nature) => nature switch
+    {
+        ProtoServiceType.Delivery => DomainServiceType.Delivery,
+        ProtoServiceType.Ride => DomainServiceType.Ride,
+        _ => throw new DomainException(
+            "VALIDATION_FAILED",
+            "Le champ service_type est obligatoire : livraison ou course."),
+    };
+
+    private static ProtoServiceType Nature(DomainServiceType nature) => nature switch
+    {
+        DomainServiceType.Delivery => ProtoServiceType.Delivery,
+        DomainServiceType.Ride => ProtoServiceType.Ride,
+        _ => ProtoServiceType.Unspecified,
+    };
+
     private static PaymentIntent ToProto(PaymentIntentView view) => new()
     {
         Id = view.Id.ToString(),
-        DeliveryId = view.DeliveryId.ToString(),
+        ReferenceId = view.ReferenceId.ToString(),
+        ServiceType = Nature(view.ServiceType),
         PayerId = view.PayerId,
         Amount = new CommonMoney
         {

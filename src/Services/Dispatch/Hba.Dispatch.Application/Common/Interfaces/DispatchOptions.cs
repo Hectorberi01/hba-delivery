@@ -73,6 +73,30 @@ public sealed class DispatchOptions
     /// </summary>
     public int MaxDriversSolicited { get; set; } = 10;
 
+    /// <summary>
+    /// Nombre de candidats demandes a Driver pour en classer UN par temps de
+    /// trajet reel.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// POURQUOI DEMANDER PLUS QUE CE QU'ON VA PROPOSER. Avec DriversPerWave a un,
+    /// demander un seul candidat revient a prendre le plus proche A VOL D'OISEAU,
+    /// ce que rend Redis GEO. Or le plus proche a vol d'oiseau n'est pas le plus
+    /// proche en temps : une lagune, un pont, un sens unique suffisent a inverser
+    /// l'ordre, et Cotonou en est pleine. On demande donc un petit vivier, on
+    /// mesure les durees reelles, et on propose au plus rapide.
+    ///
+    /// PETIT, ET POUR UNE RAISON CHIFFREE. Chaque candidat est une case de plus
+    /// dans la matrice envoyee a Routing, donc du temps avant la premiere offre.
+    /// Cinq couvre le cas qui nous interesse — deux ou trois chauffeurs a
+    /// distance comparable — sans faire attendre le client.
+    ///
+    /// UN OU ZERO DESACTIVE LE CLASSEMENT, et c'est la porte de sortie si la
+    /// mesure routiere se revele plus nuisible qu'utile en production : on
+    /// retombe exactement sur le comportement d'avant le 1er octobre 2026.
+    /// </remarks>
+    public int EtaCandidatePool { get; set; } = 5;
+
     /// <summary>Duree du verrou d'acceptation. Courte : il ne couvre qu'une transaction.</summary>
     public int AcceptanceLockSeconds { get; set; } = 10;
 

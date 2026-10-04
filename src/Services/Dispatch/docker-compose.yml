@@ -51,6 +51,11 @@ services:
       # PORT 8081 : le gRPC de Driver, pas son REST.
       Services__Driver: ${DRIVER_GRPC:-http://driver:8081}
 
+      # LOCATION, POUR LA GEOGRAPHIE. Driver dit QUI est eligible, Location dit OU il
+      # est : depuis le 1er octobre 2026 le dispatch interroge les deux a chaque anneau
+      # de chaque vague. Sans cette ligne, aucune offre ne part.
+      Services__Location: ${LOCATION_GRPC:-http://location:8081}
+
       # IDENTITE DU SERVICE (ADR 0018). Le planificateur ouvre les vagues sans
       # aucun utilisateur derriere lui : sans ce jeton, Driver refuse la
       # recherche et aucune offre ne part jamais.

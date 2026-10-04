@@ -3,6 +3,7 @@ using Hba.Contracts.Common.V1;
 using Hba.Contracts.Delivery.V1;
 using Hba.Contracts.Dispatch.V1;
 using Hba.Contracts.Driver.V1;
+using Hba.Contracts.Location.V1;
 using Hba.Contracts.Payment.V1;
 using Hba.Gateway.Endpoints.Relais;
 using Microsoft.AspNetCore.Mvc;
@@ -111,49 +112,86 @@ public static class DriverEndpoints
             });
         });
 
+        // PASSER EN LIGNE DEMANDE MAINTENANT DEUX APPELS, ET L'ORDRE COMPTE.
+        //
+        // Driver porte la presence DECLAREE — « je me rends disponible », un etat metier
+        // qui s'audite et survit a un telephone eteint. Location porte la presence
+        // TECHNIQUE — « mon telephone emet », qui s'evapore au bout de la fenetre de
+        // fraicheur. Jusqu'au 1er octobre 2026 les deux etaient ecrites par Driver dans
+        // la foulee ; depuis que les positions ont demenage, c'est cette route qui
+        // enchaine.
+        //
+        // LE POINT APRES L'ETAT, JAMAIS AVANT. Poser la position d'abord rendrait
+        // joignable un livreur dont le passage en ligne vient d'etre refuse — dossier non
+        // valide, compte suspendu. C'est la meme precaution que prenait l'ancien handler,
+        // deplacee ici avec le geste.
+        //
+        // SI LE SECOND APPEL ECHOUE, LE LIVREUR EST EN LIGNE SANS ETRE SUR LA CARTE, donc
+        // aucune vague ne le trouve. C'est exactement l'etat d'un livreur dont le
+        // telephone n'a pas encore envoye son premier battement : un etat normal, qui se
+        // resout au battement suivant, en quelques secondes. On ne rend donc pas d'erreur
+        // au livreur pour cela.
         group.MapPost("/presence/online", async (
             PositionDto body,
             HttpContext http,
             DriverService.DriverServiceClient drivers,
+            LocationService.LocationServiceClient locations,
             CancellationToken cancellationToken) =>
         {
+            var driverId = DriverIdOf(http);
+
             var driver = await drivers.GoOnlineAsync(
-                new GoOnlineRequest
-                {
-                    DriverId = DriverIdOf(http),
-                    Position = new GeoPoint { Latitude = body.Latitude, Longitude = body.Longitude },
-                },
+                new GoOnlineRequest { DriverId = driverId },
+                cancellationToken: cancellationToken);
+
+            await locations.UpdatePositionAsync(
+                PositionRequest(driverId, body),
                 cancellationToken: cancellationToken);
 
             return Results.Ok(driver);
         });
 
+        // L'OUBLI DU POINT EST DE L'HYGIENE D'AFFICHAGE, PLUS UNE DECISION.
+        //
+        // Avant le 1er octobre 2026, effacer la position etait CE QUI mettait quelqu'un
+        // hors du dispatch : l'oublier laissait un livreur rentre chez lui recevoir des
+        // offres. Aujourd'hui la vague croise toujours Driver, qui le voit hors ligne —
+        // un point qui traine ne produit plus aucune offre par lui-meme.
+        //
+        // ON L'EFFACE QUAND MEME, pour la carte de l'exploitation : sans cela, ops verrait
+        // encore pendant deux minutes quelqu'un qui vient de se deconnecter. Et c'est
+        // precisement parce que ce geste ne porte plus de decision qu'il peut vivre ici,
+        // a la passerelle, sans risque.
         group.MapPost("/presence/offline", async (
             HttpContext http,
             DriverService.DriverServiceClient drivers,
+            LocationService.LocationServiceClient locations,
             CancellationToken cancellationToken) =>
         {
+            var driverId = DriverIdOf(http);
+
             var driver = await drivers.GoOfflineAsync(
-                new GoOfflineRequest { DriverId = DriverIdOf(http) },
+                new GoOfflineRequest { DriverId = driverId },
+                cancellationToken: cancellationToken);
+
+            await locations.ForgetPositionAsync(
+                new ForgetPositionRequest { DriverId = driverId },
                 cancellationToken: cancellationToken);
 
             return Results.Ok(driver);
         });
 
+        // LE BATTEMENT DE POSITION. C'EST L'APPEL LE PLUS FREQUENT DE TOUTE LA
+        // PLATEFORME : un point toutes les quelques secondes, par livreur en ligne. Il va
+        // droit a Location, qui n'a ni base relationnelle ni lecture d'agregat a faire.
         group.MapPost("/position", async (
             PositionDto body,
             HttpContext http,
-            DriverService.DriverServiceClient drivers,
+            LocationService.LocationServiceClient locations,
             CancellationToken cancellationToken) =>
         {
-            await drivers.UpdateLocationAsync(
-                new UpdateLocationRequest
-                {
-                    DriverId = DriverIdOf(http),
-                    Position = new GeoPoint { Latitude = body.Latitude, Longitude = body.Longitude },
-                    CapturedAt = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(
-                        body.CapturedAt ?? DateTimeOffset.UtcNow),
-                },
+            await locations.UpdatePositionAsync(
+                PositionRequest(DriverIdOf(http), body),
                 cancellationToken: cancellationToken);
 
             return Results.NoContent();
@@ -238,8 +276,19 @@ public static class DriverEndpoints
                     kind = Nommer(entry.Kind),
                     direction = Nommer(entry.Direction),
                     amountXof = entry.AmountXof,
-                    deliveryId = entry.DeliveryId,
-                    deliveryReference = entry.DeliveryReference,
+                    // LES DEUX NOMS SORTENT, ET C'EST TEMPORAIRE.
+                    //
+                    // Le grand livre connaissait la livraison ; il connait
+                    // desormais la mission, course de personnes comprise. Les
+                    // champs « reference* » sont les bons ; « delivery* » restent
+                    // le temps que l'application livreur passe aux premiers.
+                    // Supprimer les anciens aujourd'hui viderait l'ecran des gains
+                    // sur les telephones deja installes.
+                    serviceType = Nommer(entry.ServiceType),
+                    referenceId = entry.ReferenceId,
+                    referenceLabel = entry.ReferenceLabel,
+                    deliveryId = entry.ReferenceId,
+                    deliveryReference = entry.ReferenceLabel,
 
                     // L'ORIGINE D'UNE SORTIE D'ARGENT. C'est ce qui permet a
                     // l'ecran des gains de poser la reference du virement sur
@@ -439,10 +488,23 @@ public static class DriverEndpoints
     // carte des positions du back-office. Un switch plutot que la reflexion :
     // si une valeur s'ajoute au contrat, celui-ci cesse de compiler, la ou la
     // reflexion rendrait une chaine vide en silence.
+    /// <summary>
+    /// La nature de la mission remuneree, en texte stable. Vide pour un versement,
+    /// qui solde un cumul et non une mission en particulier.
+    /// </summary>
+    private static string? Nommer(Hba.Contracts.Common.V1.ServiceType nature) => nature switch
+    {
+        Hba.Contracts.Common.V1.ServiceType.Delivery => "DELIVERY",
+        Hba.Contracts.Common.V1.ServiceType.Ride => "RIDE",
+        _ => null,
+    };
+
     private static string Nommer(LedgerEntryKind kind) => kind switch
     {
         LedgerEntryKind.DeliveryEarning => "LEDGER_ENTRY_KIND_DELIVERY_EARNING",
         LedgerEntryKind.Payout => "LEDGER_ENTRY_KIND_PAYOUT",
+        LedgerEntryKind.Compensation => "LEDGER_ENTRY_KIND_COMPENSATION",
+        LedgerEntryKind.Tip => "LEDGER_ENTRY_KIND_TIP",
         _ => "LEDGER_ENTRY_KIND_UNSPECIFIED",
     };
 
@@ -462,9 +524,75 @@ public static class DriverEndpoints
 
     private static Google.Protobuf.WellKnownTypes.Timestamp? ToTimestamp(DateTimeOffset? value)
         => value is null ? null : Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(value.Value);
+
+    /// <summary>
+    /// Traduit un point recu en JSON vers le contrat de Location.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LES TROIS CHAMPS FACULTATIFS NE SONT POSES QUE S'ILS EXISTENT, et c'est tout
+    /// l'interet de « optional » dans le contrat. Les affecter a zero quand ils sont
+    /// absents les rendrait PRESENTS : Location recevrait un cap plein nord et une
+    /// vitesse nulle la ou le telephone n'a rien dit, et toutes les motos immobiles
+    /// pointeraient vers le nord sur la carte de l'exploitation.
+    ///
+    /// L'HORODATAGE ABSENT VAUT MAINTENANT, ET IL NE DECIDE RIEN DE TOUTE FACON.
+    /// Location se fie a l'heure de RECEPTION pour la fraicheur : celle du telephone
+    /// n'est transportee que pour comprendre, apres coup, pourquoi un point est arrive
+    /// en retard.
+    /// </remarks>
+    private static UpdatePositionRequest PositionRequest(string driverId, PositionDto corps)
+    {
+        var demande = new UpdatePositionRequest
+        {
+            DriverId = driverId,
+            Point = new GeoPoint { Latitude = corps.Latitude, Longitude = corps.Longitude },
+            CapturedAt = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(
+                corps.CapturedAt ?? DateTimeOffset.UtcNow),
+        };
+
+        if (corps.HeadingDegrees is { } cap)
+        {
+            demande.HeadingDegrees = cap;
+        }
+
+        if (corps.SpeedMps is { } vitesse)
+        {
+            demande.SpeedMps = vitesse;
+        }
+
+        if (corps.AccuracyMeters is { } precision)
+        {
+            demande.AccuracyMeters = precision;
+        }
+
+        return demande;
+    }
 }
 
-public sealed record PositionDto(double Latitude, double Longitude, DateTimeOffset? CapturedAt);
+/// <summary>
+/// Un point envoye par l'application livreur.
+/// </summary>
+///
+/// <remarks>
+/// LES TROIS DERNIERS CHAMPS SONT ARRIVES LE 1er OCTOBRE 2026, ET DEUX EXISTAIENT DEJA
+/// AU CONTRAT gRPC DEPUIS LE DEBUT. « heading_degrees » et « speed_mps » etaient dans
+/// UpdateLocationRequest, et personne ne les remplissait : ni cette passerelle, ni
+/// l'application. La precision GPS, elle, n'existait nulle part. C'est pour cela
+/// qu'aucune carte n'a jamais pu orienter une fleche.
+///
+/// ILS SONT FACULTATIFS, ET LE NUL N'EST PAS ZERO. Un telephone a l'arret ne rend aucun
+/// cap ; zero degre, lui, veut dire « plein nord ». En JSON l'absence du champ et sa
+/// valeur nulle se confondent, ce qui est exactement ce qu'on veut : les deux
+/// signifient « le telephone n'a rien dit ».
+/// </remarks>
+public sealed record PositionDto(
+    double Latitude,
+    double Longitude,
+    DateTimeOffset? CapturedAt,
+    double? HeadingDegrees = null,
+    double? SpeedMps = null,
+    double? AccuracyMeters = null);
 
 public sealed record DeclineDto(string? Reason);
 

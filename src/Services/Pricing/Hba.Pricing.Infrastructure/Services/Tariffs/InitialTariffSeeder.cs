@@ -30,6 +30,35 @@ public sealed class InitialTariffOptions
 
     public VehicleType VehicleType { get; set; } = VehicleType.Motorcycle;
 
+    /// <summary>
+    /// La nature tarifee par la grille initiale.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// LE DEFAUT EST LE COLIS, ET C'EST LE SEUL DEFAUT DE NATURE QUE CE DEPOT SE
+    /// PERMET AILLEURS QU'A LA FRONTIERE gRPC. La raison est la meme : ce semis
+    /// existait avant que la nature entre dans la cle, les fichiers de configuration
+    /// deployes ne la nomment pas, et une grille semee sans nature serait refusee par
+    /// l'agregat — donc aucune grille, donc NO_TARIFF sur tout.
+    ///
+    /// IL NE SEME QU'UNE SEULE GRILLE, DONC UNE SEULE NATURE. La grille de course se
+    /// cree par la route d'administration : ce semis n'a jamais eu pour role de
+    /// garnir un bareme, seulement de rendre la pile utilisable au premier demarrage.
+    /// </remarks>
+    // LE NOM EST ECRIT EN ENTIER, ET C'EST NECESSAIRE : ce fichier vit dans
+    // ...Infrastructure.Services.Tariffs, donc « Tariffs.ServiceType » designerait CE
+    // namespace-la, qui ne contient pas l'enum.
+    public ServiceType ServiceType { get; set; } = Hba.Pricing.Domain.Tariffs.ServiceType.Delivery;
+
+    /// <summary>
+    /// Tarif au kilogramme au-dela du poids inclus. Zero vaut « pas de supplement ».
+    /// Refuse par l'agregat sur une grille de course.
+    /// </summary>
+    public long PerKilogram { get; set; }
+
+    /// <summary>Poids inclus dans le prix de base, en grammes.</summary>
+    public int IncludedWeightGrams { get; set; }
+
     public long BaseFare { get; set; }
 
     public long PerKilometer { get; set; }
@@ -131,32 +160,64 @@ internal sealed class InitialTariffSeeder(
         using var scope = scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<PricingDbContext>();
 
-        if (await context.Tariffs.AnyAsync(cancellationToken).ConfigureAwait(false))
+        // LA CONDITION PORTE SUR LA CLE DE CETTE GRILLE, PLUS SUR LA TABLE ENTIERE.
+        // Depuis que la nature entre dans la cle, une base qui contient la grille des
+        // colis n'a pas pour autant celle des courses : « la table n'est pas vide »
+        // aurait empeche a jamais le semis de la seconde. La condition reste
+        // volontairement etroite — meme zone, meme nature, meme vehicule — et le
+        // semis ne touche jamais a une grille existante.
+        // LA ZONE EST NORMALISEE AVANT LA COMPARAISON, parce que l'agregat la stocke
+        // en minuscules : « Cotonou » dans un fichier de configuration et « cotonou »
+        // en base sont la meme zone, et comparer les deux telles quelles aurait seme
+        // une seconde grille identique a chaque demarrage.
+        var zone = settings.ZoneCode.Trim().ToLowerInvariant();
+
+        var dejaSemee = await context.Tariffs
+            .AnyAsync(
+                t => t.ZoneCode == zone
+                    && t.ServiceType == settings.ServiceType
+                    && t.VehicleType == settings.VehicleType,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (dejaSemee)
         {
             return;
         }
 
+        // LA PLAGE EST LA JOURNEE ENTIERE, ET CE N'EST PAS CONFIGURABLE. Un semis de
+        // demarrage qui poserait une grille de nuit laisserait la journee sans prix,
+        // et le premier devis a midi echouerait sur NO_TARIFF sans que la
+        // configuration ait l'air fausse. Les plages se saisissent par la route
+        // d'administration, ou l'on voit celles qui existent deja.
         var tariff = Tariff.Create(
             Guid.CreateVersion7(),
             settings.Version,
             settings.ZoneCode,
+            settings.ServiceType,
             settings.VehicleType,
+            TimeBand.Journee,
             MoneyXof.FromNonNegative(settings.BaseFare),
             MoneyXof.FromNonNegative(settings.PerKilometer),
             MoneyXof.FromNonNegative(settings.PerMinute),
             MoneyXof.FromNonNegative(settings.MinimumFare),
             settings.SurgeBasisPoints,
             settings.DriverShareBasisPoints,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            MoneyXof.FromNonNegative(settings.PerKilogram),
+            settings.IncludedWeightGrams);
 
         context.Tariffs.Add(tariff);
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         logger.LogWarning(
-            "Grille initiale {Version} creee pour la zone {Zone} : {PerKm} XOF/km, plancher {Minimum} XOF, "
-            + "part livreur {Share} points de base. A remplacer par une grille administree.",
+            "Grille initiale {Version} creee pour la zone {Zone}, nature {Nature}, vehicule {Vehicule} : "
+            + "{PerKm} XOF/km, plancher {Minimum} XOF, part livreur {Share} points de base, journee entiere. "
+            + "Les autres natures, vehicules et plages horaires se creent par la route d'administration.",
             settings.Version,
             settings.ZoneCode,
+            settings.ServiceType,
+            settings.VehicleType,
             settings.PerKilometer,
             settings.MinimumFare,
             settings.DriverShareBasisPoints);

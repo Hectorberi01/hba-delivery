@@ -1,5 +1,6 @@
 using Hba.BuildingBlocks.Application.Abstractions;
 using Hba.BuildingBlocks.Application.Messaging;
+using Hba.BuildingBlocks.Application.Time;
 using Hba.BuildingBlocks.Domain;
 using Hba.Pricing.Application.Common.Interfaces;
 using Hba.Pricing.Application.Common.Views;
@@ -18,12 +19,28 @@ namespace Hba.Pricing.Application.Features.Quotes.Commands;
 /// sans le persister reviendrait a promettre un prix que plus personne ne
 /// pourrait retrouver.
 /// </summary>
+///
+/// <remarks>
+/// LA NATURE EST OBLIGATOIRE ET N'A PAS DE DEFAUT. Un devis de course chiffre
+/// sur la grille du colis « fonctionne » : il rend un nombre, il est accepte, il
+/// est facture. C'est exactement ce qui se passait avant le 1er octobre 2026, et
+/// c'est pour cela que la nature entre dans la cle de la grille au lieu d'etre
+/// devinee ici.
+///
+/// LE POIDS N'EST LU QUE POUR UN COLIS, et ce n'est pas ce handler qui le decide :
+/// la strategie de la nature le fait (<see cref="PricingStrategies"/>). Un poids
+/// envoye sur une course est donc ignore sans erreur — le client des courses n'a
+/// aucune raison de le remplir, mais un formulaire partage peut le laisser a zero
+/// comme a mille.
+/// </remarks>
 public sealed record GetQuoteCommand(
     double PickupLatitude,
     double PickupLongitude,
     double DropoffLatitude,
     double DropoffLongitude,
-    VehicleType VehicleType) : ICommand<QuoteView>;
+    ServiceType ServiceType,
+    VehicleType VehicleType,
+    int PackageWeightGrams = 0) : ICommand<QuoteView>;
 
 public sealed class GetQuoteHandler(
     IZoneLocator zones,
@@ -31,7 +48,8 @@ public sealed class GetQuoteHandler(
     IQuoteRepository quotes,
     IRouteEngine routes,
     IUnitOfWork unitOfWork,
-    IClock clock) : ICommandHandler<GetQuoteCommand, QuoteView>
+    IClock clock,
+    ITimeCalendar calendrier) : ICommandHandler<GetQuoteCommand, QuoteView>
 {
     /// <summary>
     /// Duree de validite d'un devis. Assez long pour remplir un formulaire,
@@ -43,6 +61,23 @@ public sealed class GetQuoteHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
+        if (command.ServiceType == ServiceType.Unspecified)
+        {
+            // UNE NATURE ABSENTE NE DEVIENT PAS UN COLIS. Le repli existe a la
+            // frontiere gRPC, ou l'absence d'un champ est indistinguable de zero ;
+            // ici l'appelant est interne et sait ce qu'il tarife.
+            throw new DomainException(
+                "VALIDATION_FAILED",
+                "Un devis nomme la nature de la prestation : colis ou course.");
+        }
+
+        if (command.PackageWeightGrams < 0)
+        {
+            throw new DomainException(
+                "VALIDATION_FAILED",
+                "Le poids d'un colis ne peut pas etre negatif.");
+        }
+
         var pickup = GeoPoint.Create(command.PickupLatitude, command.PickupLongitude);
         var dropoff = GeoPoint.Create(command.DropoffLatitude, command.DropoffLongitude);
 
@@ -53,24 +88,47 @@ public sealed class GetQuoteHandler(
 
         var now = clock.UtcNow;
 
-        var tariff = await tariffs.FindInForceAsync(zoneCode, command.VehicleType, now, cancellationToken)
+        // L'HEURE QUI CHOISIT LA PLAGE EST CELLE DU CHAUFFEUR ET DU PASSAGER, pas
+        // celle du serveur. Le fuseau metier est une decision de configuration
+        // (ADR 0019) : ce handler ne connait pas Cotonou, il demande au calendrier.
+        var heureLocale = TimeOnly.FromDateTime(
+            TimeZoneInfo.ConvertTime(now, calendrier.Zone).DateTime);
+
+        var tariff = await tariffs
+                .FindInForceAsync(
+                    zoneCode,
+                    command.ServiceType,
+                    command.VehicleType,
+                    now,
+                    heureLocale,
+                    cancellationToken)
                 .ConfigureAwait(false)
-            // LE REFUS NOMME LE VEHICULE, ET PAS SEULEMENT LA ZONE.
+            // LE REFUS NOMME LA NATURE, LE VEHICULE ET L'HEURE, PAS SEULEMENT LA ZONE.
             //
-            // Une grille est indexee par ZONE ET PAR VEHICULE : dire « aucune
-            // grille pour la zone X » envoie chercher un probleme de zone quand
-            // c'est le vehicule qui manque. Le cas n'etait pas theorique — le
-            // 30 septembre 2026, le velo et le tricycle sont entres au contrat
-            // AVANT que leurs grilles existent, et ce message est la premiere
-            // chose que l'exploitation lira ce jour-la.
+            // Une grille est indexee par ZONE, NATURE, VEHICULE ET PLAGE HORAIRE :
+            // dire « aucune grille pour la zone X » envoie chercher un probleme de
+            // zone quand c'est l'une des trois autres dimensions qui manque. Le cas
+            // n'etait pas theorique — le 30 septembre 2026, le velo et le tricycle
+            // sont entres au contrat AVANT que leurs grilles existent, et le
+            // 1er octobre la nature a fait la meme chose aux courses. Ce message est
+            // la premiere chose que l'exploitation lira ces jours-la.
             ?? throw new DomainException(
                 "NO_TARIFF",
-                $"Aucune grille tarifaire en vigueur pour la zone {zoneCode} "
-                + $"et le vehicule {command.VehicleType}.");
+                $"Aucune grille tarifaire en vigueur pour la zone {zoneCode}, "
+                + $"la nature {command.ServiceType}, le vehicule {command.VehicleType} "
+                + $"et l'heure locale {heureLocale:HH\\:mm}.");
 
         var route = await routes.MeasureAsync(pickup, dropoff, cancellationToken).ConfigureAwait(false);
 
-        var quote = Quote.Create(Guid.CreateVersion7(), tariff, pickup, dropoff, route, now, Lifetime);
+        var quote = Quote.Create(
+            Guid.CreateVersion7(),
+            tariff,
+            pickup,
+            dropoff,
+            route,
+            now,
+            Lifetime,
+            new QuoteInputs(command.PackageWeightGrams));
 
         quotes.Add(quote);
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

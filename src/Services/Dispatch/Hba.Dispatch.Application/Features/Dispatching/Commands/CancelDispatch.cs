@@ -2,6 +2,7 @@ using Hba.BuildingBlocks.Application.Abstractions;
 using Hba.BuildingBlocks.Domain;
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.Dispatch.Application.Common.Interfaces;
+using Hba.Dispatch.Domain.Dispatching;
 using Microsoft.Extensions.Logging;
 
 namespace Hba.Dispatch.Application.Features.Dispatching.Commands;
@@ -16,7 +17,10 @@ namespace Hba.Dispatch.Application.Features.Dispatching.Commands;
 /// terminal — bloquant la partition Kafka sur un message que personne ne
 /// pourra jamais traiter.
 /// </summary>
-public sealed record CancelDispatchCommand(Guid DeliveryId, string Raison) : ICommand<bool>;
+public sealed record CancelDispatchCommand(
+    ServiceType ServiceType,
+    Guid ReferenceId,
+    string Raison) : ICommand<bool>;
 
 public sealed class CancelDispatchHandler(
     IDispatchRepository dispatches,
@@ -29,7 +33,7 @@ public sealed class CancelDispatchHandler(
         ArgumentNullException.ThrowIfNull(command);
 
         var dispatch = await dispatches
-            .GetByDeliveryIdAsync(command.DeliveryId, cancellationToken)
+            .GetByReferenceAsync(command.ServiceType, command.ReferenceId, cancellationToken)
             .ConfigureAwait(false);
 
         if (dispatch is null)
@@ -53,8 +57,9 @@ public sealed class CancelDispatchHandler(
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         logger.LogInformation(
-            "Recherche close pour la livraison {DeliveryId} : {Raison}.",
-            command.DeliveryId,
+            "Recherche close pour la mission {Nature} {ReferenceId} : {Raison}.",
+            command.ServiceType,
+            command.ReferenceId,
             command.Raison);
 
         return true;

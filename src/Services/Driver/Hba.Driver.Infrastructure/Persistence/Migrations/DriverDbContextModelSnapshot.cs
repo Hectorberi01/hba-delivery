@@ -232,6 +232,11 @@ namespace Hba.Driver.Infrastructure.Persistence.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
+                    b.PrimitiveCollection<int[]>("_capabilities")
+                        .IsRequired()
+                        .HasColumnType("integer[]")
+                        .HasColumnName("capabilities");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Phone")
@@ -253,9 +258,33 @@ namespace Hba.Driver.Infrastructure.Persistence.Migrations
                             b1.Property<Guid>("DriverAggregateId")
                                 .HasColumnType("uuid");
 
+                            b1.Property<string>("Brand")
+                                .IsRequired()
+                                .HasMaxLength(64)
+                                .HasColumnType("character varying(64)")
+                                .HasColumnName("vehicle_brand");
+
                             b1.Property<int>("CapacityGrams")
                                 .HasColumnType("integer")
                                 .HasColumnName("vehicle_capacity_grams");
+
+                            b1.Property<string>("Color")
+                                .IsRequired()
+                                .HasMaxLength(32)
+                                .HasColumnType("character varying(32)")
+                                .HasColumnName("vehicle_color");
+
+                            b1.Property<string>("Model")
+                                .IsRequired()
+                                .HasMaxLength(64)
+                                .HasColumnType("character varying(64)")
+                                .HasColumnName("vehicle_model");
+
+                            b1.Property<int>("PassengerCapacity")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer")
+                                .HasDefaultValue(0)
+                                .HasColumnName("vehicle_passenger_capacity");
 
                             b1.Property<string>("Plate")
                                 .IsRequired()

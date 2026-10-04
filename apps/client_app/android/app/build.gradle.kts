@@ -42,7 +42,7 @@ val proprietesCle = Properties().apply {
 val cleDePublication = proprietesCle.getProperty("storeFile") != null
 
 android {
-    namespace = "com.example.hba_client"
+    namespace = "com.hbatechettrade.hba_client"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -52,8 +52,17 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.hba_client"
+        // L'IDENTITE DE L'APPLICATION, ET ELLE EST DEFINITIVE. Un applicationId
+        // publie ne se change plus : le Play Store en fait une autre
+        // application, les installations existantes ne se mettent pas a jour,
+        // et le precedent reste reserve a jamais.
+        //
+        // ELLE ETAIT RESTEE A « com.example » JUSQU'AU 2 OCTOBRE 2026 — la
+        // valeur que Flutter ecrit a la creation du projet. Google et Apple
+        // refusent tous deux ce prefixe : la publication etait impossible, et
+        // rien dans l'application ne le signalait. L'application livreur, elle,
+        // portait deja com.hbatechettrade.hba_driver.
+        applicationId = "com.hbatechettrade.hba_client"
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.

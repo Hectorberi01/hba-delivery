@@ -96,4 +96,16 @@ public static class HbaPolicies
     /// passerelle.
     /// </summary>
     public const string AnnuaireClients = "policy:annuaire-clients";
+
+    /// <summary>
+    /// Journal des envois : admin, ops et support — PAS finance. Décidé le
+    /// 2 octobre 2026.
+    ///
+    /// MEME DECOUPE QUE L'ANNUAIRE DES CLIENTS, ET POURTANT UNE POLITIQUE A
+    /// PART. Les deux listes contiennent aujourd'hui les mêmes rôles, mais pas
+    /// pour les mêmes raisons : ouvrir le journal à finance, le jour où le
+    /// rapprochement de la facture SMS le demandera, ne doit pas ouvrir du même
+    /// geste l'annuaire des clients. Deux décisions, deux noms.
+    /// </summary>
+    public const string JournalNotifications = "policy:journal-notifications";
 }

@@ -1,0 +1,64 @@
+# Deploiement du service realtime. IL SE DEPLOIE SEUL.
+#
+# CE SERVICE NE POSSEDE AUCUNE DONNEE, et il va plus loin que Routing et Location
+# dans cette direction : eux tiennent au moins un cache ou un index, lui ne garde
+# que des connexions ouvertes. Il n'a donc ni base, ni migration, ni schema — ET
+# PAS D'INBOX NON PLUS, ce qui est inhabituel pour un consommateur Kafka de ce
+# depot : l'effet d'un message est d'ecrire une trame dans une socket, et l'ecrire
+# deux fois est sans consequence. Voir Readme.cs.
+#
+# IL N'EXPOSE QU'UN SEUL PORT, le 8080, en HTTP/1.1 et HTTP/2. Pas de port gRPC :
+# personne ne l'appelle, c'est lui qui appelle. Et les deux protocoles sur le meme
+# port parce que SignalR negocie — WebSocket quand le reseau le permet, requetes
+# longues en HTTP/1.1 sinon.
+#
+# REDIS EST OBLIGATOIRE : il porte le backplane SignalR et l'annuaire
+# mission-chauffeur. Sans lui, le service accepterait des connexions et ne
+# diffuserait presque rien.
+#
+#   cd src/Services/Realtime && docker compose up -d
+
+name: hba-realtime
+
+services:
+  realtime:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-realtime:${HBA_TAG:-latest}
+
+    build:
+      context: ../../..
+      dockerfile: src/Services/Realtime/Hba.Realtime.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # LA FORME REQUISE : un Redis absent ferait demarrer un service muet.
+      ConnectionStrings__Redis: "redis:6379,password=${REALTIME_REDIS_PASSWORD:?REALTIME_REDIS_PASSWORD absent - Redis porte le backplane SignalR et l annuaire des missions}"
+
+      Kafka__BootstrapServers: ${KAFKA_BOOTSTRAP:-kafka:9092}
+      Kafka__SecurityProtocol: ${KAFKA_SECURITY_PROTOCOL:-Plaintext}
+
+      # LE CANAL DES BATTEMENTS. IL DOIT VALOIR EXACTEMENT Location__PositionChannel :
+      # s'ils divergent, aucune position n'arrive sur aucun ecran, et rien ne le
+      # signale dans aucun journal. C'est le seul couplage entre les deux services.
+      Realtime__PositionChannel: ${REALTIME_POSITION_CHANNEL:-hba.location.positions}
+      Realtime__MissionDriverTtlHours: ${REALTIME_MISSION_DRIVER_TTL_HOURS:-12}
+
+      # LES DEUX PROPRIETAIRES DES MISSIONS. Le hub les interroge avec le jeton du
+      # client pour savoir si la mission est la sienne : la regle reste chez eux
+      # (ADR 0007), ce service ne la recopie pas.
+      Services__Ride: ${RIDE_GRPC:-http://ride:8081}
+      Services__Delivery: ${DELIVERY_GRPC:-http://delivery:8081}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

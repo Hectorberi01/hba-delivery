@@ -38,6 +38,12 @@ builder.Services.AddHostedService<DispatchEventsConsumer>();
 // jusqu'a ON_MISSION et n'en sort jamais.
 builder.Services.AddHostedService<DeliveryEventsConsumer>();
 
+// ET AUSSI QUAND LA MISSION ETAIT UNE COURSE DE PERSONNES. Le consommateur
+// ci-dessus ne connait que les colis : depuis le 1er octobre 2026, une mission
+// sur deux s'achevait sans que Driver l'apprenne, et le chauffeur restait
+// ON_MISSION indefiniment.
+builder.Services.AddHostedService<RideEventsConsumer>();
+
 var app = builder.Build();
 
 app.UseHbaRequestLogging();

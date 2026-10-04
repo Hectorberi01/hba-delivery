@@ -28,7 +28,36 @@ internal sealed class DriverConfiguration : IEntityTypeConfiguration<DriverAggre
             vehicle.Property(v => v.Type).HasColumnName("vehicle_type").HasConversion<int>();
             vehicle.Property(v => v.Plate).HasColumnName("vehicle_plate").HasMaxLength(32);
             vehicle.Property(v => v.CapacityGrams).HasColumnName("vehicle_capacity_grams");
+
+            // LES TROIS SONT DECLARATIFS ET FACULTATIFS : ils servent au client a
+            // reconnaitre le vehicule qui arrive, pas a autoriser quoi que ce
+            // soit. Aucune valeur par defaut, donc chaine vide pour les
+            // centaines de lignes existantes.
+            vehicle.Property(v => v.Brand).HasColumnName("vehicle_brand").HasMaxLength(64);
+            vehicle.Property(v => v.Model).HasColumnName("vehicle_model").HasMaxLength(64);
+            vehicle.Property(v => v.Color).HasColumnName("vehicle_color").HasMaxLength(32);
+
+            // ZERO POUR TOUT L'EXISTANT, ET C'EST LA BONNE VALEUR : aucun
+            // livreur deja inscrit n'a declare de place passager, donc aucun ne
+            // doit en recevoir tant qu'il ne l'a pas fait.
+            vehicle.Property(v => v.PassengerCapacity)
+                .HasColumnName("vehicle_passenger_capacity")
+                .HasDefaultValue(0);
         });
+
+        // LES HABILITATIONS EN COLONNE DE TEXTE, PAS EN TABLE FILLE. Elles sont
+        // au plus trois, toujours lues avec le livreur, jamais interrogees seules
+        // — une table fille couterait une jointure sur le chemin du dispatch pour
+        // ranger trois valeurs. EF compare le contenu, pas la reference, sans
+        // quoi une collection modifiee ne serait jamais persistee.
+        //
+        // NE PAS REMPLACER LA LISTE DU DOMAINE PAR UN ENSEMBLE : une collection
+        // primitive d'EF Core se materialise par IList<T>, et un HashSet fait
+        // echouer chaque lecture sur InvalidCastException. L'explication complete
+        // est au champ _capabilities de DriverAggregate.
+        builder.PrimitiveCollection("_capabilities")
+            .HasColumnName("capabilities")
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
 
         builder.Property(d => d.Version).IsRowVersion().HasColumnName("xmin").HasColumnType("xid");
 

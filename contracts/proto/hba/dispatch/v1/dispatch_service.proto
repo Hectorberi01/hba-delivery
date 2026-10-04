@@ -3,13 +3,24 @@ syntax = "proto3";
 package hba.dispatch.v1;
 
 import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
 import "hba/common/v1/geo.proto";
 import "hba/common/v1/time.proto";
 
 option csharp_namespace = "Hba.Contracts.Dispatch.V1";
 
-// Le moteur de dispatch propose une livraison aux livreurs proches, par vagues.
-// Un livreur ne peut porter qu'une seule offre réservée à la fois.
+// Le moteur de dispatch propose une mission aux chauffeurs proches, par vagues.
+// Un chauffeur ne peut porter qu'une seule offre réservée à la fois.
+//
+// « MISSION », PAS « LIVRAISON », DEPUIS LE 1er OCTOBRE 2026. Le moteur cherche
+// pour un colis OU pour une course de personnes : c'est le couple
+// (service_type, reference_id) qui dit laquelle. L'ancien champ delivery_id a
+// été RENOMMÉ en reference_id — même numéro de champ, donc compatible sur le
+// fil : seul le code qui le lit par son nom a changé.
+//
+// UN CONSOMMATEUR DOIT REGARDER service_type AVANT D'AGIR. Sans ce test,
+// Delivery traiterait l'acceptation d'une course comme celle d'une livraison et
+// chercherait en base un identifiant qui n'y est pas.
 service DispatchService {
   // Le livreur accepte une offre. Verrou Redis atomique + concurrence
   // optimiste : au plus un gagnant.
@@ -46,7 +57,11 @@ enum OfferStatus {
 
 message Offer {
   string id = 1;
-  string delivery_id = 2;
+
+  // L'identifiant de la mission : une livraison, ou une course. Son type est
+  // porté par service_type ci-dessous, et les deux ne se lisent jamais l'un
+  // sans l'autre.
+  string reference_id = 2;
   string driver_id = 3;
   OfferStatus status = 4;
   // Numéro de la vague qui a produit l'offre. ZÉRO SIGNIFIE « À LA MAIN » :
@@ -71,6 +86,19 @@ message Offer {
   // pickup_landmark ; ce champ ne fait que le rendre affichable sur une
   // carte au lieu d'une ligne de texte.
   hba.common.v1.GeoPoint pickup = 12;
+
+  // LA NATURE DE LA MISSION, ET ELLE CHANGE CE QUE LE CHAUFFEUR LIT À L'ÉCRAN.
+  // « Colis à collecter » et « Passager à prendre » ne demandent pas les mêmes
+  // gestes : sans ce champ, l'application afficherait un libellé de colis pour
+  // une personne qui attend au bord de la route.
+  hba.common.v1.ServiceType service_type = 13;
+
+  // Le véhicule exigé par la mission, tel que la course l'a demandé.
+  //
+  // IL EST RENDU POUR MÉMOIRE, PAS POUR ÊTRE VÉRIFIÉ ICI : le filtrage a déjà
+  // eu lieu chez Driver avant que l'offre ne parte. L'afficher permet au
+  // chauffeur qui possède deux véhicules de savoir lequel est attendu.
+  hba.common.v1.VehicleType vehicle_type = 14;
 }
 
 message AcceptOfferRequest {
@@ -100,7 +128,11 @@ message GetCurrentOfferRequest {
 }
 
 message ForceReassignRequest {
-  string delivery_id = 1;
+  // Identifiant de la mission. Son type est obligatoire : deux missions de
+  // natures différentes pourraient porter le même identifiant, et une
+  // réaffectation visant la mauvaise serait indétectable.
+  string reference_id = 1;
+  hba.common.v1.ServiceType service_type = 4;
   string reason = 2;
   // Optionnel : cible imposée. Vide = relancer une vague normale.
   string target_driver_id = 3;
@@ -112,12 +144,14 @@ message ForceReassignResponse {
 }
 
 message OfferToDriverRequest {
-  string delivery_id = 1;
+  string reference_id = 1;
   string driver_id = 2;
   // Motif d'exploitation, journalisé avec l'auteur. Facultatif : le geste est
   // déjà attribué, et exiger une phrase pour un clic urgent ferait écrire
   // « urgent » à tout le monde.
   string reason = 3;
+
+  hba.common.v1.ServiceType service_type = 4;
 }
 
 message OfferToDriverResponse {

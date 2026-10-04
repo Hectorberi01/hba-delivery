@@ -189,6 +189,24 @@ public static class AdminDirectoryEndpoints
 
         var accounts = app.MapGroup("/api/admin/v1/accounts").RequireAuthorization(HbaPolicies.BackOffice);
 
+        // LA LISTE DE L'EQUIPE, ET ELLE PORTE SA PROPRE POLITIQUE. Le groupe
+        // ouvre au back-office entier parce que la creation d'un compte
+        // commercant n'a pas de raison d'etre reservee a admin ; savoir qui
+        // administre la plateforme, si. Identity revérifie de toute facon
+        // (ListBackOfficeAccountsHandler) : la politique posee ici evite
+        // seulement un aller-retour pour rendre un refus previsible.
+        accounts.MapGet("/back-office", async (
+            IdentityService.IdentityServiceClient identity,
+            CancellationToken cancellationToken,
+            int limit = 200) =>
+        {
+            var equipe = await identity.ListBackOfficeAccountsAsync(
+                new ListBackOfficeAccountsRequest { Limit = limit },
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(equipe);
+        }).RequireAuthorization(HbaPolicies.Admin);
+
         accounts.MapPost("/back-office", async (
             CreateBackOfficeAccountDto body,
             IdentityService.IdentityServiceClient identity,
@@ -262,6 +280,22 @@ public static class AdminDirectoryEndpoints
         // La création d'un client partenaire exige le rôle admin, pas seulement
         // le back-office : elle produit des secrets.
         var partners = app.MapGroup("/api/admin/v1/partners").RequireAuthorization(HbaPolicies.Admin);
+
+        // LA LISTE MANQUAIT, ET LA CREATION EXISTAIT DEPUIS LE DEBUT : on
+        // pouvait ouvrir un client partenaire sans jamais pouvoir verifier
+        // lesquels existaient. Aucun secret n'en sort — le resume protobuf n'en
+        // porte pas.
+        partners.MapGet("", async (
+            IdentityService.IdentityServiceClient identity,
+            CancellationToken cancellationToken,
+            int limit = 200) =>
+        {
+            var liste = await identity.ListPartnerClientsAsync(
+                new ListPartnerClientsRequest { Limit = limit },
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(liste);
+        });
 
         partners.MapPost("", async (
             CreatePartnerDto body,

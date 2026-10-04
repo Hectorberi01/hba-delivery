@@ -6,7 +6,12 @@ using Hba.Dispatch.Domain.ValueObjects;
 namespace Hba.Dispatch.Domain.Dispatching;
 
 /// <summary>
-/// La recherche d'un livreur pour UNE livraison.
+/// La recherche d'un chauffeur pour UNE mission : un colis ou une course.
+///
+/// « MISSION », PAS « LIVRAISON », DEPUIS LE 1er OCTOBRE 2026. Cet agregat
+/// portait DeliveryId en dur et ne savait chercher que pour un colis. Il porte
+/// desormais le couple (ServiceType, ReferenceId) : le type dit a qui appartient
+/// l'identifiant, et il decide seul de l'habilitation exigee du chauffeur.
 ///
 /// POURQUOI UN AGREGAT PAR LIVRAISON, et non un agregat par offre : les
 /// invariants qui comptent portent sur l'ensemble. « Au plus un gagnant »,
@@ -32,7 +37,9 @@ public sealed class DispatchAggregate : AggregateRoot
 
     private DispatchAggregate(
         Guid id,
-        Guid deliveryId,
+        ServiceType serviceType,
+        Guid referenceId,
+        VehicleType vehicleType,
         GeoPoint pickup,
         string pickupLandmark,
         int tripDistanceMeters,
@@ -40,7 +47,9 @@ public sealed class DispatchAggregate : AggregateRoot
         DateTimeOffset createdAt)
         : base(id)
     {
-        DeliveryId = deliveryId;
+        ServiceType = serviceType;
+        ReferenceId = referenceId;
+        VehicleType = vehicleType;
         Pickup = pickup;
         PickupLandmark = pickupLandmark;
         TripDistanceMeters = tripDistanceMeters;
@@ -50,7 +59,31 @@ public sealed class DispatchAggregate : AggregateRoot
         CreatedAt = createdAt;
     }
 
-    public Guid DeliveryId { get; private set; }
+    /// <summary>
+    /// La nature de la mission. Elle decide de l'habilitation exigee.
+    /// </summary>
+    public ServiceType ServiceType { get; private set; }
+
+    /// <summary>
+    /// Identifiant de la mission : une livraison, ou une course.
+    ///
+    /// IL NE SE LIT JAMAIS SANS <see cref="ServiceType"/> : deux missions de
+    /// natures differentes peuvent porter le meme identifiant, et c'est le type
+    /// qui dit a quel service le rendre.
+    /// </summary>
+    public Guid ReferenceId { get; private set; }
+
+    /// <summary>
+    /// Vehicule exige par la mission.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// NON PRECISE VEUT DIRE « N'IMPORTE LEQUEL », pas « le type zero ». C'est le
+    /// cas de TOUTES les livraisons aujourd'hui : « DeliveryConfirmed » ne porte
+    /// pas le poids du colis, et le devis a ete calcule sur une moto par defaut.
+    /// Une course, elle, le precise toujours — le passager a choisi.
+    /// </remarks>
+    public VehicleType VehicleType { get; private set; }
 
     public GeoPoint Pickup { get; private set; } = null!;
 
@@ -89,6 +122,28 @@ public sealed class DispatchAggregate : AggregateRoot
     public bool IsOpen => Status == DispatchStatus.Searching;
 
     /// <summary>
+    /// L'habilitation que le chauffeur doit detenir pour recevoir cette mission.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// CALCULEE, PAS STOCKEE : elle decoule entierement de la nature de la
+    /// mission, et une colonne de plus pourrait un jour contredire le type qui la
+    /// determine. Une recherche sans nature n'exige rien de particulier — mais
+    /// elle est refusee a la creation, donc ce cas n'existe pas en base.
+    ///
+    /// LE REPAS N'A PAS SA NATURE A LUI. Une commande HBA Food est une livraison
+    /// dont la Source dit qu'elle vient du Food : rien dans le referentiel ne
+    /// demande une habilitation distincte aujourd'hui. Le jour ou ce sera le cas,
+    /// c'est ici que la regle s'ecrira.
+    /// </remarks>
+    public DriverCapability CapaciteExigee => ServiceType switch
+    {
+        ServiceType.Delivery => DriverCapability.PackageDelivery,
+        ServiceType.Ride => DriverCapability.PassengerTransport,
+        _ => DriverCapability.Unspecified,
+    };
+
+    /// <summary>
     /// Livreurs deja sollicites, toutes vagues confondues. Sert de liste
     /// d'exclusion : reproposer la meme course a quelqu'un qui vient de la
     /// laisser passer gaspille une place dans la vague suivante.
@@ -96,9 +151,22 @@ public sealed class DispatchAggregate : AggregateRoot
     public IReadOnlySet<string> SolicitedDriverIds
         => _offers.Select(o => o.DriverId).ToHashSet(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Ouvre une recherche.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// UNE NATURE NON PRECISEE EST REFUSEE, ET CE REFUS EST LE GARDE-FOU DE TOUT
+    /// LE DECOUPLAGE. Sans nature, l'agregat n'exigerait aucune habilitation —
+    /// donc proposerait un passager a un chauffeur qui n'en transporte pas — et
+    /// ses evenements partiraient vers un consommateur indetermine. Mieux vaut
+    /// refuser que deviner.
+    /// </remarks>
     public static DispatchAggregate Start(
         Guid id,
-        Guid deliveryId,
+        ServiceType serviceType,
+        Guid referenceId,
+        VehicleType vehicleType,
         GeoPoint pickup,
         string? pickupLandmark,
         int tripDistanceMeters,
@@ -107,9 +175,18 @@ public sealed class DispatchAggregate : AggregateRoot
     {
         ArgumentNullException.ThrowIfNull(pickup);
 
+        if (serviceType == ServiceType.Unspecified)
+        {
+            throw new DomainException(
+                DispatchErrorCodes.ServiceTypeRequired,
+                "Une recherche doit dire de quelle nature est la mission.");
+        }
+
         return new DispatchAggregate(
             id,
-            deliveryId,
+            serviceType,
+            referenceId,
+            vehicleType,
             pickup,
             pickupLandmark?.Trim() ?? string.Empty,
             tripDistanceMeters,
@@ -161,7 +238,8 @@ public sealed class DispatchAggregate : AggregateRoot
             _offers.Add(offer);
             nouvelles.Add(offer);
 
-            Raise(new OfferSent(DeliveryId, offer.Id, offer.DriverId, CurrentWave, expiresAt, actor, now));
+            Raise(new OfferSent(
+                ReferenceId, ServiceType, offer.Id, offer.DriverId, CurrentWave, expiresAt, actor, now));
         }
 
         return nouvelles;
@@ -222,7 +300,8 @@ public sealed class DispatchAggregate : AggregateRoot
 
         _offers.Add(offer);
 
-        Raise(new OfferSent(DeliveryId, offer.Id, offer.DriverId, ManualWave, offer.ExpiresAt, actor, now));
+        Raise(new OfferSent(
+            ReferenceId, ServiceType, offer.Id, offer.DriverId, ManualWave, offer.ExpiresAt, actor, now));
 
         return offer;
     }
@@ -264,14 +343,14 @@ public sealed class DispatchAggregate : AggregateRoot
         foreach (var autre in _offers.Where(o => o.Id != offerId && o.IsPending))
         {
             autre.Supersede(now);
-            Raise(new OfferSuperseded(DeliveryId, autre.Id, autre.DriverId, actor, now));
+            Raise(new OfferSuperseded(ReferenceId, ServiceType, autre.Id, autre.DriverId, actor, now));
         }
 
         Status = DispatchStatus.Assigned;
         AssignedDriverId = driverId;
         ClosedAt = now;
 
-        Raise(new OfferAccepted(DeliveryId, offer.Id, driverId, actor, now));
+        Raise(new OfferAccepted(ReferenceId, ServiceType, offer.Id, driverId, actor, now));
 
         return offer;
     }
@@ -294,7 +373,7 @@ public sealed class DispatchAggregate : AggregateRoot
         }
 
         offer.Decline(reason, now);
-        Raise(new OfferDeclined(DeliveryId, offer.Id, driverId, reason, actor, now));
+        Raise(new OfferDeclined(ReferenceId, ServiceType, offer.Id, driverId, reason, actor, now));
     }
 
     /// <summary>
@@ -310,7 +389,7 @@ public sealed class DispatchAggregate : AggregateRoot
         foreach (var offer in echues)
         {
             offer.Expire(now);
-            Raise(new OfferExpired(DeliveryId, offer.Id, offer.DriverId, actor, now));
+            Raise(new OfferExpired(ReferenceId, ServiceType, offer.Id, offer.DriverId, actor, now));
         }
 
         return echues.Count;
@@ -360,7 +439,7 @@ public sealed class DispatchAggregate : AggregateRoot
         Status = DispatchStatus.Exhausted;
         ClosedAt = now;
 
-        Raise(new DispatchExhausted(DeliveryId, CurrentWave, actor, now));
+        Raise(new DispatchExhausted(ReferenceId, ServiceType, CurrentWave, actor, now));
     }
 
     /// <summary>
@@ -408,7 +487,7 @@ public sealed class DispatchAggregate : AggregateRoot
         foreach (var offer in _offers.Where(o => o.IsPending))
         {
             offer.Supersede(now);
-            Raise(new OfferSuperseded(DeliveryId, offer.Id, offer.DriverId, actor, now));
+            Raise(new OfferSuperseded(ReferenceId, ServiceType, offer.Id, offer.DriverId, actor, now));
         }
 
         Status = DispatchStatus.Cancelled;
@@ -426,5 +505,22 @@ public sealed class DispatchAggregate : AggregateRoot
     }
 }
 
-/// <summary>Livreur retenu par la recherche de proximite, avec sa distance.</summary>
-public sealed record CandidateDriver(string DriverId, int DistanceToPickupMeters);
+/// <summary>
+/// Chauffeur retenu par la recherche de proximite.
+/// </summary>
+///
+/// <remarks>
+/// SA POSITION EST PORTEE DEPUIS LE 1er OCTOBRE 2026, et elle sert au classement
+/// par temps de trajet reel : calculer une duree depuis un point qu'on ne connait
+/// pas est impossible, et Driver le rend deja dans sa reponse. Elle n'entre PAS
+/// dans l'offre — un chauffeur n'a pas a apprendre ou se trouve un autre.
+///
+/// <paramref name="DistanceToPickupMeters"/> EST A VOL D'OISEAU : c'est ce que
+/// rend Redis GEO. La duree routiere, quand on l'obtient, ne la remplace pas —
+/// elle sert a ordonner, pas a afficher.
+/// </remarks>
+public sealed record CandidateDriver(
+    string DriverId,
+    int DistanceToPickupMeters,
+    double Latitude,
+    double Longitude);

@@ -1,5 +1,6 @@
 using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Messaging.Kafka;
+using Hba.Contracts.Common.V1;
 using Hba.Contracts.Dispatch.V1;
 using Hba.Delivery.Application.Commands.Internal;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,6 +43,23 @@ public sealed class DispatchEventsConsumer(
 
         var dispatcher = services.GetRequiredService<IDispatcher>();
 
+        // CE QUI N'EST PAS UNE LIVRAISON NE NOUS CONCERNE PAS, ET CE TEST EST
+        // OBLIGATOIRE DEPUIS LE 1er OCTOBRE 2026.
+        //
+        // Le moteur de dispatch cherche aussi des chauffeurs pour des COURSES DE
+        // PERSONNES, sur le meme topic. Sans ce filtre, l'acceptation d'une course
+        // arriverait ici avec son identifiant de course : AssignDriverCommand
+        // chercherait une livraison qui n'existe pas, leverait NotFoundException,
+        // le message serait reessaye trois fois puis abandonne — sur une mission
+        // pourtant parfaitement traitee par Ride.
+        //
+        // UNE NATURE NON PRECISEE EST AUSSI IGNOREE. Elle signale un producteur
+        // fautif, et agir dessus serait deviner.
+        if (Nature(message) != ServiceType.Delivery)
+        {
+            return;
+        }
+
         switch (message.PayloadCase)
         {
             // Une offre est partie : la livraison passe en recherche.
@@ -54,7 +72,7 @@ public sealed class DispatchEventsConsumer(
             // sort tout de suite s'il est déjà en recherche.
             case DispatchEvent.PayloadOneofCase.OfferSent:
                 var sent = message.OfferSent;
-                if (Guid.TryParse(sent.DeliveryId, out var searchingId))
+                if (Guid.TryParse(sent.ReferenceId, out var searchingId))
                 {
                     await dispatcher.SendAsync(
                         new StartDriverSearchCommand(
@@ -68,7 +86,7 @@ public sealed class DispatchEventsConsumer(
             // Le gagnant est déjà départagé côté Dispatch : ici, on enregistre.
             case DispatchEvent.PayloadOneofCase.OfferAccepted:
                 var accepted = message.OfferAccepted;
-                if (Guid.TryParse(accepted.DeliveryId, out var assignedId))
+                if (Guid.TryParse(accepted.ReferenceId, out var assignedId))
                 {
                     await dispatcher.SendAsync(
                         new AssignDriverCommand(
@@ -83,7 +101,7 @@ public sealed class DispatchEventsConsumer(
 
             case DispatchEvent.PayloadOneofCase.DispatchExhausted:
                 var exhausted = message.DispatchExhausted;
-                if (Guid.TryParse(exhausted.DeliveryId, out var noDriverId))
+                if (Guid.TryParse(exhausted.ReferenceId, out var noDriverId))
                 {
                     await dispatcher.SendAsync(
                         new MarkNoDriverFoundCommand(
@@ -100,4 +118,22 @@ public sealed class DispatchEventsConsumer(
                 break;
         }
     }
+
+    /// <summary>
+    /// La nature de la mission portee par le message, quel que soit son payload.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// CHAQUE PAYLOAD PORTE SON PROPRE CHAMP, parce que le contrat met la nature
+    /// dans les messages et non dans l'enveloppe : l'enveloppe decrit l'EMETTEUR
+    /// — Dispatch, dans les deux cas — pas la mission.
+    /// </remarks>
+    private static ServiceType Nature(DispatchEvent message) => message.PayloadCase switch
+    {
+        DispatchEvent.PayloadOneofCase.OfferSent => message.OfferSent.ServiceType,
+        DispatchEvent.PayloadOneofCase.OfferAccepted => message.OfferAccepted.ServiceType,
+        DispatchEvent.PayloadOneofCase.OfferExpired => message.OfferExpired.ServiceType,
+        DispatchEvent.PayloadOneofCase.DispatchExhausted => message.DispatchExhausted.ServiceType,
+        _ => ServiceType.Unspecified,
+    };
 }

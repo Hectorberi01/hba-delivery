@@ -105,6 +105,7 @@ enum DeliveryStatus {
 class Quote {
   const Quote({
     required this.id,
+    required this.nature,
     required this.totalXof,
     required this.distanceMeters,
     required this.durationSeconds,
@@ -112,6 +113,18 @@ class Quote {
   });
 
   final String id;
+
+  /// La nature que PRICING a retenue, et non celle qu'on croit avoir demandee.
+  ///
+  /// C'EST ELLE QUI SERA VERIFIEE A LA CONSOMMATION du devis. Une application
+  /// qui aurait omis le champ voit ici « Delivery » sur un devis qu'elle
+  /// croyait de course, au lieu de l'apprendre en QUOTE_SERVICE_MISMATCH a la
+  /// creation. Vide si le serveur ne la rend pas.
+  final String nature;
+
+  bool get estUneLivraison =>
+      nature.isEmpty || nature.toLowerCase().startsWith('deliv');
+
   final int totalXof;
   final int distanceMeters;
   final int durationSeconds;
@@ -122,6 +135,7 @@ class Quote {
 
   static Quote fromJson(Map<String, dynamic> json) => Quote(
         id: _text(json['quoteId']),
+        nature: _text(json['nature']),
         totalXof: _int64(json['totalXof']),
         distanceMeters: _int64(json['distanceMeters']),
         durationSeconds: _int64(json['durationSeconds']),
@@ -202,6 +216,12 @@ class Delivery {
     required this.createdAt,
     this.refundedAt,
     this.refundPartial = false,
+    this.retenueAnnulation = 0,
+    this.itineraire,
+    this.detailDuPrix,
+    this.paidAt,
+    this.completedAt,
+    this.closureReason,
   });
 
   final String id;
@@ -247,7 +267,58 @@ class Delivery {
   /// montant.
   final bool refundPartial;
 
+  /// Ce qui serait retenu si le client annulait MAINTENANT, en francs CFA.
+  ///
+  /// LE SERVICE L'A CALCULE, L'APPLICATION NE LE REJOUE PAS. La regle — rien tant
+  /// qu'aucun livreur n'est affecte, le montant fige par le devis ensuite — vit
+  /// dans l'agregat Delivery, et c'est le meme appel qui remplit l'evenement
+  /// d'annulation. Le chiffre affiche est donc exactement celui qui sera preleve.
+  ///
+  /// ZERO VEUT DIRE « GRATUIT », PAS « INCONNU ». C'est le cas le plus frequent :
+  /// aucun livreur affecte, ou une zone dont la grille ne prevoit pas de retenue.
+  final int retenueAnnulation;
+
+  /// L'itineraire qui reste au livreur, ou nul quand on ne sait pas.
+  ///
+  /// LA CIBLE CHANGE AVEC L'ETAT, et c'est le service qui la choisit : le point
+  /// de collecte avant l'enlevement, le destinataire apres. L'application n'a
+  /// pas a rejouer cette regle.
+  ///
+  /// NUL N'EST PAS UN CAS RARE : aucun livreur affecte, aucune position encore
+  /// remontee, moteur d'itineraire injoignable, mission close. L'ecran retombe
+  /// alors sur la distance a vol d'oiseau, qu'il sait calculer seul.
+  final ItineraireActif? itineraire;
+
+  /// La duree a afficher, ou nulle s'il n'y a rien d'honnete a dire.
+  ///
+  /// C'EST ICI QUE LA REGLE DU REPLI S'APPLIQUE, EN UN SEUL ENDROIT. Trois
+  /// endroits montrent cette duree — le bandeau de l'accueil, la feuille de
+  /// suivi, l'ecran plein — et une regle recopiee trois fois est une regle qui
+  /// finit par diverger. Voir le point 43.
+  Duration? get arriveeDans => itineraire?.duree;
+
+  /// Le detail du prix, pour le recu. Nul tant que le service ne l'a pas rendu.
+  final DetailDuPrix? detailDuPrix;
+
+  /// Instant ou le paiement a ete CONSTATE par le webhook signe, et non celui
+  /// ou le client est revenu de la page du fournisseur : les deux different, et
+  /// c'est le premier qui fait foi (ADR 0017).
+  final DateTime? paidAt;
+
+  /// Instant de la remise. Nul pour une course annulee ou echouee.
+  final DateTime? completedAt;
+
+  /// Motif d'une cloture qui n'est pas une remise. Nul quand tout s'est bien
+  /// passe — et c'est ce « nul » qui distingue, sur le recu, une livraison
+  /// faite d'une livraison interrompue.
+  final String? closureReason;
+
   bool get estRemboursee => refundedAt != null;
+
+  /// UN RECU N'A DE SENS QUE SUR UNE COURSE PAYEE. Une commande abandonnee
+  /// avant paiement n'a rien a justifier : la proposer afficherait un papier
+  /// vide.
+  bool get aUnRecu => paidAt != null && status.isClosed;
 
   bool get showsOtp => deliveryOtp.isNotEmpty && !status.isClosed;
 
@@ -272,6 +343,118 @@ class Delivery {
       createdAt: _time(json['createdAt']),
       refundedAt: _time(json['refundedAt']),
       refundPartial: json['refundPartial'] == true,
+      retenueAnnulation: _int64(json['retenueAnnulation']),
+
+      itineraire: ItineraireActif.depuis(json['itineraire']),
+      detailDuPrix: DetailDuPrix.depuis(pricing),
+      paidAt: _time(json['paidAt']),
+      completedAt: _time(json['completedAt']),
+      closureReason: json['closureReason'] is String && (json['closureReason'] as String).isNotEmpty
+          ? json['closureReason'] as String
+          : null,
+    );
+  }
+}
+
+/// Le detail d'un prix, tel que le devis l'a fige.
+///
+/// IL NE CONTIENT PAS LA PART DU LIVREUR, et ce n'est pas un oubli : le contrat
+/// la reserve au livreur. Ce que HBA garde sur une course ne regarde pas le
+/// client, et l'afficher ferait de chaque recu une negociation.
+///
+/// LA SOMME DES LIGNES PEUT NE PAS FAIRE LE TOTAL, parce que le total est
+/// arrondi a la dizaine de francs par le service. Le recu affiche donc le total
+/// tel qu'il est, et non une addition refaite ici — refaire le calcul cote
+/// application serait le meilleur moyen d'afficher un franc d'ecart.
+class DetailDuPrix {
+  const DetailDuPrix({
+    required this.priseEnChargeXof,
+    required this.distanceXof,
+    required this.majorationXof,
+    required this.metres,
+    required this.secondes,
+  });
+
+  final int priseEnChargeXof;
+  final int distanceXof;
+  final int majorationXof;
+  final int metres;
+  final int secondes;
+
+  bool get aUneMajoration => majorationXof > 0;
+
+  static DetailDuPrix? depuis(Object? brut) {
+    if (brut is! Map) return null;
+
+    return DetailDuPrix(
+      priseEnChargeXof: _int64(brut['baseFareXof']),
+      distanceXof: _int64(brut['distanceFareXof']),
+      majorationXof: _int64(brut['surgeFareXof']),
+      metres: _int64(brut['distanceMeters']),
+      secondes: _int64(brut['durationSeconds']),
+    );
+  }
+}
+
+/// Ce qui reste a parcourir, tel que le service le mesure.
+///
+/// IL N'EST JAMAIS CONSERVE (point 43). L'ecran REMPLACE celui qu'il affiche a
+/// chaque lecture et n'en empile aucun : une suite d'itineraires gardes serait
+/// la piste de deplacement que le point 37 refuse.
+class ItineraireActif {
+  const ItineraireActif({
+    required this.distanceMetres,
+    required this.dureeSecondes,
+    required this.duRepli,
+    required this.calculeA,
+    required this.trace,
+  });
+
+  final int distanceMetres;
+  final int dureeSecondes;
+
+  /// Vrai quand la mesure vient du repli a vol d'oiseau du service de routage.
+  ///
+  /// ON N'AFFICHE ALORS AUCUNE DUREE, et aucun trace n'arrive non plus : une
+  /// mesure geometrique ne dessine aucune rue. Elle est sous-estimee d'environ
+  /// un tiers en ville, davantage des que le trajet contourne la lagune :
+  /// l'annoncer en minutes serait une promesse que la course ne tiendra pas.
+  final bool duRepli;
+
+  final DateTime? calculeA;
+
+  /// Le trace encode, vide quand l'ecran ne l'a pas demande.
+  final String trace;
+
+  /// La duree, ou nulle quand elle ne vaut pas la peine d'etre dite.
+  Duration? get duree =>
+      duRepli || dureeSecondes <= 0 ? null : Duration(seconds: dureeSecondes);
+
+  /// L'heure d'arrivee, deduite de l'instant du calcul.
+  ///
+  /// DEPUIS L'INSTANT DU CALCUL ET NON DEPUIS MAINTENANT : la mesure peut avoir
+  /// une demi-minute, et repartir de l'heure courante la rallongerait d'autant a
+  /// chaque lecture, sans que rien n'ait bouge sur la route.
+  DateTime? get arriveeA {
+    final duree = this.duree;
+    final calcul = calculeA;
+    return duree == null || calcul == null ? null : calcul.add(duree);
+  }
+
+  static ItineraireActif? depuis(Object? brut) {
+    if (brut is! Map) return null;
+
+    final duree = brut['dureeSecondes'];
+    if (duree is! num) return null;
+
+    return ItineraireActif(
+      distanceMetres: brut['distanceMetres'] is num
+          ? (brut['distanceMetres'] as num).toInt()
+          : 0,
+      dureeSecondes: duree.toInt(),
+      duRepli: brut['duRepli'] == true,
+      calculeA: DateTime.tryParse('${brut['calculeA']}'),
+      trace: brut['trace'] is String ? brut['trace'] as String : '',
     );
   }
 }

@@ -31,7 +31,11 @@ export function FormulaireDeConnexion() {
         return;
       }
 
-      routeur.replace('/tableau-de-bord');
+      const corps = (await reponse.json().catch(() => null)) as { accueil?: string } | null;
+
+      // LA DESTINATION VIENT DU SERVEUR, qui seul a vu les roles : le
+      // back-office va au tableau de bord, le commercant a son portail.
+      routeur.replace(corps?.accueil ?? '/tableau-de-bord');
       routeur.refresh();
     } catch {
       setErreur('La passerelle est injoignable.');

@@ -53,11 +53,9 @@ services:
       # que le service apprend dans quel calendrier decouper les journees.
       Time__ZoneId: ${HBA_TIMEZONE:-Africa/Porto-Novo}
 
-      # LES POSITIONS DES LIVREURS VIVENT DANS REDIS, jamais en base. Sans
-      # cette ligne le service refuse de demarrer : il repondrait sinon a
-      # /health en n'ayant aucune position a proposer au dispatch.
-      ConnectionStrings__Redis: "redis:6379,password=${REDIS_PASSWORD:?REDIS_PASSWORD absent - les positions des livreurs y vivent}"
-      DriverLocations__FreshnessSeconds: ${DRIVER_POSITION_FRESHNESS_SECONDS:-120}
+      # PLUS DE REDIS ICI. Les positions sont parties dans le service Location le
+      # 1er octobre 2026, avec leur index geographique et leur fenetre de
+      # fraicheur. Driver tient les dossiers ; il ne sait plus ou sont les gens.
 
       # STOCKAGE OBJET (ADR 0021). Les deux cles viennent de « make garage-init ».
       # La forme :? fait REFUSER le demarrage par Compose plutot que de lancer

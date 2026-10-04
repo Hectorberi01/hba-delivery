@@ -34,6 +34,15 @@ service IdentityService {
   // --- Comptes ---
   rpc GetPrincipal(GetPrincipalRequest) returns (Principal);
 
+  // Le titulaire change son nom affiche.
+  //
+  // AUCUN IDENTIFIANT DANS LA REQUETE : le compte vise est le sujet du jeton,
+  // comme pour la suppression. On ne renomme que soi-meme.
+  //
+  // LE NOM SEUL. Ni l'e-mail, ni le telephone, ni les roles : ce sont des
+  // identites de connexion et des droits, pas de la presentation.
+  rpc UpdateOwnProfile(UpdateOwnProfileRequest) returns (Account);
+
   // --- Consentement WhatsApp, par le titulaire du compte ---
   //
   // IDENTITY LE DETIENT PARCE QU'IL DETIENT LE TELEPHONE. C'est lui qui envoie
@@ -49,6 +58,17 @@ service IdentityService {
   rpc SetAccountRoles(SetAccountRolesRequest) returns (Account);
   rpc SuspendAccount(SuspendAccountRequest) returns (Account);
   rpc ReactivateAccount(ReactivateAccountRequest) returns (Account);
+
+  // La liste des comptes du back-office, pour la page Equipe de la console.
+  //
+  // RESERVEE A admin, ET LA VERIFICATION EST DANS LE SERVICE. Savoir qui
+  // administre la plateforme, avec quels roles et depuis quand, est un
+  // renseignement : la politique de la passerelle n'y suffit pas (ADR 0007).
+  //
+  // ELLE NE REND QUE LE BACK-OFFICE. Clients, livreurs et commercants ont
+  // leurs propres annuaires, avec leurs propres regles ; elargir cette route
+  // a tous les comptes en ferait l'annuaire general que personne n'a demande.
+  rpc ListBackOfficeAccounts(ListBackOfficeAccountsRequest) returns (ListBackOfficeAccountsResponse);
 
   // --- Suppression du compte, a la demande de son titulaire ---
   //
@@ -74,6 +94,19 @@ service IdentityService {
 
   // --- Partenaires B2B (OAuth2 client credentials) ---
   rpc CreatePartnerClient(CreatePartnerClientRequest) returns (PartnerClientCreated);
+
+  // La liste des clients partenaires, pour la console.
+  //
+  // AUCUN SECRET N'EN SORT, ET C'EST LA REGLE QUI DONNE SA FORME AU MESSAGE :
+  // PartnerClientCreated porte client_secret et webhook_signing_secret parce
+  // qu'il nait d'une creation ou d'une rotation, les deux seuls instants ou
+  // ils sont lisibles. Une liste, elle, se recharge a chaque ouverture d'ecran
+  // — rendre un secret ici reviendrait a l'afficher pour toujours.
+  //
+  // client_id N'EST PAS UN SECRET : c'est l'identifiant public que le
+  // partenaire presente, et le retrouver est precisement ce qu'on demande a
+  // cette liste.
+  rpc ListPartnerClients(ListPartnerClientsRequest) returns (ListPartnerClientsResponse);
   rpc IssuePartnerToken(IssuePartnerTokenRequest) returns (TokenPair);
   rpc RotatePartnerSecret(RotatePartnerSecretRequest) returns (PartnerClientCreated);
   // Appel interne : la Partner API a besoin de l'URL et du secret de signature
@@ -240,6 +273,26 @@ message Account {
   string status_reason = 12;
 }
 
+// PAS DE PAGINATION, ET C'EST UN CHOIX QUI SE DEFEND TANT QUE L'EQUIPE TIENT
+// SUR UN ECRAN. Une equipe de back-office se compte en dizaines ; un curseur
+// couterait une mecanique a maintenir pour un cas qui n'arrive pas. Le plafond
+// est la pour que « jamais » ne devienne pas « sans limite ».
+message ListBackOfficeAccountsRequest {
+  // Zero vaut 200. Au-dela de 500, ramene a 500.
+  int32 limit = 1;
+}
+
+message ListBackOfficeAccountsResponse {
+  // Tries par nom affiche. Les comptes suspendus EN FONT PARTIE : les cacher
+  // ferait croire qu'ils n'existent plus, alors qu'ils peuvent etre reactives.
+  repeated Account accounts = 1;
+}
+
+message UpdateOwnProfileRequest {
+  // Entre 1 et 120 caracteres, espaces de bord retires.
+  string display_name = 1;
+}
+
 message GetWhatsAppConsentRequest {
 }
 
@@ -319,6 +372,31 @@ message PartnerClientCreated {
   string webhook_signing_secret = 4;
   repeated string scopes = 5;
   google.protobuf.Timestamp created_at = 6;
+}
+
+message ListPartnerClientsRequest {
+  // Zero vaut 200. Au-dela de 500, ramene a 500.
+  int32 limit = 1;
+}
+
+message ListPartnerClientsResponse {
+  // Tries par nom.
+  repeated PartnerClientSummary partners = 1;
+}
+
+message PartnerClientSummary {
+  string partner_id = 1;
+  string partner_name = 2;
+  // HBA_EXPRESS, HBA_FOOD ou PARTNER_API.
+  string source = 3;
+  string client_id = 4;
+  string webhook_url = 5;
+  repeated string scopes = 6;
+  int32 rate_limit_per_minute = 7;
+  bool enabled = 8;
+  google.protobuf.Timestamp created_at = 9;
+  // Vide tant que le secret n'a jamais tourne.
+  google.protobuf.Timestamp secret_rotated_at = 10;
 }
 
 message IssuePartnerTokenRequest {

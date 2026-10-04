@@ -16,6 +16,23 @@ class DeliveryRepository {
     required double dropoffLatitude,
     required double dropoffLongitude,
     required int packageWeightGrams,
+
+    /// Le vehicule souhaite : « moto », « voiture », « camionnette », « velo »,
+    /// « tricycle ».
+    ///
+    /// ABSENT, LA PASSERELLE REPLIE SUR LA MOTO — et jusqu'au 1er octobre 2026
+    /// elle l'ecrivait en dur. Un client ne pouvait donc pas demander le prix
+    /// d'une voiture, meme quand la grille existait : les quatre autres
+    /// vehicules etaient inatteignables depuis le telephone.
+    String? vehicleType,
+
+    /// La nature : « colis » ou « course ».
+    ///
+    /// ENVOYEE EXPLICITEMENT, MEME SI C'EST LE DEFAUT. Pricing replie l'absence
+    /// sur le colis, mais un devis de colis demande sans le dire se revelerait
+    /// en QUOTE_SERVICE_MISMATCH a la creation d'une course — et personne ne
+    /// saurait pourquoi. Le dire ici, c'est le verifier au devis.
+    String? serviceType,
   }) async {
     final data = await _api.post(
       '/quotes',
@@ -25,6 +42,8 @@ class DeliveryRepository {
         'dropoffLatitude': dropoffLatitude,
         'dropoffLongitude': dropoffLongitude,
         'packageWeightGrams': packageWeightGrams,
+        if (vehicleType != null) 'vehicleType': vehicleType,
+        if (serviceType != null) 'serviceType': serviceType,
       },
       idempotencyKey: ApiClient.newIdempotencyKey(),
     );
@@ -47,10 +66,9 @@ class DeliveryRepository {
     required String packageDescription,
     required int packageWeightGrams,
   }) async {
-    final data = await _api.post(
-      '/deliveries',
+    return envoyer(
       idempotencyKey: idempotencyKey,
-      body: {
+      corps: {
         'quoteId': quoteId,
         'pickup': pickup,
         'dropoff': dropoff,
@@ -60,19 +78,51 @@ class DeliveryRepository {
         'packageWeightGrams': packageWeightGrams,
       },
     );
+  }
+
+  /// Envoie le corps tel quel, et rend la livraison avec son adresse de paiement.
+  ///
+  /// IL EXISTE POUR QUE LA REPRISE REJOUE EXACTEMENT LA MEME REQUETE. Le service
+  /// reconnait sa propre cle et rend la MEME livraison avec la MEME adresse, sans
+  /// rien creer ni consommer un second devis — c'est le chemin de rejeu de
+  /// CreateDeliveryHandler, et il a besoin du corps d'origine. « create » n'est
+  /// plus qu'une facon lisible de le composer la premiere fois.
+  Future<(Delivery, String?)> envoyer({
+    required String idempotencyKey,
+    required Map<String, Object?> corps,
+  }) async {
+    final data = await _api.post(
+      '/deliveries',
+      idempotencyKey: idempotencyKey,
+      body: corps,
+    );
 
     final delivery = Delivery.fromJson(
       (data['delivery'] as Map?)?.cast<String, dynamic>() ?? const {},
     );
 
+    // L'ADRESSE DE LA PAGE DE PAIEMENT. Vide, l'ouverture a echoue cote serveur
+    // et il n'y a rien a ouvrir : l'ecran doit le dire plutot que d'afficher un
+    // bouton qui ne mene nulle part.
     final payment = data['payment'];
-    final redirect = payment is Map ? payment['redirectUrl'] as String? : null;
+    final adresse = payment is Map ? payment['redirectUrl'] as String? : null;
 
-    return (delivery, (redirect ?? '').isEmpty ? null : redirect);
+    return (delivery, (adresse ?? '').isEmpty ? null : adresse);
   }
 
-  Future<Delivery> byId(String id) async {
-    final data = await _api.get('/deliveries/$id');
+  /// Une livraison, avec ou sans le trace de son itineraire.
+  ///
+  /// LA GEOMETRIE SE DEMANDE, ELLE N'ARRIVE PAS TOUTE SEULE. Elle pese quelques
+  /// kilo-octets et seul un ecran qui DESSINE la route en a besoin : le bandeau
+  /// de l'accueil relit la meme livraison toutes les trente secondes pour
+  /// n'afficher que quatre mots. A Cotonou, ces octets-la sont payes par le
+  /// client, au megaoctet.
+  ///
+  /// LA DUREE ARRIVE DANS LES DEUX CAS : seul le trace est conditionne.
+  Future<Delivery> byId(String id, {bool avecItineraire = false}) async {
+    final data = await _api.get(
+      avecItineraire ? '/deliveries/$id?itineraire=1' : '/deliveries/$id',
+    );
     return Delivery.fromJson(data);
   }
 

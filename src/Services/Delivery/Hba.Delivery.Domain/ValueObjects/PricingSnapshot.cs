@@ -25,6 +25,7 @@ public sealed class PricingSnapshot : ValueObject
         MoneyXof distanceFare,
         MoneyXof surgeFare,
         MoneyXof driverEarning,
+        MoneyXof cancellationFee,
         int distanceMeters,
         int durationSeconds,
         DateTimeOffset quotedAt)
@@ -36,6 +37,7 @@ public sealed class PricingSnapshot : ValueObject
         DistanceFare = distanceFare;
         SurgeFare = surgeFare;
         DriverEarning = driverEarning;
+        CancellationFee = cancellationFee;
         DistanceMeters = distanceMeters;
         DurationSeconds = durationSeconds;
         QuotedAt = quotedAt;
@@ -59,6 +61,22 @@ public sealed class PricingSnapshot : ValueObject
     /// </summary>
     public MoneyXof DriverEarning { get; private set; } = null!;
 
+    /// <summary>
+    /// Retenue due si le client annule APRÈS l'affectation d'un livreur, recopiée
+    /// du devis comme tout le reste de ce bloc.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ELLE EST RECOPIÉE, PAS RELUE, POUR LA RAISON QUI VAUT POUR TOUTE CETTE
+    /// CLASSE : une grille modifiée après la confirmation ne doit rien changer à
+    /// une livraison déjà confirmée. Un client à qui l'écran a annoncé 480 F se
+    /// voit prélever 480 F, même si le taux de la zone a triplé entre-temps.
+    ///
+    /// ZÉRO EST LA VALEUR NORMALE D'UNE GRILLE QUI NE PRÉVOIT RIEN : l'annulation
+    /// est alors gratuite à tout moment.
+    /// </remarks>
+    public MoneyXof CancellationFee { get; private set; } = null!;
+
     public int DistanceMeters { get; private set; }
 
     public int DurationSeconds { get; private set; }
@@ -75,7 +93,14 @@ public sealed class PricingSnapshot : ValueObject
         MoneyXof driverEarning,
         int distanceMeters,
         int durationSeconds,
-        DateTimeOffset quotedAt)
+        DateTimeOffset quotedAt,
+
+        // ABSENTE VAUT GRATUIT, et ce defaut existe pour les appelants de test et
+        // pour les devis anterieurs au 2 octobre 2026, qui n'en portaient pas.
+        // UN COMMENTAIRE ORDINAIRE ET NON UN /// : ceci est une methode, pas un
+        // enregistrement positionnel, et le compilateur refuse la documentation XML
+        // sur un parametre de methode (CS1587, fatal ici — TreatWarningsAsErrors).
+        MoneyXof? cancellationFee = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(quoteId);
         ArgumentNullException.ThrowIfNull(total);
@@ -98,6 +123,20 @@ public sealed class PricingSnapshot : ValueObject
             throw new DomainException("INVALID_ROUTE", "Distance et durée doivent être positives.");
         }
 
+        var retenue = cancellationFee ?? MoneyXof.Zero;
+
+        // ELLE NE PEUT PAS DÉPASSER CE QUE LE CLIENT PAIE, et ce contrôle est le
+        // pendant exact de celui de la part du livreur juste au-dessus. Pricing le
+        // garantit déjà — un taux plafonné à 10000 points de base, un arrondi vers
+        // le bas — mais cette classe est la frontière d'un AUTRE service : elle
+        // vérifie ce qu'elle reçoit plutôt que de faire confiance.
+        if (retenue.CompareTo(total) > 0)
+        {
+            throw new DomainException(
+                "INVALID_PRICE",
+                "La retenue d'annulation ne peut pas dépasser le prix payé par le donneur d'ordre.");
+        }
+
         return new PricingSnapshot(
             quoteId,
             tariffVersion,
@@ -106,6 +145,7 @@ public sealed class PricingSnapshot : ValueObject
             distanceFare,
             surgeFare,
             driverEarning,
+            retenue,
             distanceMeters,
             durationSeconds,
             quotedAt);

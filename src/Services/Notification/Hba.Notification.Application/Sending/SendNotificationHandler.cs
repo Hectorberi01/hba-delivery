@@ -38,11 +38,27 @@ public sealed class SendNotificationHandler(
         // par canal essaye.
         var destinataire = command.Recipient;
 
-        if (command.SubjectId is { } sujet)
+        // L'APPELANT QUI CONNAIT LE NUMERO GAGNE. C'est le seul moyen d'ecrire a
+        // quelqu'un qui n'a pas de compte : le destinataire d'un colis recoit son
+        // code de remise sans jamais avoir ete client.
+        if (command.SubjectId is { } sujet && string.IsNullOrWhiteSpace(destinataire))
         {
-            var adresse = await carnet.CourrielAsync(sujet, cancellationToken).ConfigureAwait(false);
+            // LA COORDONNEE DEPEND DU CANAL, ET C'EST TOUT CE QUI A CHANGE ICI. Ce
+            // bloc ne savait resoudre qu'un courriel : un SMS vers un titulaire de
+            // compte etait donc impossible, et deux modeles du catalogue sont restes
+            // sans producteur depuis l'origine.
+            //
+            // LE PREMIER CANAL DE LA CHAINE TRANCHE. Un modele ne melange pas le
+            // courriel et le telephone — « otp_login » est WhatsApp puis SMS, un recu
+            // est courriel seul — et s'il le faisait un jour, resoudre les deux
+            // coordonnees pour n'en utiliser qu'une couterait un appel pour rien.
+            var parCourriel = chain.Count > 0 && chain[0] == NotificationChannel.Email;
 
-            destinataire = adresse.Courriel ?? string.Empty;
+            var (valeur, indisponible) = parCourriel
+                ? await CourrielAsync(sujet, cancellationToken).ConfigureAwait(false)
+                : await TelephoneAsync(sujet, cancellationToken).ConfigureAwait(false);
+
+            destinataire = valeur ?? string.Empty;
 
             if (string.IsNullOrWhiteSpace(destinataire))
             {
@@ -58,14 +74,16 @@ public sealed class SendNotificationHandler(
                 // un incident et non une absence d'adresse. Le journal accusait
                 // le client d'une panne de Directory, et la vraie cause etait
                 // devenue invisible.
-                var motif = adresse.Indisponible
-                    ? "L'annuaire n'a pas pu etre interroge : adresse inconnue."
-                    : "Le compte n'a pas de courriel.";
+                var motif = indisponible
+                    ? "L'annuaire n'a pas pu etre interroge : coordonnee inconnue."
+                    : parCourriel
+                        ? "Le compte n'a pas de courriel."
+                        : "Le compte n'a pas de telephone.";
 
                 Consigner(binding, chain, sujet, command, motif);
                 await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-                if (adresse.Indisponible)
+                if (indisponible)
                 {
                     // EN AVERTISSEMENT, PARCE QUE C'EST UNE PANNE. Un client
                     // sans adresse est une information ; un annuaire muet est
@@ -78,9 +96,10 @@ public sealed class SendNotificationHandler(
                 else
                 {
                     logger.LogInformation(
-                        "Message {TemplateId} non envoye : le compte {Sujet} n'a pas de courriel.",
+                        "Message {TemplateId} non envoye : le compte {Sujet} n'a pas de {Coordonnee}.",
                         binding.Id,
-                        sujet);
+                        sujet,
+                        parCourriel ? "courriel" : "telephone");
                 }
 
                 return Unit.Value;
@@ -115,6 +134,22 @@ public sealed class SendNotificationHandler(
         throw new DomainException(
             "NOTIFICATION_SEND_FAILED",
             last?.Error ?? "Aucun canal n'a pu remettre le message.");
+    }
+
+    private async Task<(string? Valeur, bool Indisponible)> CourrielAsync(
+        Guid sujet,
+        CancellationToken cancellationToken)
+    {
+        var adresse = await carnet.CourrielAsync(sujet, cancellationToken).ConfigureAwait(false);
+        return (adresse.Courriel, adresse.Indisponible);
+    }
+
+    private async Task<(string? Valeur, bool Indisponible)> TelephoneAsync(
+        Guid sujet,
+        CancellationToken cancellationToken)
+    {
+        var numero = await carnet.TelephoneAsync(sujet, cancellationToken).ConfigureAwait(false);
+        return (numero.Telephone, numero.Indisponible);
     }
 
     /// <summary>
@@ -289,7 +324,7 @@ public sealed class SendNotificationHandler(
         SendNotificationCommand command,
         string motif)
     {
-        var canal = chain.Count > 0 ? chain[0] : NotificationChannel.Email;
+        var canal = chain.Count > 0 ? chain[0] : NotificationChannel.Sms;
 
         var trace = SentNotification.Create(
             canal,

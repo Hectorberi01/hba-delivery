@@ -13,6 +13,7 @@ import '../features/gains/gains_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/missions/courses_screen.dart';
 import '../features/profil/profil_screen.dart';
+import '../features/reputation/reputation_screen.dart';
 import 'coque.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -85,6 +86,15 @@ final routerProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'dossier',
                     builder: (_, __) => const DossierScreen(),
+                  ),
+
+                  // ENFANT DE PROFIL, COMME LE DOSSIER. Les avis se consultent
+                  // de temps en temps ; un onglet permanent les mettrait a
+                  // hauteur des courses et des gains, qui se regardent chaque
+                  // jour.
+                  GoRoute(
+                    path: 'avis',
+                    builder: (_, __) => const ReputationScreen(),
                   ),
                 ],
               ),

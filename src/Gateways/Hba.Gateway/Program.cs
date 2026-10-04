@@ -7,9 +7,14 @@ using Hba.Contracts.Delivery.V1;
 using Hba.Contracts.Directory.V1;
 using Hba.Contracts.Dispatch.V1;
 using Hba.Contracts.Driver.V1;
+using Hba.Contracts.Location.V1;
+using Hba.Contracts.Notification.V1;
 using Hba.Contracts.Identity.V1;
 using Hba.Contracts.Payment.V1;
 using Hba.Contracts.Pricing.V1;
+using Hba.Contracts.Rating.V1;
+using Hba.Contracts.Ride.V1;
+using Hba.Gateway.Plateforme;
 using Hba.Gateway;
 using Hba.Gateway.Endpoints.Client;
 using Hba.Gateway.Endpoints.Driver;
@@ -65,6 +70,12 @@ builder.Services.AddHbaGrpcClient<DirectoryService.DirectoryServiceClient>(
     new Uri(builder.Configuration["Services:Directory"] ?? "http://directory:8081"));
 builder.Services.AddHbaGrpcClient<DriverService.DriverServiceClient>(
     new Uri(builder.Configuration["Services:Driver"] ?? "http://driver:8081"));
+
+// LOCATION : « ou est le chauffeur ». Driver repond « qui est le chauffeur ». La
+// passerelle interroge les deux et recolle — pour le battement de position, pour la
+// carte de l'exploitation et pour la carte du client.
+builder.Services.AddHbaGrpcClient<LocationService.LocationServiceClient>(
+    new Uri(builder.Configuration["Services:Location"] ?? "http://location:8081"));
 builder.Services.AddHbaGrpcClient<IdentityService.IdentityServiceClient>(
     new Uri(builder.Configuration["Services:Identity"] ?? "http://identity:8081"));
 builder.Services.AddHbaGrpcClient<PricingService.PricingServiceClient>(
@@ -72,12 +83,36 @@ builder.Services.AddHbaGrpcClient<PricingService.PricingServiceClient>(
 builder.Services.AddHbaGrpcClient<PaymentService.PaymentServiceClient>(
     new Uri(builder.Configuration["Services:Payment"] ?? "http://payment:8081"));
 
+// RIDE : LE TRANSPORT DE PERSONNES. Pas d'echeance longue comme pour Delivery —
+// commander une course ne declenche aucun appel sortant vers un agregateur de
+// paiement, elle consomme un devis chez Pricing et ecrit une ligne.
+builder.Services.AddHbaGrpcClient<RideService.RideServiceClient>(
+    new Uri(builder.Configuration["Services:Ride"] ?? "http://ride:8081"));
+
+// RATING : LES AVIS DES CLIENTS SUR LES LIVREURS (point 41).
+//
+// IL N'OUVRE RIEN TOUT SEUL : la passerelle ne sait qu'y lire et y ecrire des
+// notes. Une note basse ne desactive personne, et le dispatch ne lit pas les
+// moyennes — tant qu'aucune regle n'est ecrite, Rating observe.
+builder.Services.AddHbaGrpcClient<RatingService.RatingServiceClient>(
+    new Uri(builder.Configuration["Services:Rating"] ?? "http://rating:8081"));
+
 // BILLING N'AVAIT AUCUN CLIENT ICI, ET C'EST CE QUI BOUCHAIT TOUT LE B2B.
 //
 // « OpenAccount » et « Credit » n'existaient que sur le gRPC interne, que le
 // proxy ne route pas : aucun chemin ne permettait d'ouvrir un compte de
 // facturation ni d'y porter une recharge. La premiere course de tout partenaire
 // echouait donc en « compte introuvable » — apres avoir consomme son devis.
+// NOTIFICATION N'AVAIT AUCUN CLIENT ICI parce qu'il n'avait aucune API : il se
+// commande par Kafka. Depuis le 2 octobre 2026 il sait rendre son journal
+// d'envois, et c'est la seule chose qu'on lui demande par cette porte.
+// L'ETAT DE LA PLATEFORME. Un singleton : il garde un canal gRPC par service
+// plutot que d'en ouvrir un par rafraichissement d'ecran.
+builder.Services.AddSingleton<EtatDesServices>();
+
+builder.Services.AddHbaGrpcClient<NotificationService.NotificationServiceClient>(
+    new Uri(builder.Configuration["Services:Notification"] ?? "http://notification:8081"));
+
 builder.Services.AddHbaGrpcClient<BillingService.BillingServiceClient>(
     new Uri(builder.Configuration["Services:Billing"] ?? "http://billing:8081"));
 
@@ -188,11 +223,15 @@ app.MapClientAuthEndpoints();
 app.MapClientProfileEndpoints();
 app.MapClientDeliveryEndpoints();
 app.MapClientNearbyEndpoints();
+app.MapClientRideEndpoints();
+app.MapClientRatingEndpoints();
 
 // --------------------------------------------------------------- Livreur ---
 app.MapDriverAuthEndpoints();
 app.MapDriverEndpoints();
 app.MapDriverApplicationEndpoints();
+app.MapDriverRideEndpoints();
+app.MapDriverRatingEndpoints();
 
 // ----------------------------------------------- Portail et back-office ---
 app.MapWebAuthEndpoints();
@@ -203,6 +242,14 @@ app.MapKpiEndpoints();
 app.MapAdminDirectoryEndpoints();
 app.MapAdminPayoutEndpoints();
 app.MapAdminBillingEndpoints();
+app.MapAdminRefundEndpoints();
+app.MapAdminTariffEndpoints();
+
+// LES ZONES VIENNENT AVEC LES GRILLES, et pas ailleurs : une grille nomme sa
+// zone, et sans zone dessinee toute grille s'applique partout (point 40).
+app.MapAdminZoneEndpoints();
+app.MapAdminNotificationEndpoints();
+app.MapAdminPlateformeEndpoints();
 
 // ----------------------------------------------------------- Partenaires ---
 app.MapPartnerTokenEndpoint();

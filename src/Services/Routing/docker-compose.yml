@@ -1,0 +1,61 @@
+# Deploiement du service routing. IL SE DEPLOIE SEUL.
+#
+# CE SERVICE N'A PAS DE BASE DE DONNEES, et c'est le premier du depot dans ce
+# cas : il ne possede aucune donnee. Il calcule un itineraire, le met en cache
+# dans Redis, et l'oublie. Il n'y a donc ni chaine de connexion Postgres, ni
+# migration, ni schema.
+#
+#   cd src/Services/Routing && docker compose up -d
+
+name: hba-routing
+
+services:
+  routing:
+    image: ${HBA_REGISTRY:-ghcr.io/hectorberi01}/hba-routing:${HBA_TAG:-latest}
+
+    build:
+      context: ../../..
+      dockerfile: src/Services/Routing/Hba.Routing.Api/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks: [hba-internal]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Otlp__Endpoint: ${OTLP_ENDPOINT:-http://otel-collector:4317}
+      Jwt__Authority: ${JWT_AUTHORITY:-http://identity:8080}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER absent - emetteur des jetons, doit etre identique sur tous les services}
+      Jwt__RequireHttpsMetadata: "false"
+
+      # REDIS EST FACULTATIF ICI, contrairement aux autres services. Vide, le
+      # service calcule a chaque appel : plus lent, mais correct. Exiger un cache
+      # pour demarrer ferait d'une optimisation une dependance.
+      #
+      # LA CHAINE S'ECRIT EN ENTIER, MOT DE PASSE COMPRIS :
+      #   ROUTING_REDIS=redis:6379,password=<le mot de passe du serveur Redis>
+      #
+      # C'EST CE « password= » QUI MANQUAIT LE 2 OCTOBRE 2026, et la panne a
+      # coute une soiree. Ailleurs — Identity, Location, Dispatch, Realtime — la
+      # chaine est COMPOSEE par le fichier compose a partir de REDIS_PASSWORD,
+      # qui est obligatoire ; ici elle est recopiee telle quelle depuis le .env,
+      # et rien ne verifie qu'elle porte le mot de passe. Une chaine incomplete
+      # ne fait plus echouer les itineraires depuis la meme date (voir
+      # DependencyInjection.Connecter), mais elle prive quand meme le service de
+      # son cache en silence : la ligne « Chaine de connexion Redis inutilisable »
+      # dans le journal est le seul endroit ou cela se voit.
+      ConnectionStrings__Redis: ${ROUTING_REDIS:-}
+
+      # LE FOURNISSEUR. « haversine » mesure a vol d'oiseau et marque chaque
+      # reponse from_fallback ; « osrm » demande une instance avec la carte du
+      # Benin DEJA PRE-TRAITEE, sans quoi elle demarre sans rien savoir repondre.
+      Routing__Provider: ${ROUTING_PROVIDER:-haversine}
+      Routing__OsrmBaseUrl: ${ROUTING_OSRM_URL:-http://osrm:5000}
+      Routing__TimeoutSeconds: ${ROUTING_TIMEOUT_SECONDS:-5}
+      Routing__CacheTtlSeconds: ${ROUTING_CACHE_TTL_SECONDS:-3600}
+
+networks:
+  hba-internal:
+    external: true
+    name: hba-internal

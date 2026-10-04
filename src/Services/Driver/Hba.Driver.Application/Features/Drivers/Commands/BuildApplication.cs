@@ -34,7 +34,26 @@ public sealed record DeclareVehicleCommand(
     Guid DriverId,
     VehicleType Type,
     string Plate,
-    int CapacityGrams) : ICommand<DriverView>;
+    int CapacityGrams,
+
+    // LES QUATRE SONT FACULTATIFS, ET LEUR DEFAUT EST LE SILENCE. Un livreur
+    // deja inscrit qui redeclare sa moto sans dire sa marque ne doit pas voir
+    // sa declaration refusee : ces champs decrivent, ils n'autorisent rien —
+    // sauf le dernier, que Vehicle.Create confronte au type.
+    string? Brand = null,
+    string? Model = null,
+    string? Color = null,
+    int PassengerCapacity = 0) : ICommand<DriverView>;
+
+/// <summary>
+/// Declare ce que ce livreur exerce.
+///
+/// SEUL LE LIVREUR OU LE BACK-OFFICE, comme pour le vehicule : c'est son
+/// dossier. L'agregat refusera ce que son vehicule ne permet pas.
+/// </summary>
+public sealed record DeclareCapabilitiesCommand(
+    Guid DriverId,
+    IReadOnlyCollection<DriverCapability> Capabilities) : ICommand<DriverView>;
 
 public sealed record UploadProfilePhotoCommand(
     Guid DriverId,
@@ -141,9 +160,41 @@ public sealed class DeclareVehicleHandler(
             ?? throw new NotFoundException("Livreur", command.DriverId.ToString());
 
         driver.DeclareVehicle(
-            Vehicle.Create(command.Type, command.Plate, command.CapacityGrams),
+            Vehicle.Create(
+                command.Type,
+                command.Plate,
+                command.CapacityGrams,
+                command.Brand,
+                command.Model,
+                command.Color,
+                command.PassengerCapacity),
             caller.ToActor(),
             clock.UtcNow);
+
+        await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return DriverView.From(driver);
+    }
+}
+
+public sealed class DeclareCapabilitiesHandler(
+    IDriverRepository drivers,
+    IUnitOfWork unitOfWork,
+    ICallerContext caller,
+    IClock clock) : ICommandHandler<DeclareCapabilitiesCommand, DriverView>
+{
+    public async Task<DriverView> HandleAsync(
+        DeclareCapabilitiesCommand command,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        DriverAuthorization.EnsureSelfOrBackOffice(caller, command.DriverId);
+
+        var driver = await drivers.GetByIdAsync(command.DriverId, cancellationToken).ConfigureAwait(false)
+            ?? throw new NotFoundException("Livreur", command.DriverId.ToString());
+
+        driver.DeclareCapabilities(command.Capabilities, caller.ToActor(), clock.UtcNow);
 
         await unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

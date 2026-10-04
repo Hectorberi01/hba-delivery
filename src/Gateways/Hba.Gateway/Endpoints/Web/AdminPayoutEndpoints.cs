@@ -145,8 +145,9 @@ public static class AdminPayoutEndpoints
                     kind = Nommer(entry.Kind),
                     direction = Nommer(entry.Direction),
                     amountXof = entry.AmountXof,
-                    deliveryId = entry.DeliveryId,
-                    deliveryReference = entry.DeliveryReference,
+                    serviceType = Nommer(entry.ServiceType),
+                    referenceId = entry.ReferenceId,
+                    referenceLabel = entry.ReferenceLabel,
                     payoutId = entry.PayoutId,
                     occurredAt = entry.OccurredAt?.ToDateTimeOffset(),
                 }),
@@ -156,10 +157,23 @@ public static class AdminPayoutEndpoints
         return app;
     }
 
+    /// <summary>
+    /// La nature de la mission remuneree, en texte stable. Vide pour un versement,
+    /// qui solde un cumul et non une mission en particulier.
+    /// </summary>
+    private static string? Nommer(Hba.Contracts.Common.V1.ServiceType nature) => nature switch
+    {
+        Hba.Contracts.Common.V1.ServiceType.Delivery => "DELIVERY",
+        Hba.Contracts.Common.V1.ServiceType.Ride => "RIDE",
+        _ => null,
+    };
+
     private static string Nommer(LedgerEntryKind kind) => kind switch
     {
         LedgerEntryKind.DeliveryEarning => "LEDGER_ENTRY_KIND_DELIVERY_EARNING",
         LedgerEntryKind.Payout => "LEDGER_ENTRY_KIND_PAYOUT",
+        LedgerEntryKind.Compensation => "LEDGER_ENTRY_KIND_COMPENSATION",
+        LedgerEntryKind.Tip => "LEDGER_ENTRY_KIND_TIP",
         _ => "LEDGER_ENTRY_KIND_UNSPECIFIED",
     };
 

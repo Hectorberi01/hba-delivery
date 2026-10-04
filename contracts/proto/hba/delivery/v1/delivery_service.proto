@@ -152,6 +152,89 @@ message Delivery {
   // donneur d'ordre et le back-office seulement.
   google.protobuf.Timestamp refunded_at = 25;
   bool refund_partial = 26;
+
+  // CE QUI SERAIT RETENU SI LE DONNEUR D'ORDRE ANNULAIT MAINTENANT. Zéro tant
+  // qu'aucun livreur n'est affecté, et zéro pour toujours si la grille de la zone
+  // ne prévoit pas de retenue.
+  //
+  // IL EXISTE POUR ÊTRE AFFICHÉ AVANT LA CONFIRMATION. L'application promettait
+  // que « les conditions de remboursement vous seront confirmées par le
+  // service » — personne ne les confirmait, faute de politique d'annulation. Elle
+  // est tranchée depuis le 2 octobre 2026 (point 3), et ce champ est ce qui
+  // permet de dire un chiffre au lieu d'une promesse.
+  //
+  // CE N'EST PAS LE MONTANT FIGÉ DU DEVIS, MAIS CE QUI EST DÛ À CET INSTANT : le
+  // service applique la règle, l'application ne la rejoue pas.
+  //
+  // Renseigné pour le donneur d'ordre et le back-office seulement. Vide pour le
+  // livreur, qui n'a pas à voir ce que le client paierait pour annuler.
+  hba.common.v1.Money cancellation_fee_due = 27;
+
+  // LES NUMÉROS 28, 29 ET 30 ONT ÉTÉ RENDUS, ET ILS NE REVIENDRONT PAS.
+  //
+  // Trois champs plats — eta_seconds, eta_from_fallback, eta_calculated_at —
+  // ont vécu une journée, le 4 octobre 2026, avant d'être regroupés dans
+  // ActiveRoute, qui porte en plus la distance et le tracé. Ils n'ont jamais
+  // été déployés, mais leurs numéros restent réservés : les rendre à un autre
+  // champ ferait lire par un vieux binaire un entier de secondes là où on
+  // écrirait autre chose.
+  reserved 28, 29, 30;
+
+  // L'ITINÉRAIRE ACTIF, ET LA DURÉE QUI EN DÉCOULE.
+  //
+  // CE QU'IL MESURE CHANGE AVEC L'ÉTAT, et c'est la seule lecture correcte :
+  // avant l'enlèvement, le livreur roule vers le POINT DE COLLECTE ; après, vers
+  // le DESTINATAIRE. Un seul champ, deux cibles — l'appelant n'a pas à choisir,
+  // le service sait où en est la mission.
+  //
+  // IL EST CALCULÉ À LA LECTURE, IL N'EST JAMAIS CONSERVÉ (point 43). Une suite
+  // d'itinéraires gardés, c'est exactement la piste que le point 37 refuse :
+  // « le flux est un instant, pas une piste ». Le service prend la dernière
+  // position connue du livreur, demande la mesure à Routing — qui la met en
+  // cache quelques minutes — et oublie.
+  //
+  // ABSENT SIGNIFIE « INCONNU », ET CE N'EST PAS UN ÉTAT RARE : aucun livreur
+  // affecté, aucune position encore remontée, Routing injoignable, mission
+  // close. L'appelant DOIT traiter ce cas — l'application cliente retombe alors
+  // sur la distance à vol d'oiseau, qu'elle sait calculer seule.
+  //
+  // Renseigné pour le donneur d'ordre et le back-office. Vide pour le livreur,
+  // qui a sa propre navigation et n'a que faire de sa propre heure d'arrivée.
+  ActiveRoute active_route = 31;
+}
+
+// L'itinéraire restant d'une mission en cours.
+//
+// LES NOMS SUIVENT hba.routing.v1.Route, ET CE N'EST PAS UN HASARD : c'est la
+// même mesure, relayée. Les renommer au passage obligerait à relire deux
+// vocabulaires pour suivre un seul chiffre.
+message ActiveRoute {
+  int32 distance_meters = 1;
+  int32 duration_seconds = 2;
+
+  // Instant du calcul. L'heure d'arrivée s'en déduit — calculated_at + duration
+  // — et l'appelant peut juger de la fraîcheur au lieu de la supposer.
+  google.protobuf.Timestamp calculated_at = 3;
+
+  // VRAI QUAND LA DURÉE VIENT DU REPLI À VOL D'OISEAU DE ROUTING.
+  //
+  // C'EST LE CHAMP LE PLUS IMPORTANT DE CE MESSAGE, pour la même raison que
+  // Route.from_fallback : une durée géométrique est SOUS-ESTIMÉE d'environ un
+  // tiers en ville, davantage quand le trajet contourne la lagune. Affichée
+  // telle quelle, elle devient une promesse que la course ne tiendra pas.
+  //
+  // L'APPELANT DOIT EN FAIRE QUELQUE CHOSE. Décidé au point 43 : l'application
+  // cliente n'affiche alors AUCUNE durée et montre la distance à la place. Un
+  // service qui dégrade en silence est pire qu'un service qui échoue.
+  bool from_fallback = 4;
+
+  // Tracé encodé au format polyline Google, vide si include_route était faux.
+  //
+  // CE FORMAT-LÀ ET PAS GEOJSON : les deux applications utilisent
+  // google_maps_flutter, qui attend exactement cet encodage, et
+  // OsrmRouteProvider le demande déjà (« geometries=polyline »). Rien n'est
+  // converti en chemin.
+  string encoded_polyline = 5;
 }
 
 message CreateDeliveryRequest {
@@ -174,6 +257,23 @@ message CreateDeliveryRequest {
 
   string package_description = 11;
   int32 package_weight_grams = 12;
+
+  // LE COMPTE MOBILE MONEY QUI PAIE, ET SON OPERATEUR.
+  //
+  // ILS VIENNENT DE L'APPLICATION DEPUIS LE 3 OCTOBRE 2026. Le numero etait
+  // auparavant pris sur le jeton du client — celui de son COMPTE HBA — et ne
+  // servait qu'a preremplir une page ou il pouvait en saisir un autre. Sans
+  // page, il n'y a plus de correction possible : c'est ce numero-ci qui sera
+  // debite, et beaucoup de gens paient avec un compte different de celui sur
+  // lequel ils se sont inscrits.
+  //
+  // RIEN N'EST CONSERVE DE CES DEUX CHAMPS, ni ici ni chez Payment.
+  string payer_phone = 13;
+
+  // RÉSERVÉ : l'opérateur du payeur, ajouté puis retiré le 3 octobre 2026. Sur
+  // la page hébergée, c'est le payeur qui le choisit.
+  reserved 14;
+  reserved "payer_operator";
 }
 
 message CreateDeliveryResponse {
@@ -181,11 +281,27 @@ message CreateDeliveryResponse {
   // Intention de paiement créée par le service Payment. Vide si le donneur
   // d'ordre est facturé autrement — cas non tranché, donc jamais produit au MVP.
   string payment_intent_id = 2;
+  // L'adresse que le client doit ouvrir pour payer. VIDE SI LE FOURNISSEUR
+  // N'EN A PAS RENDU — l'application doit alors dire que le paiement n'a pas pu
+  // s'ouvrir, pas afficher un bouton qui ne mène nulle part.
   string payment_redirect_url = 3;
 }
 
 message GetDeliveryRequest {
   string delivery_id = 1;
+
+  // Demande l'itinéraire actif en plus de l'état.
+  //
+  // FACULTATIF, PARCE QU'IL COÛTE. Le tracé d'un itinéraire pèse plusieurs
+  // kilo-octets et le calcul demande deux appels — Location puis Routing. Un
+  // bandeau qui annonce « votre livreur arrive dans 4 min » n'a besoin ni de
+  // l'un ni de l'autre ; seul l'écran qui DESSINE la route les réclame. À
+  // Cotonou, le client paie ses données au mégaoctet : lui envoyer un tracé
+  // qu'aucun pixel n'affichera est une dépense prise sur lui.
+  //
+  // FAUX NE VEUT PAS DIRE « PAS D'ETA ». La durée et le drapeau de repli
+  // arrivent dans les deux cas ; seule la géométrie est conditionnée.
+  bool include_route = 2;
 }
 
 message ListDeliveriesRequest {

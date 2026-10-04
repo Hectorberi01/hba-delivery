@@ -12,6 +12,16 @@ enum Source {
   SOURCE_PARTNER_API = 3;
   // Livraison créée directement depuis l'app client.
   SOURCE_CLIENT_APP = 4;
+
+  // Livraison commandée par un commerçant depuis son portail, pour son propre
+  // compte. AJOUTEE LE 2 OCTOBRE 2026, et elle manquait : les quatre valeurs
+  // ci-dessus ne décrivent pas ce cas. La ranger sous HBA_EXPRESS aurait
+  // compté un commerçant externe comme une course de la maison, sans qu'on
+  // puisse jamais les reséparer.
+  //
+  // LES NUMEROS DES QUATRE AUTRES NE BOUGENT PAS : rien de ce qui est déjà
+  // écrit en base ni de ce qui circule ne change de sens.
+  SOURCE_MERCHANT_PORTAL = 5;
 }
 
 // Auteur d'une transition. Les acteurs système doivent apparaître dans l'audit
@@ -58,4 +68,74 @@ enum VehicleType {
   // Le trois-roues motorisé, immatriculé comme un véhicule à moteur : mêmes
   // pièces que la moto.
   VEHICLE_TYPE_TRICYCLE = 5;
+}
+
+// Ce qu'un livreur est habilité à faire.
+//
+// UNE HABILITATION DE LA PERSONNE, PAS UNE PROPRIÉTÉ DU VÉHICULE. Ce que le
+// véhicule permet est une autre question, et les deux se cumulent : un
+// chauffeur habilité au transport de personnes qui roule aujourd'hui en vélo ne
+// prend pas de passager.
+//
+// LE COLIS EST LE SOCLE ET N'A PAS BESOIN D'ÊTRE DÉCLARÉ. Les livreurs inscrits
+// avant le 1er octobre 2026 n'ont déclaré aucune capacité, et ils en font tous.
+enum DriverCapability {
+  DRIVER_CAPABILITY_UNSPECIFIED = 0;
+  DRIVER_CAPABILITY_PACKAGE_DELIVERY = 1;
+  DRIVER_CAPABILITY_PASSENGER_TRANSPORT = 2;
+  DRIVER_CAPABILITY_FOOD_DELIVERY = 3;
+}
+
+// Ce qu'une recherche de chauffeur cherche A FAIRE.
+//
+// POURQUOI CE TYPE EXISTE. Le moteur de dispatch portait « delivery_id » en dur :
+// il ne savait chercher que pour un colis. Depuis le 1er octobre 2026 il doit
+// aussi chercher pour une course de personnes, et ce ne sont pas les memes
+// chauffeurs — le transport de passagers demande une habilitation declaree et un
+// vehicule qui peut en porter.
+//
+// IL NE DECRIT PAS UN SERVICE AU SENS « MICROSERVICE », mais la NATURE de la
+// mission. Le couple (service_type, reference_id) remplace partout l'ancien
+// delivery_id : le type dit a qui appartient l'identifiant, et c'est lui qui
+// evite qu'un consommateur de livraisons agisse sur une course.
+//
+// NON PRECISE EST UNE ERREUR, PAS UN DEFAUT. Une recherche sans type ne sait pas
+// quelle habilitation exiger ni a qui rendre compte : les services la refusent
+// plutot que de supposer le colis. Les lignes ecrites avant cette date, elles,
+// ont ete reprises explicitement en DELIVERY par migration.
+enum ServiceType {
+  SERVICE_TYPE_UNSPECIFIED = 0;
+
+  // Un colis : HBA Express, HBA Food, ou un partenaire B2B.
+  SERVICE_TYPE_DELIVERY = 1;
+
+  // Une course de personnes.
+  SERVICE_TYPE_RIDE = 2;
+}
+
+// L'operateur mobile money sur lequel une demande de paiement est poussee.
+//
+// IL EST ICI, ET NON DANS LE CONTRAT DE PAYMENT, parce que trois services le
+// nomment : l'application le choisit, Ride et Delivery le relaient, Payment
+// s'en sert. Le poser chez Payment obligerait Ride a importer le contrat d'un
+// autre service pour un simple mot de vocabulaire — exactement le genre de lien
+// que le decoupage evite.
+//
+// PLUS AUCUN MESSAGE NE LE PORTE DEPUIS LE 3 OCTOBRE 2026, ET IL RESTE QUAND
+// MEME. Il avait ete ajoute ce matin-la pour la poussee directe de la demande
+// sur le telephone du payeur, ou le chemin d'appel nomme l'operateur. Le
+// fournisseur refuse cette poussee sur notre compte — 400 « Operation non
+// autorisee », sans champ en erreur, c'est-a-dire une methode de collecte non
+// ouverte chez lui — et la page hebergee a repris sa place : c'est le payeur
+// qui y choisit son operateur.
+//
+// IL SURVIT POUR LE JOUR OU CETTE ACTIVATION SERA FAITE. Le retirer puis le
+// remettre ferait bouger des numeros pour rien ; inutilise, il ne coute que ces
+// lignes. Les chemins correspondants chez l'agregateur sont « mtn_open » et
+// « moov » — et « sbin » pour Celtiis, que cette enumeration ne nomme pas
+// encore.
+enum MobileMoneyOperator {
+  MOBILE_MONEY_OPERATOR_UNSPECIFIED = 0;
+  MOBILE_MONEY_OPERATOR_MTN_BENIN = 1;
+  MOBILE_MONEY_OPERATOR_MOOV_BENIN = 2;
 }

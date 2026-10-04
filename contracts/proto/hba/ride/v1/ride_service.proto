@@ -1,0 +1,303 @@
+syntax = "proto3";
+
+package hba.ride.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hba/common/v1/enums.proto";
+import "hba/common/v1/geo.proto";
+import "hba/common/v1/money.proto";
+
+option csharp_namespace = "Hba.Contracts.Ride.V1";
+
+// AUTORISATION
+// Aucune requête ne transporte l'identité de l'appelant. La passerelle propage
+// le JWT de l'utilisateur final dans la métadonnée "authorization" ; le service
+// le valide lui-même (JWKS) et en déduit l'acteur (ADR 0007). Un champ
+// customer_id ou driver_id dans une requête serait une porte ouverte : le
+// téléphone écrirait celui d'un autre.
+//
+// REFUS
+// Ce service rend des Result en interne (point 35) ; AU CONTRAT, RIEN NE LE
+// MONTRE. Un refus sort en statut gRPC, exactement comme ailleurs :
+// NOT_FOUND, PERMISSION_DENIED, INVALID_ARGUMENT, FAILED_PRECONDITION.
+service RideService {
+
+  // Demande une course. Le prix vient d'un devis Pricing déjà émis, consommé
+  // ici, et figé dans la course. Idempotent sur idempotency_key.
+  //
+  // AUCUN MONTANT N'EST ACCEPTÉ : seulement l'identifiant du devis. C'est la
+  // seule protection qui tienne — un téléphone modifié peut envoyer ce qu'il
+  // veut dans un corps de requête, il ne peut pas fabriquer un devis émis par
+  // Pricing.
+  rpc RequestRide(RequestRideRequest) returns (RequestRideResponse);
+
+  rpc GetRide(GetRideRequest) returns (Ride);
+
+  // Les courses en cours du client appelant. PLUSIEURS SONT POSSIBLES
+  // (point 35) : on commande pour un proche en même temps que pour soi.
+  rpc GetMyActiveRides(GetMyActiveRidesRequest) returns (ActiveRides);
+
+  rpc ListMyRides(ListMyRidesRequest) returns (ListMyRidesResponse);
+
+  // La course en cours du chauffeur appelant. UNE SEULE : il ne conduit qu'un
+  // véhicule. Interrogée au réveil de l'application, après une coupure réseau.
+  rpc GetMyDriverRide(GetMyDriverRideRequest) returns (ActiveRide);
+
+  // Chauffeur : il part vers le point de prise en charge.
+  //
+  // CETTE ÉTAPE N'EST PAS DÉCORATIVE. On ne passe pas de DRIVER_ASSIGNED à
+  // DRIVER_ARRIVED : c'est ce signal, et lui seul, qui fait apparaître le
+  // chauffeur en approche sur l'écran du passager.
+  rpc DeclareOnTheWay(DeclareOnTheWayRequest) returns (Ride);
+
+  // Chauffeur : il est sur place et attend le passager.
+  rpc DeclareArrived(DeclareArrivedRequest) returns (Ride);
+
+  // Chauffeur : le passager est à bord. Refusé s'il n'est pas déclaré arrivé.
+  rpc StartRide(StartRideRequest) returns (Ride);
+
+  // Chauffeur : le passager est descendu.
+  //
+  // AUCUN MONTANT ICI NON PLUS. Le prix est ferme à la commande (point 35) :
+  // le prix final vaut l'estimation. Un champ de montant laisserait croire
+  // qu'un chauffeur décide de ce qui est dû.
+  rpc CompleteRide(CompleteRideRequest) returns (Ride);
+
+  // Annulation, par le passager ou par le chauffeur affecté. Refusée dès que la
+  // course a commencé : le passager est à bord, le service est rendu.
+  rpc CancelRide(CancelRideRequest) returns (Ride);
+}
+
+// Les types de véhicule admis pour le transport de personnes.
+//
+// LES NUMÉROS SONT CEUX DE hba.common.v1.VehicleType, VOLONTAIREMENT. Un
+// véhicule est un véhicule : réutiliser les mêmes valeurs évite une table de
+// correspondance entre Driver et Ride, et c'est exactement là que se glissent
+// les erreurs silencieuses. FOURGON (3) ET VÉLO (4) SONT ABSENTS : ils ne
+// transportent pas de passager.
+enum RideVehicleType {
+  RIDE_VEHICLE_TYPE_UNSPECIFIED = 0;
+  RIDE_VEHICLE_TYPE_MOTORCYCLE = 1;
+  RIDE_VEHICLE_TYPE_CAR = 2;
+  RIDE_VEHICLE_TYPE_TRICYCLE = 5;
+}
+
+enum RideStatus {
+  RIDE_STATUS_UNSPECIFIED = 0;
+
+  // Demandée, en attente de la confirmation du paiement.
+  //
+  // IL N'Y A PAS D'ÉTAT « PENDING_PAYMENT » DISTINCT, ET C'EST DÉLIBÉRÉ. Entre la
+  // demande et l'encaissement, une course ne fait rien d'autre qu'attendre son
+  // paiement : un second état porterait exactement le même comportement, et
+  // l'application cliente aurait deux libellés pour un seul écran.
+  RIDE_STATUS_REQUESTED = 1;
+  // Le dispatch cherche.
+  RIDE_STATUS_SEARCHING_DRIVER = 2;
+  // Un chauffeur a accepté.
+  RIDE_STATUS_DRIVER_ASSIGNED = 3;
+  // Il roule vers le point de prise en charge.
+  RIDE_STATUS_DRIVER_ARRIVING = 4;
+  // Il est sur place, il attend le passager.
+  RIDE_STATUS_DRIVER_ARRIVED = 5;
+  // Le passager est à bord.
+  RIDE_STATUS_IN_PROGRESS = 6;
+  RIDE_STATUS_COMPLETED = 7;
+  RIDE_STATUS_CANCELLED = 8;
+  // Toutes les vagues ont échoué. TERMINAL, ET EXPLICITE : oublié une fois dans
+  // Delivery, l'écran du client tournait sur une recherche déjà abandonnée.
+  RIDE_STATUS_NO_DRIVER_AVAILABLE = 9;
+
+  // Le paiement a échoué ou expiré. TERMINAL.
+  //
+  // IL FAUT CET ÉTAT, et son absence a déjà coûté un écran bloqué dans
+  // l'application client : sans lui, une course dont le paiement échoue reste
+  // « demandée » pour toujours, et le passager regarde un sablier qui ne
+  // tournera jamais. Le numéro suit les autres, il ne s'intercale pas.
+  RIDE_STATUS_PAYMENT_FAILED = 10;
+}
+
+message Ride {
+  string id = 1;
+  string customer_id = 2;
+
+  // Vide tant qu'aucun chauffeur n'a accepté.
+  //
+  // LA PASSERELLE DÉCIDE S'IL SORT VERS LE CLIENT : la matrice de visibilité
+  // réserve l'identité du chauffeur à partir de l'affectation. Ce champ sert
+  // aussi au back-office et au chauffeur lui-même, qui y ont droit plus tôt.
+  string driver_id = 3;
+
+  hba.common.v1.GeoPoint pickup = 4;
+  hba.common.v1.GeoPoint destination = 5;
+  RideVehicleType vehicle_type = 6;
+  RideStatus status = 7;
+
+  // L'estimation figée à la commande.
+  int32 estimated_distance_meters = 8;
+  int32 estimated_duration_seconds = 9;
+  hba.common.v1.Money estimated_price = 10;
+
+  // Renseigné à la fin de la course. Vaut l'estimation (point 35).
+  hba.common.v1.Money final_price = 11;
+
+  google.protobuf.Timestamp requested_at = 12;
+  google.protobuf.Timestamp driver_assigned_at = 13;
+  google.protobuf.Timestamp driver_arrived_at = 14;
+  google.protobuf.Timestamp started_at = 15;
+  google.protobuf.Timestamp completed_at = 16;
+  google.protobuf.Timestamp cancelled_at = 17;
+  string cancellation_reason = 18;
+
+  // L'intention de paiement ouverte à la commande.
+  //
+  // ELLE EST PORTÉE POUR LA TRAÇABILITÉ, PAS POUR REPAYER. Le support et finance
+  // en ont besoin pour retrouver une transaction FedaPay à partir d'une course.
+  // L'adresse de paiement, elle, n'est rendue qu'une fois, dans la réponse à la
+  // demande : elle expire, et une adresse périmée affichée dans un écran de suivi
+  // serait pire que pas d'adresse du tout.
+  string payment_intent_id = 19;
+
+  // Le chauffeur affecté. Absent avant l'affectation.
+  //
+  // IL EST PORTÉ PAR LA COURSE DEPUIS LE 1er OCTOBRE 2026, et ce n'est pas une
+  // commodité : la passerelle interrogeait Driver à CHAQUE lecture pour afficher le
+  // nom. Un écran de suivi qui rafraîchit toutes les cinq secondes faisait donc
+  // cinq appels par minute et par passager, et Driver indisponible une seconde
+  // effaçait le nom de l'écran.
+  //
+  // LA PASSERELLE DÉCIDE CE QUI SORT VERS LE PASSAGER : elle ne lui rend pas
+  // l'identifiant du chauffeur, seulement de quoi le reconnaître et l'appeler.
+  AssignedDriver driver = 20;
+
+  // CE QUI SERAIT RETENU SI LE PASSAGER ANNULAIT MAINTENANT. Zéro tant qu'aucun
+  // chauffeur n'est affecté, et zéro pour toujours si la grille de la zone ne
+  // prévoit pas de retenue.
+  //
+  // IL EXISTE POUR ÊTRE AFFICHÉ AVANT LA CONFIRMATION (point 3, tranché le
+  // 2 octobre 2026). L'écran promettait que « les conditions de remboursement
+  // vous seront confirmées par le service » ; personne ne les confirmait.
+  //
+  // CE N'EST PAS LE MONTANT FIGÉ DU DEVIS, MAIS CE QUI EST DÛ À CET INSTANT : le
+  // service applique la règle, l'application ne la rejoue pas.
+  hba.common.v1.Money cancellation_fee_due = 21;
+}
+
+message AssignedDriver {
+  string driver_id = 1;
+  string display_name = 2;
+  string phone = 3;
+  RideVehicleType vehicle_type = 4;
+  string vehicle_plate = 5;
+
+  // Ce que le passager lit pour reconnaître le véhicule : « Toyota Corolla
+  // blanche », « voiture blanche », ou « voiture » selon ce que le chauffeur a
+  // déclaré.
+  //
+  // COMPOSÉ PAR LE DOMAINE, PAS PAR L'APPELANT. Les trois champs qui le forment
+  // sont facultatifs : les recoller côté client écrirait « voiture   » dès que deux
+  // manquent, et chaque application le ferait à sa façon.
+  string vehicle_label = 6;
+}
+
+message RequestRideResponse {
+  Ride ride = 1;
+
+  // L'intention de paiement ouverte chez Payment. C'est elle que l'application
+  // retient pour pouvoir reprendre un paiement interrompu.
+  string payment_intent_id = 2;
+
+  // L'adresse que le passager doit ouvrir pour payer. VIDE SI LE FOURNISSEUR
+  // N'EN A PAS RENDU — l'application doit alors dire que le paiement n'a pas pu
+  // s'ouvrir, pas afficher un bouton qui ne mène nulle part.
+  string payment_redirect_url = 3;
+}
+
+message RequestRideRequest {
+  // Devis émis par Pricing. C'EST LUI QUI PORTE LE PRIX, pas cette requête.
+  string quote_id = 1;
+
+  hba.common.v1.GeoPoint pickup = 2;
+  hba.common.v1.GeoPoint destination = 3;
+  RideVehicleType vehicle_type = 4;
+
+  // Obligatoire.
+  //
+  // UNE CLÉ PAR ÉCRAN DE COMMANDE, PAS PAR SESSION. Depuis que plusieurs
+  // courses simultanées sont permises (point 35), c'est la seule chose qui
+  // distingue un double appui d'une seconde course voulue : une clé réutilisée
+  // rendrait la première course au lieu d'en créer une autre.
+  string idempotency_key = 5;
+
+  // LE NUMÉRO QUI PAIE, FACULTATIF. Vide, le service reprend celui du jeton du
+  // passager, qui est le comportement d'origine.
+  //
+  // IL NE FAIT QUE PRÉREMPLIR LA PAGE du fournisseur : le payeur peut en saisir
+  // un autre, et c'est celui-là qui sera débité. Le champ existe parce que
+  // beaucoup de gens paient avec un compte différent de celui sur lequel ils
+  // se sont inscrits — leur éviter de le retaper est tout son intérêt.
+  //
+  // RIEN N'EN EST CONSERVÉ, ni ici ni chez Payment.
+  string payer_phone = 6;
+
+  // RÉSERVÉ : l'opérateur du payeur, ajouté puis retiré le 3 octobre 2026. Sur
+  // la page hébergée, c'est le payeur qui le choisit.
+  reserved 7;
+  reserved "payer_operator";
+}
+
+message GetRideRequest {
+  string ride_id = 1;
+}
+
+message GetMyActiveRidesRequest {}
+
+message ActiveRides {
+  // La plus récemment demandée d'abord. Vide si le client n'en a aucune —
+  // CE N'EST PAS UNE ERREUR, c'est l'état ordinaire au lancement de
+  // l'application.
+  repeated Ride rides = 1;
+}
+
+message GetMyDriverRideRequest {}
+
+// Une course, ou aucune.
+//
+// POURQUOI UNE ENVELOPPE PLUTÔT QU'UN Ride VIDE : un message proto absent et un
+// message aux champs par défaut sont indistinguables côté client. Le drapeau
+// rend la différence lisible.
+message ActiveRide {
+  bool present = 1;
+  Ride ride = 2;
+}
+
+message ListMyRidesRequest {
+  int32 page_size = 1;
+  int32 offset = 2;
+}
+
+message ListMyRidesResponse {
+  repeated Ride rides = 1;
+  int32 total = 2;
+}
+
+message DeclareOnTheWayRequest {
+  string ride_id = 1;
+}
+
+message DeclareArrivedRequest {
+  string ride_id = 1;
+}
+
+message StartRideRequest {
+  string ride_id = 1;
+}
+
+message CompleteRideRequest {
+  string ride_id = 1;
+}
+
+message CancelRideRequest {
+  string ride_id = 1;
+  string reason = 2;
+}

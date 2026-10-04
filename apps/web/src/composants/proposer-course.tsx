@@ -95,7 +95,7 @@ export function ProposerLaCourse({
   }
 
   return (
-    <div className="border-t border-bordure px-5 py-5">
+    <div className="px-5 py-5">
       <h3 className="text-sm font-semibold text-encre">Proposer à un livreur</h3>
       <p className="mt-1 text-sm text-encre-3">
         Le moteur cherche par cercles de 2, 4 puis 6 km. Si vous savez que quelqu&apos;un est

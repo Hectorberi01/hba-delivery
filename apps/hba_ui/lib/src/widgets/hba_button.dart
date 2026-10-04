@@ -55,8 +55,12 @@ class _HbaButtonState extends State<HbaButton> {
   Widget build(BuildContext context) {
     final actif = widget.onPressed != null && !widget.busy;
 
+    // LA TERRE CUITE PORTE LE BLANC, DEPUIS LE 2 OCTOBRE 2026. L'ancien orange
+    // de marque n'y tenait que 3,09:1, d'ou une seconde teinte plus sombre
+    // reservee aux boutons. La nouvelle primaire tient 4,85:1 : le bouton
+    // porte donc la couleur de la marque, et non plus son approximation.
     final (fond, encre, enRelief) = switch (widget.tone) {
-      HbaButtonTone.primary => (HbaColors.primaryDeep, Colors.white, false),
+      HbaButtonTone.primary => (HbaColors.primary, Colors.white, false),
       HbaButtonTone.neutral => (HbaColors.surface, HbaColors.ink, true),
       HbaButtonTone.danger => (HbaColors.danger, Colors.white, false),
     };
@@ -73,14 +77,15 @@ class _HbaButtonState extends State<HbaButton> {
         : enRelief
             ? HbaOmbres.relief(HbaElevation.normale)
             : const [
-                // L'APLAT DE COULEUR PORTE UNE OMBRE PLUS FRANCHE que les
-                // surfaces claires : sur une couleur saturee, la lumiere en
-                // haut a gauche ne se verrait pas, et une ombre douce non
-                // plus. Une seule ombre, un peu plus dense, suffit a le poser.
+                // L'APLAT DE COULEUR GARDE SON OMBRE, et c'est le seul endroit
+                // du nouveau style ou elle se voit vraiment : dans les
+                // maquettes, le bouton d'action principale est pose sur la
+                // feuille blanche et porte une ombre teintee. Partout
+                // ailleurs, le filet suffit.
                 BoxShadow(
                   color: HbaColors.ombre,
                   offset: Offset(0, 6),
-                  blurRadius: 14,
+                  blurRadius: 16,
                 ),
               ];
 
@@ -107,6 +112,12 @@ class _HbaButtonState extends State<HbaButton> {
           decoration: BoxDecoration(
             color: fondRendu,
             borderRadius: BorderRadius.circular(HbaRadius.button),
+
+            // LE BOUTON SECONDAIRE EST BORDE, L'APLAT NE L'EST PAS. Sur fond
+            // ivoire, une gelule blanche sans filet flotte sans contour des
+            // que l'ombre s'efface au soleil — c'est le bouton « Partager le
+            // trajet » des maquettes, et il a bien un filet.
+            border: enRelief ? Border.all(color: HbaColors.border) : null,
             boxShadow: ombres,
           ),
           alignment: Alignment.center,

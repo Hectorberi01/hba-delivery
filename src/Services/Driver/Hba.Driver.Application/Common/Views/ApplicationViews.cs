@@ -37,7 +37,29 @@ public sealed record DriverApplicationView(
     VehicleType VehicleType,
     string VehiclePlate,
     int VehicleCapacityGrams,
+
+    /// <summary>
+    /// Places passagers, conducteur non compris. ZERO VAUT « AUCUNE », pas
+    /// « inconnu » : un vehicule qui n'a pas declare de place n'en prend pas.
+    /// </summary>
+    int VehiclePassengerCapacity,
     Uri? ProfilePhotoUrl,
+
+    /// <summary>
+    /// Ce que ce livreur a declare exercer. VIDE VEUT DIRE « LE COLIS » :
+    /// c'est le socle, il ne se declare pas.
+    /// </summary>
+    IReadOnlyList<DriverCapability> Capabilities,
+
+    /// <summary>
+    /// Ce que le VEHICULE permet, habilite ou non.
+    ///
+    /// CALCULE PAR LE SERVICE, meme raison que RequiredDocuments : la table
+    /// vehicule vers habilitations est une regle metier. Une application qui
+    /// l'aurait codee en dur proposerait « transport de personnes » a un
+    /// cycliste, et le refus n'arriverait qu'a l'enregistrement.
+    /// </summary>
+    IReadOnlyList<DriverCapability> AllowedCapabilities,
 
     /// <summary>
     /// Le vehicule a-t-il ete declare ? L'application le devinait par « la

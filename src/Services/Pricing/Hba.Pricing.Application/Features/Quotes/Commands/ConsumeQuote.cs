@@ -3,6 +3,7 @@ using Hba.BuildingBlocks.Application.Messaging;
 using Hba.BuildingBlocks.Domain;
 using Hba.Pricing.Application.Common.Interfaces;
 using Hba.Pricing.Application.Common.Views;
+using Hba.Pricing.Domain.Tariffs;
 using Hba.Pricing.Domain.ValueObjects;
 
 namespace Hba.Pricing.Application.Features.Quotes.Commands;
@@ -28,6 +29,17 @@ namespace Hba.Pricing.Application.Features.Quotes.Commands;
 public sealed record ConsumeQuoteCommand(
     Guid QuoteId,
     Guid DeliveryId,
+
+    /// <summary>
+    /// La nature de la prestation qui consomme le devis.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ELLE EST VERIFIEE PAR L'AGREGAT, pour la meme raison que le trajet : un devis
+    /// de colis est moins cher qu'un devis de course sur la meme distance, et sans ce
+    /// controle un telephone pourrait payer une course au prix d'un paquet.
+    /// </remarks>
+    ServiceType ServiceType,
     double PickupLatitude,
     double PickupLongitude,
     double DropoffLatitude,
@@ -47,6 +59,7 @@ public sealed class ConsumeQuoteHandler(
 
         quote.Consume(
             command.DeliveryId,
+            command.ServiceType,
             GeoPoint.Create(command.PickupLatitude, command.PickupLongitude),
             GeoPoint.Create(command.DropoffLatitude, command.DropoffLongitude),
             clock.UtcNow);

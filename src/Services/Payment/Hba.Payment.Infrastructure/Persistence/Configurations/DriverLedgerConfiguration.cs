@@ -27,8 +27,13 @@ internal sealed class DriverLedgerEntryConfiguration : IEntityTypeConfiguration<
             .HasColumnType("bigint")
             .IsRequired();
 
-        builder.Property(e => e.DeliveryId).HasColumnName("delivery_id");
-        builder.Property(e => e.DeliveryReference).HasColumnName("delivery_reference").HasMaxLength(32);
+        // RENOMMEES, PAS AJOUTEES : les lignes deja ecrites gardent leur mission.
+        builder.Property(e => e.ReferenceId).HasColumnName("reference_id");
+        builder.Property(e => e.ReferenceLabel).HasColumnName("reference_label").HasMaxLength(64);
+
+        // NON PRECISEE POUR UN VERSEMENT, reprise en Delivery (1) par la migration
+        // pour toutes les remunerations deja inscrites.
+        builder.Property(e => e.ServiceType).HasColumnName("service_type").HasConversion<int>();
         builder.Property(e => e.PayoutId).HasColumnName("payout_id");
         builder.Property(e => e.OccurredAt).HasColumnName("occurred_at").IsRequired();
 
@@ -47,11 +52,36 @@ internal sealed class DriverLedgerEntryConfiguration : IEntityTypeConfiguration<
         // ligne manque. Cet index les departage — l'un echoue, et payer deux
         // fois la meme course n'arrive pas.
         //
-        // FILTRE SUR LA REMUNERATION : un versement n'a pas de course, et
+        // FILTRE SUR LA REMUNERATION : un versement n'a pas de mission, et
         // plusieurs versements ne doivent pas se gener entre eux.
-        builder.HasIndex(e => e.DeliveryId)
+        //
+        // LA NATURE EST DANS LA CLE, ET SANS ELLE L'INDEX SERAIT FAUX : une
+        // livraison et une course peuvent porter le meme identifiant — rien ne les
+        // tire du meme generateur — et le second credit serait rejete comme un
+        // doublon. Un chauffeur perdrait l'argent d'une course sans que rien ne le
+        // signale.
+        builder.HasIndex(e => new { e.ServiceType, e.ReferenceId })
             .IsUnique()
-            .HasFilter("kind = 1 AND delivery_id IS NOT NULL");
+            .HasDatabaseName("ux_driver_ledger_mission")
+            .HasFilter("kind = 1 AND reference_id IS NOT NULL");
+
+        // UN DEDOMMAGEMENT NON PLUS, ET IL LUI FAUT SON PROPRE INDEX.
+        //
+        // Celui du dessus filtre sur « kind = 1 » : il ne voit pas les lignes de
+        // genre 3 et ne les protege donc pas. Un rejeu de « DeliveryCancelled »
+        // apres une purge de l'Inbox crediterait le livreur une seconde fois sans
+        // que rien ne l'arrete.
+        //
+        // DEUX INDEX PLUTOT QU'UN SEUL SANS FILTRE DE GENRE, et c'est delibere :
+        // un index unique sur (nature, mission) toutes lignes confondues
+        // interdirait a une meme mission de porter une remuneration ET un
+        // dedommagement. Les deux ne coexistent pas aujourd'hui, mais rien dans
+        // cette table ne le garantit, et un index n'est pas l'endroit ou inscrire
+        // une regle metier qu'on n'a pas ecrite.
+        builder.HasIndex(e => new { e.ServiceType, e.ReferenceId })
+            .IsUnique()
+            .HasDatabaseName("ux_driver_ledger_compensation")
+            .HasFilter("kind = 3 AND reference_id IS NOT NULL");
 
         // UN VERSEMENT NE SE DEBITE QU'UNE FOIS, MEME SYMETRIE.
         //

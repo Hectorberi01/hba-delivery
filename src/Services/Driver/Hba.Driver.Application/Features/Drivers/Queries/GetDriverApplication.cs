@@ -98,7 +98,15 @@ public sealed class GetDriverApplicationHandler(
             driver.Vehicle.Type,
             driver.Vehicle.Plate,
             driver.Vehicle.CapacityGrams,
+            driver.Vehicle.PassengerCapacity,
             photo,
+            [.. driver.Capabilities],
+
+            // CE QUE LE VEHICULE PERMET, ET NON CE QUE L'ECRAN DEVINE. Meme
+            // raison que les pieces requises juste au-dessus : la table est
+            // metier, et une application qui l'aurait codee en dur proposerait
+            // « transport de personnes » a un cycliste.
+            [.. Vehicle.CapacitesDe(driver.Vehicle.Type)],
             driver.VehiculeDeclare,
 
             // MEME REGLE QUE L'AGREGAT, exprimee une fois de plus — et c'est

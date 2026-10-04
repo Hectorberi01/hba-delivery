@@ -19,8 +19,8 @@ const conditionsClient = DocumentLegal(
       'Ce que vous pouvez attendre de HBA quand vous faites livrer un colis, '
       "et ce que HBA attend de vous. Ces conditions décrivent l'application "
       "telle qu'elle est aujourd'hui.",
-  version: 'v0.1',
-  miseAJour: '28 septembre 2026',
+  version: 'v0.2',
+  miseAJour: '2 octobre 2026',
   sections: [
     SectionLegale(
       titre: 'Le rôle de HBA',
@@ -111,13 +111,19 @@ const conditionsClient = DocumentLegal(
       paragraphes: [
         "Vous pouvez annuler une course depuis l'application tant qu'elle n'a "
             'pas été livrée.',
+        "Tant qu'aucun livreur n'a été affecté, l'annulation est gratuite. "
+            "Une fois un livreur en route, une retenue s'applique : elle est "
+            'calculée sur le prix de votre course, selon le barème de la zone.',
+        "Le montant exact vous est affiché avant que vous confirmiez "
+            "l'annulation, et c'est celui-là qui sera retenu — l'application "
+            'ne le recalcule pas de son côté. Quand la retenue est nulle, '
+            "l'écran dit que l'annulation est gratuite.",
       ],
       aTrancher:
-          "Les conséquences d'une annulation ne sont pas arrêtées : aucun "
-          "frais n'est appliqué, aucun remboursement n'est déclenché, et le "
-          'moment à partir duquel une annulation devient tardive '
-          "n'est pas défini. Le système enregistre l'annulation, il n'en tire "
-          'aucune conséquence financière.',
+          'Le remboursement de la part non retenue reste à arrêter : son '
+          "délai et son canal. Notre fournisseur de paiement n'expose aucune "
+          "API de remboursement — l'argent est rendu à la main — et aucun "
+          "engagement de délai n'est donc tenable aujourd'hui.",
     ),
     SectionLegale(
       titre: 'En cas de problème',

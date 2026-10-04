@@ -7,6 +7,7 @@ using Hba.BuildingBlocks.Persistence.Configurations;
 using Hba.Payment.Application.Common.IntegrationEvents;
 using Hba.Payment.Domain.Earnings;
 using Hba.Payment.Domain.Payments;
+using Hba.Payment.Domain.Refunds;
 using Hba.Payment.Domain.Payouts;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,6 +27,12 @@ public sealed class PaymentDbContext(
     public static readonly EfMessagingOptions MessagingTables = new() { Schema = Schema };
 
     public DbSet<PaymentIntent> PaymentIntents => Set<PaymentIntent>();
+
+    /// <summary>
+    /// La file des remboursements a faire a la main, parce que le fournisseur n'en
+    /// fait pas (FedaPay : tableau de bord uniquement, MTN seulement).
+    /// </summary>
+    public DbSet<RefundDue> RefundsDue => Set<RefundDue>();
 
     /// <summary>
     /// Le grand livre des livreurs.

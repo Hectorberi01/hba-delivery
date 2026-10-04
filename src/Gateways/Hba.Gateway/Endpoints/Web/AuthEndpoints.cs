@@ -76,6 +76,28 @@ public static class AuthEndpoints
             return Results.Ok(principal);
         });
 
+        // SON PROPRE NOM, ET RIEN D'AUTRE. La route ne prend pas d'identifiant :
+        // Identity renomme le sujet du jeton. La politique back-office est posee
+        // ici parce que le nom d'un client vit dans Directory et celui d'un
+        // livreur dans son dossier — les renommer par cette porte ferait
+        // diverger deux copies. Identity reverifie (ADR 0007).
+        authenticated.MapPut("/me", async (
+            NomAffiche body,
+            IdentityService.IdentityServiceClient identity,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.DisplayName))
+            {
+                return Results.BadRequest(new { code = "INVALID_DISPLAY_NAME" });
+            }
+
+            var compte = await identity.UpdateOwnProfileAsync(
+                new UpdateOwnProfileRequest { DisplayName = body.DisplayName },
+                cancellationToken: cancellationToken);
+
+            return Results.Ok(compte);
+        }).RequireAuthorization(HbaPolicies.BackOffice);
+
         authenticated.MapPost("/password", async (
             ChangePasswordDto body,
             HttpContext http,
@@ -127,3 +149,6 @@ public sealed record WebRefreshDto(string RefreshToken, string? DeviceId);
 public sealed record ChangePasswordDto(string? AccountId, string? CurrentPassword, string NewPassword);
 
 public sealed record RevokeAllDto(string? AccountId);
+
+/// <summary>Ce que l'ecran envoie pour se renommer. Un seul champ, deliberement.</summary>
+public sealed record NomAffiche(string DisplayName);

@@ -32,4 +32,17 @@ public static class DispatchErrorCodes
     /// erreur, ou laisse expirer, peut se voir reproposer la course a la main.
     /// </summary>
     public const string AlreadyOffered = "ALREADY_OFFERED";
+
+    /// <summary>
+    /// Une recherche ouverte sans nature de mission.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// CE CODE NE DEVRAIT JAMAIS ATTEINDRE UNE APPLICATION, et c'est pour cela
+    /// qu'il existe. Une recherche sans nature n'exigerait aucune habilitation —
+    /// donc proposerait un passager a un chauffeur qui n'en transporte pas — et
+    /// ses evenements partiraient vers un consommateur indetermine. Le voir dans
+    /// un journal signale un producteur fautif, pas une erreur d'utilisateur.
+    /// </remarks>
+    public const string ServiceTypeRequired = "SERVICE_TYPE_REQUIRED";
 }

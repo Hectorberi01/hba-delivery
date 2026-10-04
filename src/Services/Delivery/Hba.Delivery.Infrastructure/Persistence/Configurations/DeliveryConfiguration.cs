@@ -118,6 +118,11 @@ internal sealed class DeliveryConfiguration : IEntityTypeConfiguration<DeliveryA
             OwnMoney(pricing, p => p.DistanceFare, "price_distance_xof");
             OwnMoney(pricing, p => p.SurgeFare, "price_surge_xof");
             OwnMoney(pricing, p => p.DriverEarning, "driver_earning_xof");
+
+            // LA RETENUE D'ANNULATION, FIGEE AVEC LE RESTE DU DEVIS (point 3, tranche
+            // le 2 octobre 2026). Les livraisons anterieures valent zero, et c'est
+            // exact : avant cette date aucune annulation ne retenait quoi que ce soit.
+            OwnMoney(pricing, p => p.CancellationFee, "cancellation_fee_xof");
         });
         builder.Navigation(d => d.Pricing).IsRequired();
     }

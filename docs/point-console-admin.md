@@ -123,3 +123,155 @@ nombre plausible, et personne ne recompte à la main un tableau de bord.
 
 Le reste — réaffectation, rotation de secret, KPI détaillés — est du confort
 d'exploitation, à prendre quand le besoin se fera sentir.
+
+---
+
+# Addendum — 1er octobre 2026 : l'écran des tarifs
+
+**`apps/web/src/app/(console)/tarifs/page.tsx`**, 653 lignes. `npx tsc --noEmit`
+passe. Il n'y a pas de script `lint` dans ce paquet, et toujours aucun test.
+
+## Ce que l'écran fait
+
+La liste des grilles, filtrée par zone, nature, véhicule, et avec ou sans les
+versions closes. La création d'une grille. La clôture d'une grille en vigueur,
+en deux appuis — « Clore » puis « Confirmer », sans boîte de dialogue du
+navigateur. Et « Nouvelle version », qui reprend une grille existante dans le
+formulaire : c'est l'opération ordinaire, puisqu'**on ne modifie jamais une
+grille, on en crée une version** (ADR 0004) — un devis émis hier se réclame de
+la grille d'hier.
+
+**Ce que l'écran débloque.** Jusqu'ici la seule grille du système était semée au
+démarrage depuis la configuration, pour un couple (zone, véhicule) : changer un
+prix demandait d'éditer une variable d'environnement et de recréer le conteneur,
+et **aucune grille de course n'existait**, donc chaque devis de course échouait
+sur `NO_TARIFF`. Elle se crée maintenant depuis la console.
+
+**Aucun montant n'est pré-rempli pour une nature neuve, et c'est délibéré.** Les
+prix d'une course de personnes ne sont ni ceux d'un colis, ni une variation de
+ceux-là — ni le plancher, ni la part du chauffeur. Proposer les seconds comme
+point de départ donnerait des chiffres faux qui ont l'air justes.
+
+## Deux conversions, et pourquoi elles existent
+
+**Les pourcentages — et il y en a DEUX, de sens opposés.** Le contrat compte en
+**points de base** dans les deux cas, et c'est le piège qui a fait refuser les dix
+premières grilles créées depuis cet écran.
+
+- **La part du livreur est une fraction** : 10000 vaut la totalité, donc 80 %
+  s'écrit 8000. Le domaine la veut dans ]0, 10000].
+- **La majoration est un multiplicateur** : 10000 vaut 1,00, c'est-à-dire *aucune*
+  majoration, et le domaine refuse en dessous — « une majoration ne peut pas
+  réduire le prix ». Envoyer 200 pour « 2 % » revenait à demander de multiplier le
+  prix par 0,02.
+
+L'écran demande une hausse dans les deux cas — « 80 » et « 2 » — et convertit
+chacune selon sa règle. La constante `NEUTRE` existe pour que les deux ne se
+confondent pas une seconde fois.
+
+**Les plages horaires.** Le contrat compte en **minutes depuis minuit**, heure
+locale : 1320 et 360 écrivent 22 h → 6 h, qui enjambe minuit. L'écran demande
+deux heures en `HH:MM`. Les deux bornes vides valent la journée entière, et c'est
+Pricing qui le traduit — en JSON comme en protobuf3, l'absence et le zéro sont la
+même chose.
+
+## Un défaut trouvé en chemin : la clé d'idempotence n'arrivait pas
+
+`ressource.ts` posait l'en-tête **`hba-idempotency-key`** — le nom de la
+métadonnée **gRPC**, celle qui circule entre les services. La passerelle, elle,
+lit l'en-tête HTTP **`Idempotency-Key`**, comme les deux applications mobiles le
+font depuis toujours. La clé partait du navigateur, traversait la procuration, et
+n'était lue par personne.
+
+**Personne ne s'en était aperçu parce qu'aucun écran n'avait encore passé de
+clé** : les sept écritures de la console appellent `envoyer` sans l'option. La
+création d'une grille est la première à en avoir besoin — et la route la refuse
+sans elle, par un 400 explicite. Corrigé des deux côtés : le navigateur envoie le
+nom standard, la procuration accepte les deux orthographes en entrée et n'en
+émet qu'une.
+
+**La clé est tirée par montage du formulaire**, et c'est la bonne portée : un
+double appui rejoue la même clé et Pricing rend la grille déjà créée au lieu
+d'en poser une seconde qui clorait la première à la même seconde. Une clé de
+portée page, elle, aurait fait rendre silencieusement la première grille à la
+seconde demande.
+
+## Le point 1 de ce document est entamé, pas réglé
+
+L'onglet « Tarifs » n'apparaît que pour `admin` et `finance`, parce que la
+passerelle exige `HbaPolicies.Finance` et que Pricing le revérifie (ADR 0007).
+`ONGLETS` porte donc un champ `roles` facultatif, et l'en-tête filtre.
+
+**Les six autres onglets restent montrés à tout le monde**, dont « Clients » à
+`finance`, qui recevra 403 en bloc. Le mécanisme existe maintenant ; l'appliquer
+aux autres demande de décider, onglet par onglet, quelle population le voit — et
+cette décision n'a pas été prise ici.
+
+## Ce qui reste du point 3
+
+Les grilles tarifaires quittent la liste des routes sans écran. **Le trou
+fonctionnel reste le commerçant** — `GET /merchants`, `POST /merchants`,
+`POST /accounts/merchant` : HBA Food et les partenaires B2B en dépendent, le
+service le gère, la passerelle l'expose, et personne ne peut en créer un depuis
+la console.
+
+---
+
+# Addendum — 1er octobre 2026, suite : la carte des zones
+
+**`apps/web/src/app/(console)/zones/page.tsx`.** `npx tsc --noEmit` passe. Toujours
+aucun test.
+
+## Ce que l'écran fait
+
+La carte de Cotonou, les zones en polygones colorés — les quatre couleurs de série
+de `globals.css`, reprises en hexadécimal parce que Google Maps ne lit pas une
+variable CSS. Une zone désactivée garde son trait et perd son remplissage : elle
+reste visible, puisque c'est justement elle qu'on vient vérifier. **La priorité
+décide de l'empilement**, exactement comme en base : la zone qui gagne un
+chevauchement est dessinée au-dessus de celle qu'elle recouvre.
+
+**On dessine en cliquant.** Chaque clic pose un sommet, qui s'affiche ; le tracé se
+referme dès le troisième. « Annuler le dernier point » et « Abandonner le tracé »
+sont là, et « Redessiner » reprend une zone existante en gardant son code — c'est
+lui qui lie la zone à ses grilles, et le changer créerait une seconde zone en
+laissant les grilles de la première sans territoire.
+
+**La bibliothèque « drawing » de Google n'est pas chargée**, et c'est un choix :
+son `DrawingManager` apporterait un script et une dizaine de types pour un geste
+que trois clics font aussi bien. Le prix de ce choix est qu'un sommet ne se
+déplace pas à la poignée — on reprend le tracé. C'est le premier endroit à
+améliorer si le découpage devient fin.
+
+## Les grilles se démultiplient
+
+Le formulaire des grilles accepte désormais **« Les deux natures »** et **« Tous
+les véhicules »**, et crée alors jusqu'à dix grilles en une fois. Trois choses à
+savoir :
+
+- **Une clé d'idempotence par couple**, et surtout pas la même pour tous : avec une
+  clé unique, la deuxième grille de la boucle serait un rejeu, Pricing rendrait la
+  première sans rien créer, et neuf grilles sur dix manqueraient en silence.
+- **Le nombre est annoncé sur le bouton** avant l'appui. Dix grilles d'un seul
+  geste est ce qu'on veut, et ce qu'on ne veut pas découvrir après coup.
+- **Un échec partiel ne ferme pas le formulaire** : sept créées, trois refusées —
+  la liste se recharge et les trois refus sont nommés avec leur couple. Fermer
+  effacerait le détail, ne pas recharger cacherait les réussites.
+
+**Et la zone se choisit dans une liste**, alimentée par les zones réellement
+dessinées. Une faute de frappe dans un code de zone ne se voyait pas : elle créait
+une grille pour un territoire inexistant, que personne ne consulterait jamais,
+pendant que la vraie zone continuait d'échouer sur `NO_TARIFF`. Le champ libre
+reste le repli tant qu'aucune zone n'est dessinée — sinon un dépôt neuf n'aurait
+aucun moyen de créer sa première grille.
+
+## Ce qui reste
+
+- **Pas de déplacement de sommet.** Voir plus haut : on reprend le tracé.
+- **Pas de cercles.** Une zone « centre et rayon » se convertirait en polygone à
+  l'enregistrement, et la base ne verrait pas la différence (point 40).
+- **L'écriture est réservée à `admin` et l'écran ne le devine pas.** Les boutons
+  sont affichés à tout le back-office et le refus de la passerelle s'affiche tel
+  quel. Masquer demanderait de connaître les rôles dans la page — le principal
+  n'est lu que par le layout, pour l'en-tête — et un 403 explicite vaut mieux
+  qu'un bouton qui disparaît sans dire pourquoi.

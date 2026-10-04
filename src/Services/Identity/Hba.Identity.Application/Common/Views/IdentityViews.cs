@@ -58,6 +58,26 @@ public sealed record PartnerSecretsView(
     IReadOnlyList<string> Scopes,
     DateTimeOffset CreatedAt);
 
+/// <summary>
+/// Un client partenaire tel que la console le liste.
+///
+/// AUCUN SECRET, ET AUCUN CHAMP QUI Y MENE : ni l'empreinte du secret client,
+/// ni le secret de signature chiffré n'apparaissent ici. PartnerSecretsView
+/// existe pour les deux instants où ils sont lisibles — la création et la
+/// rotation ; cette vue-ci se recharge à chaque ouverture d'écran.
+/// </summary>
+public sealed record PartnerClientSummaryView(
+    Guid Id,
+    string Name,
+    string Source,
+    string ClientId,
+    string? WebhookUrl,
+    IReadOnlyList<string> Scopes,
+    int RateLimitPerMinute,
+    bool Enabled,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? SecretRotatedAt);
+
 public sealed record PartnerWebhookConfigView(
     string PartnerId,
     string? WebhookUrl,

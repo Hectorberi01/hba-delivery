@@ -188,6 +188,10 @@ namespace Hba.Pricing.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("base_fare");
 
+                    b.Property<long>("CancellationFee")
+                        .HasColumnType("bigint")
+                        .HasColumnName("cancellation_fee");
+
                     b.Property<DateTimeOffset?>("ConsumedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("consumed_at");
@@ -207,6 +211,10 @@ namespace Hba.Pricing.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
+
+                    b.Property<int>("ServiceType")
+                        .HasColumnType("integer")
+                        .HasColumnName("service_type");
 
                     b.Property<long>("SurgeFare")
                         .HasColumnType("bigint")
@@ -255,13 +263,29 @@ namespace Hba.Pricing.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("base_fare");
 
+                    b.Property<int>("CancellationFeeBasisPoints")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("cancellation_fee_basis_points");
+
                     b.Property<int>("DriverShareBasisPoints")
                         .HasColumnType("integer")
                         .HasColumnName("driver_share_basis_points");
 
+                    b.Property<int>("IncludedWeightGrams")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("included_weight_grams");
+
                     b.Property<long>("MinimumFare")
                         .HasColumnType("bigint")
                         .HasColumnName("minimum_fare");
+
+                    b.Property<long>("PerKilogram")
+                        .HasColumnType("bigint")
+                        .HasColumnName("per_kilogram");
 
                     b.Property<long>("PerKilometer")
                         .HasColumnType("bigint")
@@ -270,6 +294,10 @@ namespace Hba.Pricing.Infrastructure.Persistence.Migrations
                     b.Property<long>("PerMinute")
                         .HasColumnType("bigint")
                         .HasColumnName("per_minute");
+
+                    b.Property<int>("ServiceType")
+                        .HasColumnType("integer")
+                        .HasColumnName("service_type");
 
                     b.Property<int>("SurgeBasisPoints")
                         .HasColumnType("integer")
@@ -304,7 +332,7 @@ namespace Hba.Pricing.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ZoneCode", "VehicleType", "ValidFrom");
+                    b.HasIndex("ZoneCode", "ServiceType", "VehicleType", "ValidFrom");
 
                     b.ToTable("tariffs", "pricing");
                 });
@@ -408,6 +436,12 @@ namespace Hba.Pricing.Infrastructure.Persistence.Migrations
                                 .HasColumnType("integer")
                                 .HasColumnName("duration_seconds");
 
+                            b1.Property<bool>("IsDegraded")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("boolean")
+                                .HasDefaultValue(false)
+                                .HasColumnName("distance_is_degraded");
+
                             b1.HasKey("QuoteId");
 
                             b1.ToTable("quotes", "pricing");
@@ -423,6 +457,37 @@ namespace Hba.Pricing.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Route")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Hba.Pricing.Domain.Tariffs.Tariff", b =>
+                {
+                    b.OwnsOne("Hba.Pricing.Domain.Tariffs.TimeBand", "Band", b1 =>
+                        {
+                            b1.Property<Guid>("TariffId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("FromMinute")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer")
+                                .HasDefaultValue(0)
+                                .HasColumnName("band_from_minute");
+
+                            b1.Property<int>("ToMinute")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer")
+                                .HasDefaultValue(1440)
+                                .HasColumnName("band_to_minute");
+
+                            b1.HasKey("TariffId");
+
+                            b1.ToTable("tariffs", "pricing");
+
+                            b1.WithOwner()
+                                .HasForeignKey("TariffId");
+                        });
+
+                    b.Navigation("Band")
                         .IsRequired();
                 });
 #pragma warning restore 612, 618

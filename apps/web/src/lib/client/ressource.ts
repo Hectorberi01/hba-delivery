@@ -106,7 +106,16 @@ export async function envoyer<T>(
   options: { methode?: string; idempotence?: string } = {},
 ): Promise<T> {
   const entetes: Record<string, string> = { 'content-type': 'application/json' };
-  if (options.idempotence) entetes['hba-idempotency-key'] = options.idempotence;
+  // « Idempotency-Key », ET NON « hba-idempotency-key ».
+  //
+  // CE NOM N'AVAIT JAMAIS ETE EPROUVE, ET IL ETAIT FAUX. « hba-idempotency-key »
+  // est le nom de la metadonnee gRPC, celle qui circule ENTRE les services ; la
+  // passerelle, elle, lit l'en-tete HTTP « Idempotency-Key » — comme les deux
+  // applications mobiles le font depuis toujours. Aucun ecran de la console
+  // n'avait encore passe de cle, donc personne ne s'en etait apercu : le premier
+  // a en avoir besoin, la creation d'une grille tarifaire, aurait recu
+  // « L'en-tete Idempotency-Key est obligatoire » sans comprendre pourquoi.
+  if (options.idempotence) entetes['Idempotency-Key'] = options.idempotence;
 
   const reponse = await fetch(`/api/hba/${chemin}`, {
     method: options.methode ?? 'POST',

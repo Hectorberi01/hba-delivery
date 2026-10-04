@@ -69,6 +69,32 @@ internal static class IdentityProtoMapper
         return account;
     }
 
+    public static PartnerClientSummary ToProto(PartnerClientSummaryView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        var resume = new PartnerClientSummary
+        {
+            PartnerId = view.Id.ToString(),
+            PartnerName = view.Name,
+            Source = view.Source,
+            ClientId = view.ClientId,
+            WebhookUrl = view.WebhookUrl ?? string.Empty,
+            RateLimitPerMinute = view.RateLimitPerMinute,
+            Enabled = view.Enabled,
+            CreatedAt = Timestamp.FromDateTimeOffset(view.CreatedAt),
+        };
+
+        resume.Scopes.AddRange(view.Scopes);
+
+        if (view.SecretRotatedAt is { } rotation)
+        {
+            resume.SecretRotatedAt = Timestamp.FromDateTimeOffset(rotation);
+        }
+
+        return resume;
+    }
+
     public static PartnerClientCreated ToProto(PartnerSecretsView view)
     {
         ArgumentNullException.ThrowIfNull(view);

@@ -6,7 +6,11 @@ using Hba.Payment.Domain.ValueObjects;
 namespace Hba.Payment.Domain.Payments;
 
 /// <summary>
-/// Intention de paiement pour une livraison.
+/// Intention de paiement pour une MISSION : une livraison, ou une course.
+///
+/// « MISSION », PAS « LIVRAISON », DEPUIS LE 1er OCTOBRE 2026. Cet agregat
+/// portait DeliveryId en dur et refusait un identifiant vide : une course de
+/// personnes ne pouvait pas etre payee du tout.
 ///
 /// ELLE NAIT EN ATTENTE ET NE SE RESOUT JAMAIS TOUTE SEULE. La creation ouvre
 /// une transaction chez le fournisseur et rend une adresse de paiement ; ce qui
@@ -22,16 +26,22 @@ public sealed class PaymentIntent : AggregateRoot
 
     private PaymentIntent(
         Guid id,
-        Guid deliveryId,
+        ServiceType serviceType,
+        Guid referenceId,
         string payerId,
         string payerPhone,
         MoneyXof amount,
         PaymentMethod method,
+        PaymentPurpose purpose,
+        string? driverId,
         DateTimeOffset createdAt,
         DateTimeOffset expiresAt)
         : base(id)
     {
-        DeliveryId = deliveryId;
+        Purpose = purpose;
+        DriverId = driverId;
+        ServiceType = serviceType;
+        ReferenceId = referenceId;
         PayerId = payerId;
         PayerPhone = payerPhone;
         Amount = amount;
@@ -41,7 +51,27 @@ public sealed class PaymentIntent : AggregateRoot
         ExpiresAt = expiresAt;
     }
 
-    public Guid DeliveryId { get; private set; }
+    /// <summary>Pourquoi ce paiement a lieu : la mission, ou un pourboire.</summary>
+    public PaymentPurpose Purpose { get; private set; }
+
+    /// <summary>
+    /// Le livreur a crediter. RENSEIGNE POUR UN POURBOIRE, NUL AUTREMENT.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// IL EST FIGE A LA CREATION, PAS RELU AU MOMENT DU WEBHOOK. Le webhook
+    /// arrive des minutes plus tard : relire alors qui a porte la mission ferait
+    /// dependre le credit d'un etat qui a pu changer. Celui qui a ete servi est
+    /// celui qui touche.
+    ///
+    /// LE PRIX DE LA MISSION, LUI, N'EN A PAS BESOIN : il est credite par
+    /// l'evenement de fin de mission, qui porte deja son chauffeur.
+    /// </remarks>
+    public string? DriverId { get; private set; }
+
+    /// <summary>La nature de la mission payee.</summary>
+    public ServiceType ServiceType { get; private set; }
+    public Guid ReferenceId { get; private set; }
 
     /// <summary>Identifiant du compte qui paie. C'est un client, jamais un partenaire.</summary>
     public string PayerId { get; private set; } = string.Empty;
@@ -61,7 +91,11 @@ public sealed class PaymentIntent : AggregateRoot
     /// </summary>
     public string? ProviderReference { get; private set; }
 
-    /// <summary>Adresse de la page de paiement. Rendue une fois, au client.</summary>
+    /// <summary>
+    /// Adresse de la page de paiement du fournisseur. C'est elle que
+    /// l'application ouvre, et c'est la que le payeur choisit son operateur,
+    /// saisit son numero et valide avec son code PIN.
+    /// </summary>
     public string? RedirectUrl { get; private set; }
 
     public string? FailureReason { get; private set; }
@@ -81,7 +115,8 @@ public sealed class PaymentIntent : AggregateRoot
 
     public static PaymentIntent Create(
         Guid id,
-        Guid deliveryId,
+        ServiceType serviceType,
+        Guid referenceId,
         string payerId,
         string payerPhone,
         MoneyXof amount,
@@ -91,9 +126,20 @@ public sealed class PaymentIntent : AggregateRoot
     {
         ArgumentNullException.ThrowIfNull(amount);
 
-        if (deliveryId == Guid.Empty)
+        if (referenceId == Guid.Empty)
         {
-            throw new DomainException(PaymentErrorCodes.MissingDeliveryId, "Un paiement nomme la livraison qu'il regle.");
+            throw new DomainException(
+                PaymentErrorCodes.MissingReference, "Un paiement nomme la mission qu'il regle.");
+        }
+
+        // LA NATURE EST EXIGEE, PAS DEVINEE. Sans elle, l'encaissement partirait
+        // vers un consommateur indetermine : Delivery et Ride ecoutent le meme
+        // topic et ne se distinguent que par ce champ.
+        if (serviceType == ServiceType.Unspecified)
+        {
+            throw new DomainException(
+                PaymentErrorCodes.MissingReference,
+                "Un paiement dit de quelle nature est la mission : livraison ou course.");
         }
 
         if (string.IsNullOrWhiteSpace(payerId))
@@ -108,11 +154,83 @@ public sealed class PaymentIntent : AggregateRoot
 
         return new PaymentIntent(
             id,
-            deliveryId,
+            serviceType,
+            referenceId,
             payerId,
             payerPhone ?? string.Empty,
             amount,
             method,
+            PaymentPurpose.Mission,
+            null,
+            createdAt,
+            createdAt.Add(lifetime));
+    }
+
+    /// <summary>
+    /// Ouvre le paiement d'un POURBOIRE, apres la mission (point 42).
+    /// </summary>
+    ///
+    /// <remarks>
+    /// UNE INTENTION A PART, ET PAS UN SUPPLEMENT SUR LA PREMIERE. Celle de la
+    /// mission est close depuis longtemps quand celle-ci s'ouvre, et le
+    /// fournisseur ne sait pas augmenter une transaction payee. C'est aussi ce
+    /// qui rend le pourboire annulable sans toucher a la course.
+    ///
+    /// LE LIVREUR EST OBLIGATOIRE ICI. Un pourboire sans destinataire serait un
+    /// encaissement sans contrepartie : l'argent entrerait et personne ne saurait
+    /// a qui le rendre.
+    ///
+    /// AUCUNE BORNE SUR LE MONTANT, au-dela d'etre positif. Le plafond est une
+    /// decision commerciale que personne n'a prise ; l'inventer ici la cacherait
+    /// dans un agregat.
+    /// </remarks>
+    public static PaymentIntent CreateTip(
+        Guid id,
+        ServiceType serviceType,
+        Guid referenceId,
+        string payerId,
+        string payerPhone,
+        string driverId,
+        MoneyXof amount,
+        DateTimeOffset createdAt,
+        TimeSpan lifetime)
+    {
+        ArgumentNullException.ThrowIfNull(amount);
+        ArgumentException.ThrowIfNullOrWhiteSpace(driverId);
+
+        if (referenceId == Guid.Empty || serviceType == ServiceType.Unspecified)
+        {
+            throw new DomainException(
+                PaymentErrorCodes.MissingReference,
+                "Un pourboire nomme la mission qu'il recompense.");
+        }
+
+        if (string.IsNullOrWhiteSpace(payerId))
+        {
+            throw new DomainException(PaymentErrorCodes.MissingPayer, "Un pourboire nomme celui qui paie.");
+        }
+
+        if (amount.Amount <= 0)
+        {
+            throw new DomainException(
+                PaymentErrorCodes.InvalidAmount,
+                "Un pourboire porte sur un montant strictement positif.");
+        }
+
+        return new PaymentIntent(
+            id,
+            serviceType,
+            referenceId,
+            payerId,
+            payerPhone ?? string.Empty,
+            amount,
+
+            // MOBILE MONEY, COMME LA MISSION. La carte existe au contrat et la
+            // page hebergee la propose ; rien ne permet encore de la choisir
+            // avant d'y arriver.
+            PaymentMethod.MobileMoney,
+            PaymentPurpose.Tip,
+            driverId.Trim(),
             createdAt,
             createdAt.Add(lifetime));
     }
@@ -124,6 +242,18 @@ public sealed class PaymentIntent : AggregateRoot
     /// client qui peut payer deux fois la meme course, et un rapprochement
     /// comptable qui ne tombe jamais juste.
     /// </summary>
+    /// <summary>
+    /// Rattache la transaction ouverte chez le fournisseur, et la page ou le
+    /// payeur doit se rendre.
+    /// </summary>
+    ///
+    /// <remarks>
+    /// ELLE S'EST APPELEE AttachProviderReference PENDANT UNE MATINEE, le
+    /// 3 octobre 2026, quand la demande devait partir directement sur le
+    /// telephone du payeur et qu'il n'y avait plus de page a ouvrir. Le
+    /// fournisseur refuse cette poussee sur ce compte ; la page est revenue, et
+    /// l'adresse avec elle.
+    /// </remarks>
     public void AttachProviderCheckout(string providerReference, string redirectUrl)
     {
         if (ProviderReference is not null)
@@ -171,7 +301,7 @@ public sealed class PaymentIntent : AggregateRoot
         SucceededAt = occurredAt;
         FailureReason = null;
 
-        Raise(new PaymentIntentSucceeded(Id, DeliveryId, Amount, actor, occurredAt));
+        Raise(new PaymentIntentSucceeded(Id, ServiceType, ReferenceId, Amount, actor, occurredAt));
     }
 
     /// <summary>
@@ -199,7 +329,7 @@ public sealed class PaymentIntent : AggregateRoot
         Status = PaymentStatus.Failed;
         FailureReason = reason;
 
-        Raise(new PaymentIntentFailed(Id, DeliveryId, reason, actor, occurredAt));
+        Raise(new PaymentIntentFailed(Id, ServiceType, ReferenceId, reason, actor, occurredAt));
     }
 
     /// <summary>
@@ -245,6 +375,6 @@ public sealed class PaymentIntent : AggregateRoot
 
         Status = cible;
 
-        Raise(new PaymentIntentRefunded(Id, DeliveryId, Amount, partiel, actor, occurredAt));
+        Raise(new PaymentIntentRefunded(Id, ServiceType, ReferenceId, Amount, partiel, actor, occurredAt));
     }
 }

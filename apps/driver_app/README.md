@@ -158,7 +158,8 @@ Reessayer. La friction est reservee a ce qui engage.
 
 Un livreur en ligne qui range son telephone CESSE D'EXISTER POUR LE DISPATCH au
 bout de 120 s : le service Driver ecarte des recherches toute position plus
-vieille que `DriverLocations:FreshnessSeconds`, et les minuteries de Flutter
+vieille que `Location:FreshnessSeconds` — le reglage du service Location, qui
+tient les positions depuis le 1er octobre 2026 —, et les minuteries de Flutter
 s'arretent des que le processus redescend en priorite « arriere-plan ».
 
 `core/service_en_ligne.dart` demarre un **service Android de premier plan** au

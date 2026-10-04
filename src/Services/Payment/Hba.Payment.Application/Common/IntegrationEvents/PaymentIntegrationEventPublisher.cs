@@ -7,6 +7,8 @@ using Hba.Contracts.Common.V1;
 using Hba.Contracts.Payment.V1;
 using DomainEvents = Hba.Payment.Domain.Payments.Events;
 using DomainIntent = Hba.Payment.Domain.Payments.PaymentIntent;
+using DomainServiceType = Hba.Payment.Domain.Payments.ServiceType;
+using ProtoServiceType = Hba.Contracts.Common.V1.ServiceType;
 
 namespace Hba.Payment.Application.Common.IntegrationEvents;
 
@@ -41,12 +43,18 @@ public sealed class PaymentIntegrationEventPublisher : IPaymentIntegrationEventP
             return;
         }
 
-        // LA CLE DE PARTITION EST LA LIVRAISON, pas l'intention : le contrat le
-        // fixe, et c'est ce qui garantit a Delivery de lire les faits d'une
-        // meme course dans l'ordre ou ils se sont produits.
+        // LA CLE DE PARTITION EST LA MISSION, pas l'intention : le contrat le
+        // fixe, et c'est ce qui garantit a Delivery comme a Ride de lire les faits
+        // d'une meme mission dans l'ordre ou ils se sont produits.
+        //
+        // L'IDENTIFIANT SEUL SUFFIT, SANS LA NATURE. Deux missions de natures
+        // differentes au meme identifiant tomberaient dans la meme partition : leurs
+        // messages seraient ordonnes entre eux, ce qui est inutile et jamais faux.
+        // Prefixer par la nature changerait la partition de toutes les livraisons
+        // existantes et casserait l'ordre en cours de route.
         outbox.Enqueue(
             KafkaTopics.PaymentEvents,
-            intent.DeliveryId.ToString(),
+            intent.ReferenceId.ToString(),
             message.Envelope.EventType,
             message);
     }
@@ -56,7 +64,8 @@ public sealed class PaymentIntegrationEventPublisher : IPaymentIntegrationEventP
         DomainEvents.PaymentIntentSucceeded e => Wrap(intent, e, "hba.payment.v1.PaymentSucceeded", m => m.Succeeded = new PaymentSucceeded
         {
             PaymentIntentId = e.PaymentIntentId.ToString(),
-            DeliveryId = e.DeliveryId.ToString(),
+            ReferenceId = e.ReferenceId.ToString(),
+            ServiceType = Nature(e.ServiceType),
             Amount = MapMoney(e.Amount.Amount),
             SucceededAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
         }),
@@ -64,7 +73,8 @@ public sealed class PaymentIntegrationEventPublisher : IPaymentIntegrationEventP
         DomainEvents.PaymentIntentFailed e => Wrap(intent, e, "hba.payment.v1.PaymentFailed", m => m.Failed = new PaymentFailed
         {
             PaymentIntentId = e.PaymentIntentId.ToString(),
-            DeliveryId = e.DeliveryId.ToString(),
+            ReferenceId = e.ReferenceId.ToString(),
+            ServiceType = Nature(e.ServiceType),
             Reason = e.Reason,
             OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
         }),
@@ -85,7 +95,8 @@ public sealed class PaymentIntegrationEventPublisher : IPaymentIntegrationEventP
             // donne pas par ce chemin. L'intention suffit a retrouver la course.
             RefundId = string.Empty,
             PaymentIntentId = e.PaymentIntentId.ToString(),
-            DeliveryId = e.DeliveryId.ToString(),
+            ReferenceId = e.ReferenceId.ToString(),
+            ServiceType = Nature(e.ServiceType),
             Amount = e.Partiel ? null : MapMoney(e.Amount.Amount),
             Partial = e.Partiel,
             OccurredAt = Timestamp.FromDateTimeOffset(e.OccurredAt),
@@ -124,6 +135,20 @@ public sealed class PaymentIntegrationEventPublisher : IPaymentIntegrationEventP
 
     private static Money MapMoney(long amount)
         => new() { Amount = amount, Currency = Domain.ValueObjects.MoneyXof.CurrencyCode };
+
+    /// <summary>
+    /// La nature de la mission, traduite pour le contrat.
+    ///
+    /// UNE NATURE NON PRECISEE NE PEUT PAS SORTIR : l'agregat la refuse a la
+    /// creation. La branche par defaut porte UNSPECIFIED, qu'aucun consommateur ne
+    /// traite — mieux qu'une nature inventee, qui ferait agir le mauvais service.
+    /// </summary>
+    private static ProtoServiceType Nature(DomainServiceType nature) => nature switch
+    {
+        DomainServiceType.Delivery => ProtoServiceType.Delivery,
+        DomainServiceType.Ride => ProtoServiceType.Ride,
+        _ => ProtoServiceType.Unspecified,
+    };
 
     private static ActorType MapActor(ActorKind kind) => kind switch
     {

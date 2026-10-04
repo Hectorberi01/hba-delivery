@@ -17,7 +17,7 @@ internal sealed class DeliveryBuilder
 
     private static readonly DateTimeOffset Now = new(2026, 9, 21, 10, 0, 0, TimeSpan.Zero);
 
-    public static Deliveries.Delivery Created() => Deliveries.Delivery.Create(
+    public static Deliveries.Delivery Created(long retenueXof = 0) => Deliveries.Delivery.Create(
         Guid.CreateVersion7(),
         "HBA-ABC234",
         DeliverySource.ClientApp,
@@ -29,36 +29,36 @@ internal sealed class DeliveryBuilder
         Location.Create(GeoPoint.Create(6.3703, 2.3912), "Carré 442, Gbedjromede", "+22997000001", "Expéditeur"),
         Location.Create(GeoPoint.Create(6.3654, 2.4183), "Immeuble bleu, Fidjrosse", "+22997000002", "Destinataire"),
         Recipient.Create("Destinataire", "+22997000002"),
-        Pricing(),
+        Pricing(retenueXof),
         "Colis",
         1200,
         Actor.Customer(CustomerId),
         Now);
 
-    public static Deliveries.Delivery Paid()
+    public static Deliveries.Delivery Paid(long retenueXof = 0)
     {
-        var delivery = Created();
+        var delivery = Created(retenueXof);
         delivery.ConfirmPayment(PaymentIntentId, Actor.FedaPay, Now.AddMinutes(1));
         return delivery;
     }
 
-    public static Deliveries.Delivery Searching()
+    public static Deliveries.Delivery Searching(long retenueXof = 0)
     {
-        var delivery = Paid();
+        var delivery = Paid(retenueXof);
         delivery.StartDriverSearch(Actor.DispatchEngine, Now.AddMinutes(2));
         return delivery;
     }
 
-    public static Deliveries.Delivery Assigned()
+    public static Deliveries.Delivery Assigned(long retenueXof = 0)
     {
-        var delivery = Searching();
+        var delivery = Searching(retenueXof);
         delivery.AssignDriver(Driver(), OfferId, Actor.DispatchEngine, Now.AddMinutes(3));
         return delivery;
     }
 
-    public static Deliveries.Delivery PickedUp()
+    public static Deliveries.Delivery PickedUp(long retenueXof = 0)
     {
-        var delivery = Assigned();
+        var delivery = Assigned(retenueXof);
         delivery.MarkArrivedAtPickup(Actor.Driver(DriverId), Now.AddMinutes(10));
         delivery.MarkPickedUp(Actor.Driver(DriverId), Now.AddMinutes(12));
         return delivery;
@@ -75,7 +75,13 @@ internal sealed class DeliveryBuilder
     public static AssignedDriver Driver() =>
         AssignedDriver.Create(DriverId, "Koffi A.", "+22997000003", VehicleType.Motorcycle, "AB-1234-RB");
 
-    public static PricingSnapshot Pricing() => PricingSnapshot.Create(
+    /// <summary>
+    /// LA RETENUE EST UN PARAMETRE PARCE QU'ELLE VARIE PAR ZONE, et que la regle a
+    /// tester est justement qu'elle ne s'applique QU'AVEC un livreur affecte.
+    /// Zero par defaut : les tests anterieurs au 2 octobre 2026 ne la connaissent
+    /// pas et n'ont pas a changer.
+    /// </summary>
+    public static PricingSnapshot Pricing(long retenueXof = 0) => PricingSnapshot.Create(
         "quote-1",
         "2026-09",
         MoneyXof.From(1500),
@@ -85,7 +91,8 @@ internal sealed class DeliveryBuilder
         MoneyXof.From(1100),
         3400,
         720,
-        Now);
+        Now,
+        MoneyXof.From(retenueXof));
 
     public static DateTimeOffset At(int minutes) => Now.AddMinutes(minutes);
 }

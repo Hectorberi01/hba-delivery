@@ -1,18 +1,26 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../tokens.dart';
 
-/// Un bloc EXTRUDE du fond.
+/// Un bloc POSE sur le fond.
 ///
-/// C'est la brique de tout le style : une surface un peu plus claire que le
-/// fond, une lumiere en haut a gauche, une ombre en bas a droite. Rien
-/// d'autre. La bordure a disparu — c'est le relief qui separe maintenant.
+/// C'est la brique de tout le style. Elle a change de dessin le 2 octobre
+/// 2026, pas de role : une surface BLANCHE sur le fond ivoire, un filet fin,
+/// une ombre a peine marquee vers le bas.
 ///
-/// IL NE SE PRESSE PAS. Un bloc en relief qui reagit au doigt est un bouton,
-/// et un bouton a son propre widget. Melanger les deux produit des ecrans ou
-/// tout a l'air cliquable et ou plus rien ne l'est vraiment.
+/// LE NOM RESTE « RELIEF » ALORS QUE LE BLOC N'EST PLUS EXTRUDE, et c'est
+/// delibere : une trentaine d'ecrans l'appellent. Renommer aurait produit un
+/// diff de plusieurs centaines de lignes qui ne change rien a ce qui s'affiche,
+/// et deux noms pour la meme chose pendant la transition.
+///
+/// CE QUE LE FILET APPORTE QUE L'OMBRE NE DONNAIT PAS. L'ancien style reposait
+/// entierement sur une double ombre ; en plein soleil elle disparait, et les
+/// blocs se confondaient avec le fond. Un filet d'un pixel ne depend d'aucune
+/// lumiere.
+///
+/// IL NE SE PRESSE PAS. Un bloc qui reagit au doigt est un bouton, et un
+/// bouton a son propre widget. Melanger les deux produit des ecrans ou tout a
+/// l'air cliquable et ou plus rien ne l'est vraiment.
 class HbaRelief extends StatelessWidget {
   const HbaRelief({
     required this.child,
@@ -35,24 +43,32 @@ class HbaRelief extends StatelessWidget {
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(radius),
+
+          // PAS DE FILET SUR CE QUI FLOTTE. La feuille posee sur la carte
+          // geographique et le bandeau du haut se detachent par leur ombre et
+          // par le fond qu'ils couvrent ; un filet les cernerait comme des
+          // etiquettes collees.
+          border: elevation == HbaElevation.haute
+              ? null
+              : Border.all(color: HbaColors.border),
           boxShadow: HbaOmbres.relief(elevation),
         ),
         child: child,
       );
 }
 
-/// Un bloc ENFONCE dans le fond.
+/// Un bloc EN RETRAIT : champ de saisie, pastille, onglet choisi.
 ///
-/// L'INVERSE EXACT DU RELIEF, ET C'EST TOUT L'INTERET : la meme lumiere, la
-/// meme ombre, de l'autre cote de la surface. C'est ce qui rend le style
-/// lisible — ce qui depasse s'appuie, ce qui est creux se remplit. Un champ de
-/// saisie, une pastille d'etat, un onglet deja choisi : tous creux.
+/// IL NE CREUSE PLUS RIEN, ET LE NOM RESTE. Dans l'ancien style, c'etait une
+/// ombre interieure peinte a la main — Flutter n'en offre pas, contrairement au
+/// CSS. Les maquettes ne creusent rien : un champ est un aplat legerement plus
+/// sourd que la surface, borde du meme filet que les cartes.
 ///
-/// FLUTTER N'A PAS D'OMBRE INTERIEURE, contrairement au CSS. On la peint donc
-/// a la main : voir [_CreuxPeintre]. L'alternative repandue — un degrade
-/// diagonal du sombre au clair — donne un resultat plat des que le bloc
-/// s'allonge, parce qu'un degrade suit la diagonale du bloc quand une ombre,
-/// elle, longe ses bords.
+/// CE QUI SE PERD, ET CE QUE CA FAIT GAGNER. On perd la regle « ce qui depasse
+/// s'appuie, ce qui est creux se remplit », qui etait jolie et couteuse : le
+/// peintre floutait un chemin complementaire a chaque pastille d'une liste.
+/// On gagne un dessin qui tient au soleil et une liste qui ne reflechit plus
+/// rien a chaque image.
 class HbaCreux extends StatelessWidget {
   const HbaCreux({
     required this.child,
@@ -68,102 +84,25 @@ class HbaCreux extends StatelessWidget {
   final EdgeInsetsGeometry padding;
 
   @override
-  Widget build(BuildContext context) => CustomPaint(
-        painter: _CreuxPeintre(radius: radius, fond: color),
-
-        // LE FLOU SE PAIE, ET DEUX INDICATIONS LE RENDENT GRATUIT DANS UNE
-        // LISTE. « isComplex » autorise Flutter a garder l'image tramee de ce
-        // dessin en cache ; « willChange: false » lui promet qu'elle ne
-        // bougera pas. Sans les deux, chaque pastille d'une liste qui defile
-        // refait son flou a chaque image — un cout invisible sur un telephone
-        // de developpeur, tres visible sur celui d'un livreur.
-        isComplex: true,
-        willChange: false,
-        child: Padding(padding: padding, child: child),
+  Widget build(BuildContext context) => Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(color: HbaColors.border),
+        ),
+        child: child,
       );
 }
 
-/// Peint un fond creuse : la surface, puis deux ombres interieures opposees.
+/// Un bloc qui reagit au doigt.
 ///
-/// COMMENT ON PEINT UNE OMBRE VERS L'INTERIEUR. On ne peut pas flouter « le
-/// vide » a l'interieur d'une forme. On dessine donc son COMPLEMENT — un
-/// rectangle tres large troue de la forme, en regle de remplissage paire-impaire
-/// — decale et floute, en limitant le dessin a la forme elle-meme. Ce qui
-/// deborde a l'interieur du trou est exactement l'ombre portee par le bord.
-class _CreuxPeintre extends CustomPainter {
-  const _CreuxPeintre({required this.radius, required this.fond});
-
-  final double radius;
-  final Color fond;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // LE RAYON EST BORNE A LA MOITIE DU PLUS PETIT COTE. HbaRadius.chip vaut
-    // 999 pour obtenir une pilule ; laisse tel quel, il depasse la forme, et
-    // si le moteur de rendu le ramene lui-meme a l'echelle, le decalage de
-    // l'ombre interieure, lui, ne suit pas.
-    final rayon = math.min(radius, size.shortestSide / 2);
-
-    final forme = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(rayon),
-    );
-
-    canvas.drawRRect(forme, Paint()..color = fond);
-
-    // LE COMPLEMENT DE LA FORME. Le rectangle deborde largement pour que
-    // l'ombre ait de la matiere a projeter depuis tous les cotes, meme apres
-    // un decalage et un flou.
-    final marge = rayon + HbaOmbres.flouCreux * 4;
-    final complement = Path()
-      ..addRect(Rect.fromLTRB(-marge, -marge, size.width + marge, size.height + marge))
-      ..addRRect(forme)
-      ..fillType = PathFillType.evenOdd;
-
-    final flou = MaskFilter.blur(BlurStyle.normal, HbaOmbres.flouCreux);
-    final decalage = HbaOmbres.decalageCreux;
-
-    canvas.save();
-    canvas.clipRRect(forme);
-
-    // L'ombre, poussee depuis le haut a gauche : la lumiere vient de la, donc
-    // c'est le bord oppose au soleil qui s'assombrit a l'interieur.
-    canvas.save();
-    canvas.translate(decalage.dx, decalage.dy);
-    canvas.drawPath(
-      complement,
-      Paint()
-        ..color = HbaColors.ombre
-        ..maskFilter = flou,
-    );
-    canvas.restore();
-
-    // La lumiere, poussee depuis le bas a droite.
-    canvas.save();
-    canvas.translate(-decalage.dx, -decalage.dy);
-    canvas.drawPath(
-      complement,
-      Paint()
-        ..color = HbaColors.lumiere
-        ..maskFilter = flou,
-    );
-    canvas.restore();
-
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_CreuxPeintre ancien) =>
-      ancien.radius != radius || ancien.fond != fond;
-}
-
-/// Un bloc qui s'enfonce quand on le presse.
-///
-/// C'EST L'AFFORDANCE QUI SAUVE LE NEUMORPHISME. Le reproche fait a ce style —
-/// on ne sait plus ce qui est cliquable — tombe des lors que presser produit
-/// un mouvement franc : le bloc passe du relief au creux, et remonte en le
-/// relachant. Aucune couleur ne change, et c'est justement ce qui permet de
-/// garder les couleurs pour dire autre chose.
+/// CE QUI REMPLACE L'ENFONCEMENT. L'ancien style faisait passer le bloc du
+/// relief au creux : un mouvement franc, qui repondait au reproche fait au
+/// neumorphisme — on ne sait plus ce qui est cliquable. Sans relief, il faut
+/// autre chose : la surface se teinte legerement et l'ombre s'efface. Le
+/// signal reste immediat, et aucune couleur de sens n'est consommee pour le
+/// produire.
 ///
 /// LA CIBLE FAIT 48 dp MINIMUM, quelle que soit la taille dessinee.
 class HbaPressable extends StatefulWidget {
@@ -181,7 +120,7 @@ class HbaPressable extends StatefulWidget {
 
   final Widget child;
 
-  /// Null desactive le bloc : il reste en relief, sans reagir.
+  /// Null desactive le bloc : il reste pose, sans reagir.
   final VoidCallback? onTap;
 
   final HbaElevation elevation;
@@ -225,11 +164,13 @@ class _HbaPressableState extends State<HbaPressable> {
       decoration: BoxDecoration(
         color: _presse ? HbaColors.surfaceSunken : widget.color,
         borderRadius: BorderRadius.circular(widget.radius),
+        border: widget.elevation == HbaElevation.haute
+            ? null
+            : Border.all(color: HbaColors.border),
 
-        // L'OMBRE DISPARAIT PENDANT LA PRESSION plutot que de s'inverser.
-        // L'inverser demanderait de repeindre une ombre interieure a chaque
-        // image de l'animation ; la retirer donne le meme signal — le bloc
-        // n'est plus decolle — pour un cout nul.
+        // L'OMBRE DISPARAIT PENDANT LA PRESSION. Avec le fond teinte, cela
+        // suffit a dire que le bloc est tenu ; la reconstruire inversee
+        // couterait une repeinte a chaque image de l'animation.
         boxShadow: _presse ? const [] : HbaOmbres.relief(widget.elevation),
       ),
       child: widget.child,

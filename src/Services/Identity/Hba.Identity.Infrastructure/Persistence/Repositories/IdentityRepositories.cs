@@ -1,4 +1,5 @@
 using Hba.Identity.Application.Common.Interfaces;
+using Hba.Identity.Domain;
 using Hba.Identity.Domain.Accounts;
 using Hba.Identity.Domain.Interfaces;
 using Hba.Identity.Domain.Partners;
@@ -98,6 +99,33 @@ internal sealed class AccountRepository(IdentityDbContext context) : IAccountRep
             a => EF.Functions.Like("," + EF.Property<string>(a, "RolesRaw") + ",", "%," + role + ",%"),
             cancellationToken);
 
+    /// <summary>
+    /// QUATRE TERMES PLUTOT QU'UNE BOUCLE, PARCE QUE LA REQUETE DOIT PARTIR EN
+    /// SQL. Une liste de rôles parcourue en C# obligerait à charger la table
+    /// pour la filtrer en mémoire ; écrits à la main, les quatre « LIKE »
+    /// partent au serveur.
+    ///
+    /// LES VIRGULES ENCADRANTES NE SONT PAS DECORATIVES : sans elles, « ops »
+    /// trouverait un hypothétique « devops », et « admin » un « sysadmin ».
+    /// Même procédé que AnyWithRoleAsync.
+    ///
+    /// SI LE REFERENTIEL AJOUTE UN ROLE DE BACK-OFFICE, IL EN FAUT UN
+    /// CINQUIEME ICI. Le compilateur ne le dira pas : Roles.BackOffice est un
+    /// ensemble, et cette requête en est une copie figée, faute de pouvoir
+    /// traduire l'ensemble lui-même.
+    /// </summary>
+    public async Task<IReadOnlyList<Account>> ListBackOfficeAsync(int limit, CancellationToken cancellationToken)
+        => await context.Accounts
+            .Where(a =>
+                EF.Functions.Like("," + EF.Property<string>(a, "RolesRaw") + ",", "%," + Roles.Admin + ",%")
+                || EF.Functions.Like("," + EF.Property<string>(a, "RolesRaw") + ",", "%," + Roles.Ops + ",%")
+                || EF.Functions.Like("," + EF.Property<string>(a, "RolesRaw") + ",", "%," + Roles.Support + ",%")
+                || EF.Functions.Like("," + EF.Property<string>(a, "RolesRaw") + ",", "%," + Roles.Finance + ",%"))
+            .OrderBy(a => a.DisplayName)
+            .Take(limit < 1 ? 1 : limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     public void Add(Account account) => context.Accounts.Add(account);
 
     public void Remove(Account account) => context.Accounts.Remove(account);
@@ -138,6 +166,14 @@ internal sealed class PartnerClientRepository(IdentityDbContext context) : IPart
 
     public Task<PartnerClient?> GetByClientIdAsync(string clientId, CancellationToken cancellationToken)
         => context.PartnerClients.FirstOrDefaultAsync(p => p.ClientId == clientId, cancellationToken);
+
+    public async Task<IReadOnlyList<PartnerClient>> ListAsync(int limit, CancellationToken cancellationToken)
+        => await context.PartnerClients
+            .AsNoTracking()
+            .OrderBy(p => p.Name)
+            .Take(limit < 1 ? 1 : limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
 
     public void Add(PartnerClient client) => context.PartnerClients.Add(client);
 }

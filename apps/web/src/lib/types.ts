@@ -111,12 +111,142 @@ export type PositionLivreur = {
   seenAt?: string;
   operationalStatus?: number | string;
   vehicleType?: number | string;
+
+  // CAP, VITESSE ET PRECISION : rendus depuis le 1er octobre 2026, et la console
+  // est le SEUL client a y avoir droit. Le point 37 les refuse au client d'une
+  // mission — « ou est-il » suffit a decider d'attendre, et la vitesse d'un homme
+  // au travail est une donnee de surveillance. L'exploitation, elle, doit
+  // comprendre pourquoi une course traine : un livreur immobile depuis dix minutes
+  // et un livreur qui roule n'appellent pas le meme coup de telephone.
+  //
+  // FACULTATIFS, ET NULS N'EST PAS ZERO. Un telephone a l'arret ne rend aucun cap ;
+  // zero degre veut dire « plein nord ». Les deux premiers existaient au contrat
+  // gRPC depuis le debut et etaient jetes a la frontiere : aucune carte n'a jamais
+  // pu orienter une fleche.
+  headingDegrees?: number | null;
+  speedMps?: number | null;
+  accuracyMeters?: number | null;
 };
 
 export type PagePositions = {
   positions?: PositionLivreur[];
   /** Fenetre qui definit la liste : sans elle, le compte ne veut rien dire. */
   freshnessSeconds?: number;
+};
+
+/**
+ * Un point de retrait d'un commercant.
+ *
+ * IL SE GERE DEPUIS LE PORTAIL COMMERCANT, pas depuis la console : les routes
+ * d'ajout et de modification vivent sous /api/merchant/v1 et exigent le role
+ * merchant. La console les montre, elle ne les ecrit pas.
+ */
+export type PointDeRetrait = {
+  id: string;
+  merchantId?: string;
+  name?: string;
+  address?: { location?: Lieu };
+  isActive?: boolean;
+};
+
+/** Un commercant — une ENTREPRISE, jamais un systeme : voir Partenaire. */
+export type Commercant = {
+  id: string;
+  legalName?: string;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  /** Minutes. Dispatch s'en sert pour ne pas envoyer un livreur trop tot. */
+  averagePreparationMinutes?: number;
+  pickupPoints?: PointDeRetrait[];
+  isActive?: boolean;
+  createdAt?: InstantApi;
+};
+
+export type PageDeCommercants = {
+  merchants?: Commercant[];
+  total?: number;
+};
+
+/**
+ * Un client partenaire, tel que la liste le rend.
+ *
+ * AUCUN SECRET : ni le secret client, ni celui de signature des webhooks. Les
+ * deux ne sont lisibles qu'a la creation et a la rotation, et arrivent alors
+ * dans une autre forme — voir la page Partenaires. « clientId », lui, est
+ * l'identifiant public que le partenaire presente.
+ */
+export type ResumePartenaire = {
+  partnerId: string;
+  partnerName?: string;
+  source?: string;
+  clientId?: string;
+  webhookUrl?: string;
+  scopes?: string[];
+  rateLimitPerMinute?: number;
+  enabled?: boolean;
+  createdAt?: InstantApi;
+  secretRotatedAt?: InstantApi;
+};
+
+export type ListePartenaires = {
+  partners?: ResumePartenaire[];
+};
+
+/**
+ * Une ligne du journal des envois.
+ *
+ * LE DESTINATAIRE ARRIVE DEJA MASQUE — quatre derniers caracteres — et le
+ * numero complet ne sort jamais du service. « canal » et « statut » sont des
+ * entiers, comme toutes les enumerations protobuf qui passent par la
+ * passerelle.
+ */
+export type LigneNotification = {
+  id: string;
+  channel?: number | string;
+  recipientMasked?: string;
+  templateId?: string;
+  status?: number | string;
+  provider?: string;
+  providerMessageId?: string;
+  error?: string;
+  attempts?: number;
+  correlationId?: string;
+  createdAt?: InstantApi;
+  completedAt?: InstantApi;
+};
+
+export type PageDeNotifications = {
+  notifications?: LigneNotification[];
+  /** Total AVANT pagination : sans lui, « 50 lignes » ne dit pas grand-chose. */
+  total?: number;
+};
+
+/**
+ * Un compte de back-office, tel que hba.identity.v1.Account le rend.
+ *
+ * « status » EST UN ENTIER : 0 inconnu, 1 actif, 2 suspendu, 3 suppression
+ * demandee. Meme raison que les statuts de course — System.Text.Json rend les
+ * enums protobuf en nombres.
+ *
+ * PAS DE MOT DE PASSE, PAS D'EMPREINTE. « hasPassword » dit seulement qu'il en
+ * existe un, et c'est tout ce dont un ecran a besoin.
+ */
+export type CompteBackOffice = {
+  id: string;
+  email?: string;
+  phone?: string;
+  displayName?: string;
+  roles?: string[];
+  status?: number | string;
+  statusReason?: string;
+  hasPassword?: boolean;
+  createdAt?: InstantApi;
+  lastLoginAt?: InstantApi;
+};
+
+export type EquipeBackOffice = {
+  accounts?: CompteBackOffice[];
 };
 
 /** Une ligne de l'annuaire client. Le telephone y est toujours masque. */
@@ -271,9 +401,88 @@ export type DossierLivreur = {
   submittedAt?: InstantApi;
   canSubmit?: boolean;
   profilePhotoUrl?: string;
-  vehicle?: { type?: string; plate?: string; capacityGrams?: number } | null;
+  vehicle?: {
+    type?: string;
+    plate?: string;
+    capacityGrams?: number;
+    /** Places passagers, conducteur non compris. Zero vaut « aucune ». */
+    passengerCapacity?: number;
+  } | null;
   documents?: PieceDuDossier[];
   missingDocuments?: string[];
+
+  /**
+   * Ce que le livreur a declare exercer. VIDE VEUT DIRE « LE COLIS » : c'est le
+   * socle, il ne se declare pas.
+   *
+   * OPS DOIT LE VOIR AVANT DE VALIDER (point 38) : l'examen du KYC porte sur le
+   * dossier entier — pieces, vehicule et activites ensemble — et c'est le seul
+   * moment ou ces activites s'examinent, puisqu'un dossier valide se fige.
+   */
+  capabilities?: string[];
+};
+
+/**
+ * Une zone tarifaire, telle que GET /api/admin/v1/zones la rend.
+ *
+ * LE CONTOUR EST EN [latitude, longitude], comme tout le reste de ce depot — et
+ * NON dans l'ordre du GeoJSON, qui ecrit la longitude en premier. La passerelle
+ * nomme les champs pour qu'il n'y ait pas a deviner.
+ *
+ * VIDE VEUT DIRE « PAS ENCORE DESSINEE ». Une zone sans contour ne contient aucun
+ * point, donc ne s'applique a personne : c'est le comportement sur, et l'ecran doit
+ * le dire plutot que d'afficher une zone invisible.
+ */
+export type ZoneTarifaire = {
+  id?: string;
+  /** « cotonou-centre » : c'est lui qui lie la zone a ses grilles. */
+  code?: string;
+  nom?: string;
+  /** Departage les chevauchements : la plus grande gagne. */
+  priorite?: number;
+  actif?: boolean;
+  contour?: { latitude?: number; longitude?: number }[];
+};
+
+/**
+ * Une grille tarifaire, telle que GET /api/admin/v1/tariffs la rend.
+ *
+ * LES MONTANTS SONT DES ENTIERS DE FRANCS CFA (ADR 0006) : pas de centimes, pas
+ * de flottant. Les « points de base » sont des centiemes de pour cent — 7000
+ * veut dire 70 %.
+ *
+ * LA PLAGE SORT EN DEUX FORMES, et les deux servent. Les minutes depuis minuit
+ * sont la donnee, celle qu'un formulaire renvoie ; « plage » n'est qu'un libelle
+ * a lire, que la passerelle compose pour ne pas faire refaire au navigateur le
+ * cas de la plage qui enjambe minuit.
+ */
+export type GrilleTarifaire = {
+  id?: string;
+  version?: string;
+  zone?: string;
+  /** « Delivery » ou « Ride » : le nom de l'enumeration du contrat. */
+  nature?: string;
+  /** « Motorcycle », « Car », « Van », « Bicycle », « Tricycle ». */
+  vehicule?: string;
+  priseEnCharge?: number;
+  parKilometre?: number;
+  parMinute?: number;
+  plancher?: number;
+  auKilo?: number;
+  poidsInclusGrammes?: number;
+  majorationPointsDeBase?: number;
+  partDuLivreurPointsDeBase?: number;
+
+  /** Retenue d'annulation, en points de base du devis : 2000 vaut 20 %. */
+  retenueAnnulationPointsDeBase?: number;
+  plageDebutMinute?: number;
+  plageFinMinute?: number;
+  /** « 22:00–06:00 », ou « toute la journee ». */
+  plage?: string;
+  debut?: InstantApi;
+  fin?: InstantApi;
+  /** Faux des qu'une version plus recente l'a close. */
+  enVigueur?: boolean;
 };
 
 /**

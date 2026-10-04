@@ -40,7 +40,7 @@ public sealed class QuoteConsumptionTests
         var devis = Devis();
         var livraison = Guid.CreateVersion7();
 
-        devis.Consume(livraison, Collecte, Remise, Now.AddMinutes(2));
+        devis.Consume(livraison, ServiceType.Delivery, Collecte, Remise, Now.AddMinutes(2));
 
         devis.IsConsumed.Should().BeTrue();
         devis.ConsumedByDeliveryId.Should().Be(livraison);
@@ -53,7 +53,7 @@ public sealed class QuoteConsumptionTests
 
         // L'ATTAQUE, EN UNE LIGNE : le même devis, une remise vingt kilomètres
         // plus loin. C'est ce que faisait passer la version du 29 septembre.
-        var act = () => devis.Consume(Guid.CreateVersion7(), Collecte, Calavi, Now.AddMinutes(2));
+        var act = () => devis.Consume(Guid.CreateVersion7(), ServiceType.Delivery, Collecte, Calavi, Now.AddMinutes(2));
 
         act.Should().Throw<DomainException>().Which.Code.Should().Be("QUOTE_TRIP_MISMATCH");
         devis.IsConsumed.Should().BeFalse("un devis refusé reste utilisable pour le bon trajet");
@@ -64,7 +64,7 @@ public sealed class QuoteConsumptionTests
     {
         var devis = Devis();
 
-        var act = () => devis.Consume(Guid.CreateVersion7(), Calavi, Remise, Now.AddMinutes(2));
+        var act = () => devis.Consume(Guid.CreateVersion7(), ServiceType.Delivery, Calavi, Remise, Now.AddMinutes(2));
 
         act.Should().Throw<DomainException>().Which.Code.Should().Be("QUOTE_TRIP_MISMATCH");
     }
@@ -79,7 +79,7 @@ public sealed class QuoteConsumptionTests
         var collecte = GeoPoint.Create(Collecte.Latitude + 0.001, Collecte.Longitude);
         var remise = GeoPoint.Create(Remise.Latitude, Remise.Longitude + 0.001);
 
-        devis.Consume(Guid.CreateVersion7(), collecte, remise, Now.AddMinutes(2));
+        devis.Consume(Guid.CreateVersion7(), ServiceType.Delivery, collecte, remise, Now.AddMinutes(2));
 
         devis.IsConsumed.Should().BeTrue();
     }
@@ -93,7 +93,7 @@ public sealed class QuoteConsumptionTests
         // le prix. La limite ne se négocie pas par réglage.
         var remise = GeoPoint.Create(Remise.Latitude + 0.01, Remise.Longitude);
 
-        var act = () => devis.Consume(Guid.CreateVersion7(), Collecte, remise, Now.AddMinutes(2));
+        var act = () => devis.Consume(Guid.CreateVersion7(), ServiceType.Delivery, Collecte, remise, Now.AddMinutes(2));
 
         act.Should().Throw<DomainException>().Which.Code.Should().Be("QUOTE_TRIP_MISMATCH");
     }
@@ -103,7 +103,7 @@ public sealed class QuoteConsumptionTests
     {
         var devis = Devis();
 
-        var act = () => devis.Consume(Guid.CreateVersion7(), Collecte, Calavi, Now.AddMinutes(2));
+        var act = () => devis.Consume(Guid.CreateVersion7(), ServiceType.Delivery, Collecte, Calavi, Now.AddMinutes(2));
 
         // CHIFFRER L'ECART APPRENDRAIT OU EST LA LIMITE, donc comment se tenir
         // juste en dessous. Le message dit quoi faire, pas combien il manque.
@@ -120,7 +120,7 @@ public sealed class QuoteConsumptionTests
         // L'ORDRE COMPTE POUR LE MESSAGE. Un client dont le devis a simplement
         // expiré doit lire « expiré », pas « autre trajet » : les deux ne
         // demandent pas la même chose de sa part.
-        var act = () => devis.Consume(Guid.CreateVersion7(), Collecte, Calavi, Now.AddMinutes(20));
+        var act = () => devis.Consume(Guid.CreateVersion7(), ServiceType.Delivery, Collecte, Calavi, Now.AddMinutes(20));
 
         act.Should().Throw<DomainException>().Which.Code.Should().Be("QUOTE_EXPIRED");
     }
@@ -129,9 +129,9 @@ public sealed class QuoteConsumptionTests
     public void Un_second_preneur_est_refuse_meme_avec_le_bon_trajet()
     {
         var devis = Devis();
-        devis.Consume(Guid.CreateVersion7(), Collecte, Remise, Now.AddMinutes(2));
+        devis.Consume(Guid.CreateVersion7(), ServiceType.Delivery, Collecte, Remise, Now.AddMinutes(2));
 
-        var act = () => devis.Consume(Guid.CreateVersion7(), Collecte, Remise, Now.AddMinutes(3));
+        var act = () => devis.Consume(Guid.CreateVersion7(), ServiceType.Delivery, Collecte, Remise, Now.AddMinutes(3));
 
         act.Should().Throw<DomainException>().Which.Code.Should().Be("QUOTE_ALREADY_CONSUMED");
     }
@@ -141,13 +141,13 @@ public sealed class QuoteConsumptionTests
     {
         var devis = Devis();
         var livraison = Guid.CreateVersion7();
-        devis.Consume(livraison, Collecte, Remise, Now.AddMinutes(2));
+        devis.Consume(livraison, ServiceType.Delivery, Collecte, Remise, Now.AddMinutes(2));
 
         // LE REJEU SORT AVANT LE CONTROLE DE TRAJET, ET C'EST SANS DANGER : le
         // devis est déjà lié à CETTE livraison, dont le prix est figé depuis le
         // premier appel. Rien ne bouge ici, quels que soient les points passés.
         // Ce test existe pour que l'ordre reste un choix, pas un oubli.
-        var act = () => devis.Consume(livraison, Collecte, Calavi, Now.AddMinutes(3));
+        var act = () => devis.Consume(livraison, ServiceType.Delivery, Collecte, Calavi, Now.AddMinutes(3));
 
         act.Should().NotThrow();
         devis.ConsumedByDeliveryId.Should().Be(livraison);
@@ -179,7 +179,9 @@ public sealed class QuoteConsumptionTests
         Guid.CreateVersion7(),
         "2026-09",
         "cotonou-centre",
+        ServiceType.Delivery,
         VehicleType.Motorcycle,
+        TimeBand.Journee,
         baseFare: MoneyXof.From(300),
         perKilometer: MoneyXof.From(150),
         perMinute: MoneyXof.From(10),
